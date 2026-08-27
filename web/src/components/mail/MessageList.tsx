@@ -1,5 +1,5 @@
 import { Button, RefreshButton } from "@cloudflare/kumo/components/button";
-import { CaretLeft, Envelope } from "@phosphor-icons/react";
+import { CaretLeft, Envelope, X } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
 import {
   mailApi,
@@ -54,9 +54,9 @@ interface MessageListProps {
   onOpen: (message: Message) => void;
   // 删除后要通知外层：正在看的那封如果被删了，详情栏必须一起关掉。
   onRemoved: (keys: string[]) => void;
-  // onBack 只在移动端单栏模式下用得上：那时账号列表是被这一栏盖住的，
-  // 没有这个按钮就退不回去。
-  onBack: () => void;
+  // 收起整栏收件箱。移动端是「返回账号列表」（那时账号列表被这一栏盖住了），
+  // 桌面端是右上角那个关闭按钮——两边同一个动作，都回到「没有选中邮箱」。
+  onClose: () => void;
 }
 
 export function MessageList({
@@ -65,7 +65,7 @@ export function MessageList({
   activeMessageKey,
   onOpen,
   onRemoved,
-  onBack,
+  onClose,
 }: MessageListProps) {
   const [folder, setFolder] = useState<MailFolder>("inbox");
   const [readFilter, setReadFilter] = useState<ReadFilter>("all");
@@ -193,7 +193,7 @@ export function MessageList({
           variant="ghost"
           icon={CaretLeft}
           aria-label="返回账号列表"
-          onClick={onBack}
+          onClick={onClose}
         />
         <FolderTabs value={folder} onChange={setFolder} disabled={view.loading} />
         <RefreshButton
@@ -203,6 +203,17 @@ export function MessageList({
           disabled={view.loading}
           aria-label="重新拉取"
           onClick={() => setReloadToken((v) => v + 1)}
+        />
+        {/* 桌面端的关闭。上面那个返回按钮是 md:hidden 的，宽屏下不渲染，
+            这一栏得有自己的出口。 */}
+        <Button
+          className="hidden md:inline-flex"
+          shape="square"
+          size="sm"
+          variant="ghost"
+          icon={X}
+          aria-label="关闭收件箱"
+          onClick={onClose}
         />
       </header>
 

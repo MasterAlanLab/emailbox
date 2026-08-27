@@ -165,8 +165,15 @@ export default function MailPage({ scope }: MailPageProps = {}) {
     [resetPaging],
   );
 
+  const closeAccount = useCallback(() => {
+    setActiveAccount(null);
+    setOpenMessage(null);
+  }, []);
+
+  // 点已经打开的那个邮箱＝收起右侧收件箱。桌面端不给这条路的话，
+  // 收件箱一旦打开就关不掉了——那一栏的返回按钮只在移动端可见。
   const selectAccount = useCallback((account: MailAccount) => {
-    setActiveAccount(account);
+    setActiveAccount((prev) => (prev?.id === account.id ? null : account));
     setOpenMessage(null); // 换邮箱等于换一批信，上一封的详情留着没有意义
   }, []);
 
@@ -246,7 +253,7 @@ export default function MailPage({ scope }: MailPageProps = {}) {
                 activeMessageKey={openMessage ? refKey(openMessage) : null}
                 onOpen={setOpenMessage}
                 onRemoved={onMessagesRemoved}
-                onBack={() => setActiveAccount(null)}
+                onClose={closeAccount}
               />
             }
             bottom={

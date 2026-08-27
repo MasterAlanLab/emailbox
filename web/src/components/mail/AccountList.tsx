@@ -182,11 +182,13 @@ function AccountRow({
       />
       <div className="flex min-w-0 items-center">
         {/* 点邮箱名是「看这个邮箱的信」——这是本页最高频的动作，给它最大的点击区。
-            改配置走右侧那个铅笔按钮，两者分开，否则想看信的人每次都先撞进编辑抽屉。 */}
+            改配置走右侧那个铅笔按钮，两者分开，否则想看信的人每次都先撞进编辑抽屉。
+            再点一次收起，所以用 aria-expanded 而不是 aria-current 表达状态。 */}
         <button
           type="button"
           className="truncate font-medium text-kumo-link hover:underline"
-          aria-current={active ? "true" : undefined}
+          aria-expanded={active}
+          title={active ? "再点一次关闭收件箱" : `查看 ${account.email} 的邮件`}
           onClick={() => onSelect(account)}
         >
           {account.email}
