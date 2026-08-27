@@ -1,7 +1,7 @@
 # 第一阶段：前端构建阶段
 # --platform=$BUILDPLATFORM：前端产物与目标架构无关，多架构构建时
 # 固定在宿主架构上只构建一次，避免在 QEMU 模拟下重复慢速构建
-FROM --platform=$BUILDPLATFORM oven/bun:1.3.14-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.0-alpine AS frontend-builder
 
 WORKDIR /app
 
