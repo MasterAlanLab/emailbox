@@ -1,16 +1,13 @@
-// HTTP客户端配置，基于axios
 import axios from "axios";
 import type { AxiosInstance, AxiosResponse, AxiosError } from "axios";
 import { triggerUnauthorized } from "./auth-events";
 
-// API基础URL
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 // 导出给「不走 axios 的请求」用：附件下载交给浏览器直接发起（见 api/mail.ts），
 // 拼 URL 时必须自己带上这个前缀，否则前后端分域部署时会请求到前端自己的域名上。
 export const apiBaseURL = API_BASE_URL;
 
-// 统一的API响应格式
 export interface ApiResponse<T = unknown> {
   code: number;
   data: T;
@@ -70,33 +67,18 @@ function errorBody(data: unknown): { message?: string; code?: number } | undefin
   return data as { message?: string; code?: number } | undefined;
 }
 
-// 创建axios实例
 const client: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 10000,
-  withCredentials: true, // 启用cookie
+  withCredentials: true,
   headers: {
     "Content-Type": "application/json",
   },
 });
 
-// 请求拦截器
-client.interceptors.request.use(
-  (config) => {
-    // 不再需要手动设置Authorization头，因为使用了cookie
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  },
-);
-
-// 响应拦截器
+// 认证走 cookie，请求侧没有需要加工的东西，因此只装响应拦截器。
 client.interceptors.response.use(
-  (response: AxiosResponse<ApiResponse>) => {
-    // 直接返回响应，让调用方处理业务逻辑
-    return response;
-  },
+  (response: AxiosResponse<ApiResponse>) => response,
   (error: AxiosError) => {
     if (!error.response) {
       // 请求已发出但没有收到响应
@@ -108,7 +90,6 @@ client.interceptors.response.use(
     const body = errorBody(data);
 
     if (shouldClearSession(status, body?.code)) {
-      // 触发未授权事件，由 authStore 处理清除逻辑
       triggerUnauthorized();
     }
 

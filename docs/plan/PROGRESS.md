@@ -486,6 +486,12 @@ tenants / tenant_members / sessions / audit_logs 四张表都有外键指着它�
   再去用户表里一个个查。已在 `AuditService.List` 里按 ID 去重后补齐邮箱，
   补不上的（用户已删、外键置空）留空由前端显示「(已删除)」。
 
+- **`AccountFilter.Normalize()` 会把 `Limit` 压到 `MaxAccountPageSize`(200)**，所以
+  「填一个大 Limit 一次取全量」这个写法是无效的。批量刷新的 `selectAccounts` 原本
+  正是这么写的（`Limit = maxBatchAccounts` = 5000），结果账号超过 200 个时，
+  「刷新全部」只刷前 200 个——而任务上写着的总数也是 200，界面上完全看不出少了。
+  要全量就得翻页（`RefreshService.collectAccounts`，同 `AccountService.collectAccounts`）。
+
 ## 一次技术债清理（2026-08-20）
 
 - **删掉 8 条没有任何调用方的 sqlc 查询**（`GetTenantQuota` / `GetTenantBySlug` /
@@ -690,3 +696,60 @@ Key 因此**读不到也重置不了自己**（那两个端点要 `tenant:update
 
 同时删掉根目录的 `email.png`：那是另一个产品（小苹果 Pro 邮箱助手）的界面截图，
 不是本项目的，放在仓库里迟早被谁当成我们的宣传图用出去。
+
+### 令牌刷新收归令牌页，并支持按分组（2026-08-27）
+
+邮箱页左栏顶上那个「批量刷新令牌」大按钮删了。它其实只是一个跳去 `/mail/tokens`
+的链接，但长得像一个动作按钮——用户会以为邮箱页上的它和令牌页上的「刷新全部」
+是两件不同的事。刷新令牌的全部界面（范围选择、进度、失败原因）都在令牌页，
+入口也只留全局导航里的那一个。
+
+令牌页补上第三条范围：**按分组刷新**。账号多起来之后「全部」要跑十几分钟，
+而用户通常只想刷刚导入的那一批，分组就是他们区分批次的方式。
+后端加 `scope=group` + `group_ids`（`RefreshScopeGroup`），分组先校验归属再取账号——
+不校验的话，拿别人的 `group_id` 提交就成了一个「这个分组下有没有账号」的探测口，
+`TestBatchRefreshRejectsForeignGroup` 守着这条。
+
+顺带修了「刷新全部」只覆盖前 200 个账号的 bug，成因见上面坑列表里的
+`AccountFilter.Normalize`。
+
+另外，邮箱页点邮箱地址打开右侧收件箱之后**没有办法关闭**：那一栏唯一的关闭按钮
+是移动端的返回键（`md:hidden`），宽屏下根本不渲染。现在点已经打开的那个邮箱
+就收起（`aria-expanded` 表达这个状态），桌面端也补了一个显式的关闭按钮。
+
+### 配色改回 Cloudflare（2026-08-27）
+
+`style.css` 里那一整块覆盖 `--color-kumo-*` 的 Linear 色板删掉了：品牌 #5e6ad2（薰衣草）、
+带蓝调的近黑 canvas #010102、正文 #d0d6e0，一条不留。**Kumo 就是 Cloudflare 的设计系统**，
+它的默认令牌即是 Cloudflare 的配色，我们在上面压一层自己的色板，等于把它改成了别人家的样子。
+
+改完之后照 Cloudflare 的分工（值都在 `node_modules/@cloudflare/kumo/dist/styles/theme-kumo.css`）：
+
+- **中性色是纯灰**（`oklch(… 0 0)`）。Linear 那套灰是带蓝调的，这一条是「像不像 Cloudflare」
+  最直观的区别。
+- **Kumo 的按钮从来就没有渐变**：它的 primary 只是对品牌色
+  （`--color-kumo-brand`，构建产物里解析为 `#056dff`）做 `color-mix` 派生 hover/ring，
+  实心一块。那道蓝紫渐变是我们自己加的。（这一版之后连实心按钮也不用了，见下一节。）
+- **橙色 `#f6821f` 只留给品牌标识**（左上角那个信封小方块，配 `#fbad41` 做 Cloudflare
+  商标那对橙的渐变）。它当不了按钮底色：橙配白字对比度 2.8:1，达不到 WCAG AA 的 4.5:1，
+  Cloudflare 官网上的橙色 CTA 配的也是深色文字。左栏头像圆点原来是品牌蓝配 11px 白字
+  （4.2:1，同样不够），一并换成中性底 + 正文色。
+
+分组圆点与状态点的自有令牌（`--color-ebx-*`）也换成了 Kumo 语义色的字面值。
+写字面值而不是 `var(--color-kumo-success)` 是有原因的：Tailwind v4 会摇掉没有被任何
+工具类**直接**引用的 `@theme` 变量，转一道手就可能在生产构建里变成一个透明的点。
+
+### 按钮统一成一种长相（同日，用户要求）
+
+换完色之后暴露出一个更根本的问题：一排平级动作里，「导入邮箱」是实心蓝、旁边的
+「导出 / 刷新 / 启用 / 停用」全是白底描边。用户的原话是「都是白色按钮就统一用白色，
+为什么一定要使用不同颜色的按钮呢」「我讨厌这种对比度」。
+
+于是**全站按钮只剩一种长相**：`variant="secondary"`（白底 + 一圈 hairline），
+危险动作 `variant="secondary-destructive"`（同样的白底，红字）。
+17 个 `primary` 和 4 个实心 `destructive` 全部换掉，包括登录提交、首页 CTA、
+弹窗里的「保存 / 确认导出」。强调改为靠 `size="lg"` 和留白表达。
+
+这也顺带解决了三处手搓按钮的问题：它们原本是 `bg-kumo-brand` + `text-white`，
+缺了 Kumo 给 primary 加的那层 `color-mix`，和真正的 primary 并排时深浅差半档——
+现在没有实心按钮了，这个坑也就不存在了。品牌蓝因此只剩两个出场：链接文字和 focus ring。

@@ -51,6 +51,14 @@ Kumo 的 lint 规则明确禁止若干写法，团队约定照单执行：
 - **禁止 `dark:` 变体**——暗色模式由 CSS 自定义属性自动处理，写 `dark:` 反而会破坏它
 - 例外白名单：`bg-white`、`bg-black`、`text-white`、`text-black`、`transparent`
 - 表面层次递进：`bg-kumo-base`（页面）→ `bg-kumo-elevated`（卡片/浮层）→ `bg-kumo-recessed`（凹陷区/代码块）
+- **不覆盖 `--color-kumo-*`**：Kumo 就是 Cloudflare 自己的设计系统，它的默认值即是
+  Cloudflare 的配色——纯灰中性色（chroma 为 0），蓝只做链接文字，橙 `#f6821f` 只做品牌标记。
+  抄一份到 `style.css` 只会随 Kumo 升级漂移。那里只剩 `--color-ebx-*`：
+  状态点、分组色、品牌标识的橙色渐变，都是 Kumo 没有的
+- **全站按钮只有一种长相**：Kumo 的 `Button` / `LinkButton` + `variant="secondary"`
+  （白底 + hairline），危险动作 `variant="secondary-destructive"`（白底红字）。
+  不用 `primary` / `destructive` 那两个实心色块变体：一排平级动作里单给某一个填色
+  是替用户做选择，蓝白相邻的高对比也刺眼。强调靠 `size="lg"` 和留白
 - className 组合用 Kumo 的 `cn()` 工具（模板 `lib/utils.ts` 已有同名函数，二选一，建议统一用 Kumo 的）
 - 暗色切换：在根节点切 `data-mode="dark"`，不用 class 策略。
   **这一步是必须的，不是可选的**：Kumo 只声明 `:root{color-scheme:light}` 与
@@ -86,7 +94,7 @@ Kumo 提供约 30 个组件。下表是本项目每个界面元素的落位，**
 | 分组选择（可搜索） | `Combobox` |
 | 邮箱地址输入联想 | `Autocomplete` |
 | 状态标记（active/banned/failed） | `Badge` |
-| 表格（Token 刷新管理、用户管理、日志） | `Table` + `Pagination` |
+| 表格（用户管理、日志） | `Table` + `Pagination` |
 | 文件夹切换、设置分页 | `Tabs` |
 | 正文/说明文字 | `Text` |
 | 配额用量、任务进度 | `Meter` ★ |
@@ -119,7 +127,7 @@ Kumo 提供约 30 个组件。下表是本项目每个界面元素的落位，**
 
 不要试图用一套组件覆盖全部列表，两种场景诉求不同：
 
-- **Token 刷新管理 / 用户管理 / 各类日志** → Kumo `Table` + `Pagination`。
+- **用户管理 / 各类日志** → Kumo `Table` + `Pagination`。
   运维场景需要精确翻页、排序、列对齐，数据量每页 ≤100，无需虚拟化。
 - **`/mail` 工作台的账号列表与邮件列表** → 自建 `VirtualList` + 无限滚动。
   这里追求的是「一直往下滚」的浏览体验，且单分组可能上万账号。
@@ -130,9 +138,8 @@ Kumo 提供约 30 个组件。下表是本项目每个界面元素的落位，**
 /                         首页（保留，改造为 SaaS 落地页）
 /login /register          （保留，Kumo 化）
 /mail                     ★核心工作台（三栏，右栏纵向再切）
-/mail/groups              分组管理（新建/改名/改色/重排/删除）
 /mail/import              批量导入向导
-/mail/tokens              Token 刷新管理（Table + 任务流）
+/mail/tokens              Token 刷新（范围选择 + 任务流）
 /settings/profile         （保留）
 /settings/security        （保留）
 /settings/usage           配额与用量（Meter）
@@ -226,17 +233,16 @@ interface SelectionState {
 整页是**应用外壳**：撑满视口、自身不滚动、没有 Footer，滚动由各面板自负。
 路由用 `handle.shell` 声明这一形态（`src/router/handle.ts`），`Layout` 据此分流。
 
-登录后**没有顶栏**：左侧是常驻导航栏 `AppSidebar`（Linear 风格改版时把顶栏换掉了），
-右侧才是下面这块工作台。
+登录后**没有顶栏**：左侧是常驻导航栏 `AppSidebar`，右侧才是下面这块工作台。
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │ MailToolbar：导入/导出/刷新 ‖ 启用/停用/删除(批量)             │ 52px
 ├──────────────┬───────────────────┬────────────────────────────┤
 │ MailSidebar  │ 账号列表          │ 邮件列表                    │
-│  CTA         │  AccountFilterBar │  FolderTabs(underline)      │
-│  账号状态段  │  VirtualList      │  + 已读筛选(segmented)      │
-│  分组列表    │  @container 列    ├────────────────────────────┤ ← SplitPane
+│  账号状态段  │  AccountFilterBar │  FolderTabs(underline)      │
+│  分组列表    │  VirtualList      │  + 已读筛选(segmented)      │
+│              │  @container 列    ├────────────────────────────┤ ← SplitPane
 │              │  Pagination       │ 邮件详情 sandbox iframe     │   可拖拽
 ├──────────────┴───────────────────┴────────────────────────────┤
 │ MailStatusBar：账号/成功/失败/未登录 + 时钟                    │ 30px
@@ -244,6 +250,10 @@ interface SelectionState {
 ```
 
 左栏是**两个并列维度**而不是嵌套：状态段筛 `refresh_status`，分组段筛分组，两者可叠加。
+
+右边两栏是**点邮箱地址才出现**的：点列表里的邮箱名打开它的收件箱，
+再点一次同一个邮箱就收起（列表行用 `aria-expanded` 表达这个状态），
+邮件栏右上角也有一个关闭按钮。移动端那个位置换成「返回账号列表」。
 
 响应式（AGENTS.md §6.6）：
 
@@ -258,22 +268,35 @@ interface SelectionState {
 列表行用 `React.memo`：
 
 ```
-GroupList.tsx        GroupDot.tsx          GroupFormDialog.tsx
-AccountList.tsx      AccountRow.tsx        AccountFilterBar.tsx
-AccountBatchMenu.tsx AccountFormDialog.tsx
-MessageList.tsx      MessageRow.tsx        FolderTabs.tsx
-MessageDetail.tsx    MessageBody.tsx       AttachmentList.tsx
-VirtualList.tsx      SplitPane.tsx
+MailShell.tsx        MailToolbar.tsx       MailStatusBar.tsx
+MailSidebar.tsx      SidebarRow.tsx        StatusDot.tsx
+GroupList.tsx        GroupDot.tsx          GroupFormDialog.tsx    GroupDeleteDialog.tsx
+AccountList.tsx      AccountFilterBar.tsx  AccountDrawer.tsx      ExportDialog.tsx
+MessageList.tsx      MessageRow.tsx        FolderTabs.tsx         MessageFilterPills.tsx
+MessageDetail.tsx    MessageBody.tsx       AttachmentList.tsx     MessageBatchBar.tsx
+VirtualList.tsx      SplitPane.tsx         EmptyState.tsx
 ```
 
-### 5.2 `/mail/tokens` Token 刷新管理
+账号的批量动作（启用/停用/删除）不在这里，它们和导入/导出/刷新一起收在
+`MailToolbar` 里：一个动作只出现在一个地方，用户才不用猜「这两个按钮是不是同一件事」。
+改单个账号的配置走 `AccountDrawer`（列表行右侧那支笔）。
 
-批量属性最强的页面。用 Kumo `Table` + `Pagination`：
+### 5.2 `/mail/tokens` Token 刷新
 
-- 顶部统计条（`LayerCard` + `Meter`）：总数 / 成功 / 失败 / 从未刷新，点击即筛选
-- 筛选栏：刷新状态、错误类型（banned/auth_failed/proxy_failed…）、分组、关键词
-- 批量动作复用 `AccountBatchMenu`
-- 任务面板：`Meter` 进度条 + `Code` 滚动日志 + `Toast` 完成通知
+**刷新令牌只在这一页做**（邮箱页上不放第二个入口，否则用户会以为是两件事）。
+从上到下四块：
+
+- 统计：总账号 / 正常 / 失败 / 从未刷新，四个数字方块
+- 动作条（`LayerCard`）：**刷新全部**、**只刷新失败的（n）**、
+  **选一个分组 + 刷新该分组**，任务运行中额外出现「停止」。
+  分组下拉选完还要再点一次按钮才提交——下拉一变就发任务，误触的代价是几千次上游调用
+- 任务面板：`Meter` 进度 + 成功/失败计数 + 逐条结果（邮箱 → 成功/已跳过/失败原因）。
+  进度靠 SSE 推送，关掉页面再回来会自动接上仍在跑的那个任务（§7 的 `jobStore`）
+- 最近 7 天的失败原因分布：banned / auth_failed / proxy_failed… 各自的处置完全不同，
+  这也是把它们分开统计的全部意义
+
+对应后端的 `scope`：`all` / `failed` / `group`（还有一个 `selected` 供别处调用）。
+没有 refresh_token 的账号（IMAP 密码账号）四种范围都会自动排除。
 
 ### 5.3 `/mail/import` 导入向导
 

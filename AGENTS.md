@@ -222,11 +222,11 @@ Kumo 这个版本**有** `DropdownMenu`（`@cloudflare/kumo/components/dropdown`
 - **主题是显式开关**：Kumo 声明 `:root{color-scheme:light}` 与 `[data-mode="dark"]{color-scheme:dark}`，
   没人给根元素挂 `data-mode` 就永远是亮色。由 `src/lib/theme.ts` 在首屏渲染前挂好，
   默认跟随系统，顶栏按钮可手动切换并记住选择
-- **换品牌观感改令牌本身，不在组件里覆盖类名**：`style.css` 里用 `@theme` 覆写
-  `--color-kumo-brand` 等（Kumo 的 primary Button 在运行时读它并 `color-mix` 派生渐变）。
+- **配色不做二次发明：`--color-kumo-*` 一条都不覆盖**。Kumo 就是 Cloudflare 自己的
+  设计系统，它的默认令牌即是 Cloudflare 的配色；抄一份到 `style.css` 只会随版本漂移。
   Kumo 确实没有的另起 `--color-ebx-*` 命名空间，值一律写成 `light-dark()`。
-  两处坑：① Kumo 在 `@layer base` 里还有一份 brand 定义，我们赢是因为 `@theme` 落在
-  **无 layer** 的 `:root` 上（unlayered 优先于 layered），升级 Kumo 后要复查；
+  两处坑：① 真要覆盖时，Kumo 在 `@layer base` 里还有一份同名定义，`@theme` 能赢是因为
+  它落在**无 layer** 的 `:root` 上（unlayered 优先于 layered），升级 Kumo 后要复查；
   ② Tailwind v4 会摇掉没被工具类引用的 `@theme` 变量，纯给 `var()`/JS 读的尺寸量
   要放普通 `:root`，否则产物里根本没有它
 - **应用页一律用 `PageShell`**（`components/layout/PageShell.tsx`）：它统一了内容起始线、
@@ -234,11 +234,20 @@ Kumo 这个版本**有** `DropdownMenu`（`@cloudflare/kumo/components/dropdown`
   改了标题会跟着挪，全站又会出现「切页面时标题横跳」的老问题
 - **不要写 `calc(100vh - 顶栏 - 页脚)` 这类高度魔法数**：布局一改它就不再对应任何东西。
   需要占满剩余高度的，让父级成为 flex 容器、自己用 `flex-1`
-- **视觉语言是 Linear**。三条硬规则：
-  **不写 `shadow-*`**（层次靠 surface 阶梯 + 1px hairline）、
-  **display 标题配约 4% 的负字距**（用 `.display-xl/lg/md`，别自己拼 `text-*` + `tracking-*`）、
-  **单色系统**（薰衣草只给品牌标记/主 CTA/focus ring，唯一彩色例外是状态点的 success）。
-  按钮一律 8px 圆角，不做胶囊
+- **视觉语言的三条硬规则**：
+  **中性色是纯灰**（chroma 为 0，别引入带色调的灰）、
+  **界面上不出现实心色块的按钮**（详见下一条）、
+  **不写 `shadow-*`**（层次靠 surface 阶梯 + 1px hairline）。
+  另外 display 标题配约 4% 的负字距（用 `.display-xl/lg/md`，别自己拼
+  `text-*` + `tracking-*`），按钮一律 8px 圆角，不做胶囊
+- **全站按钮只有一种长相**：Kumo 的 `Button` / `LinkButton` 配
+  `variant="secondary"`（白底 + 一圈 hairline），危险动作用
+  `variant="secondary-destructive"`（同样的白底，红字）。
+  **不要用 `primary` / `destructive`**：那是实心色块，一排平级动作里单给某一个填色
+  等于替用户做选择，蓝白相邻的高对比也刺眼。强调靠 `size="lg"` 和留白，不靠填色。
+  也别手搓 `bg-kumo-brand` 的 `<Link>`/`<button>`
+- **颜色只以文字出现**：链接用 `text-kumo-link`（蓝），品牌标识用橙
+  `#f6821f`（`--text-color-kumo-brand`，配白字只有 2.8:1，当不了任何底色）
 
 ### 6.3 Zustand
 
