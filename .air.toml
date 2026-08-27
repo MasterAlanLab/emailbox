@@ -1,0 +1,51 @@
+# Air 配置文件 —— Go 后端热重载（make dev）
+# 文档: https://github.com/air-verse/air
+#
+# 注意：本文件必须是合法 TOML。air 解析失败时不会报错退出，而是静默回退到
+# 内置默认配置（默认只排除 assets/tmp/vendor/testdata，不排除 web/），
+# 曾因此把 web/node_modules 下几千个目录全部加入 watch。
+# 修改后可用 `air -d` 检查开头的 watching/!exclude 列表确认排除生效。
+
+root = "."
+testdata_dir = "testdata"
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/main ."
+  bin = "tmp/main"
+  # 要监视的文件扩展名
+  include_ext = ["go", "tpl", "tmpl", "html"]
+  # 要排除的目录：前端由 Vite 自己热更新，web/ 及各类产物、文档目录都不归 air 管
+  exclude_dir = ["assets", "tmp", "vendor", "testdata", "web", "static", "node_modules", "docs", "scripts", "data", ".git", ".vscode", ".github"]
+  # 排除测试文件。正则里的反斜杠必须用单引号字面量字符串包裹：
+  # 双引号写法 "_test\.go" 中 \. 是非法转义，会让整个文件解析失败
+  exclude_regex = ['_test\.go']
+  exclude_unchanged = false
+  follow_symlink = false
+  # 延迟毫秒数，在触发构建之前
+  delay = 1000
+  # 当发生构建错误时是否停止运行旧的二进制文件
+  stop_on_error = false
+  send_interrupt = false
+  kill_delay = "0s"
+  rerun = false
+  rerun_delay = 500
+  # 二进制文件的日志文件，默认为空，表示不记录
+  log = "tmp/air.log"
+
+[log]
+  time = false
+  main_only = false
+
+[color]
+  main = "magenta"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "green"
+
+[misc]
+  clean_on_exit = false
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true

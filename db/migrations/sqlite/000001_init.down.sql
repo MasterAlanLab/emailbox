@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS tenant_members;
+DROP TABLE IF EXISTS tenants;
+DROP TABLE IF EXISTS users;

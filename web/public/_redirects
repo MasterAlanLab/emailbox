@@ -1,0 +1,6 @@
+# Cloudflare Pages 重定向配置
+# 静态文件（ads.txt, llms.txt 等）会自动优先匹配，无需额外配置
+# 以下规则仅处理 SPA 路由 fallback
+
+# SPA fallback - 所有未匹配的路径返回 index.html
+/*    /index.html   200

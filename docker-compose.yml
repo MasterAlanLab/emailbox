@@ -1,0 +1,31 @@
+services:
+  app:
+    build: .
+    ports:
+      - "1323:1323"
+    environment:
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 1323
+      DB_DRIVER: sqlite
+      DB_PATH: /app/data/app.db
+    volumes:
+      # 容器以非 root (uid 1000) 运行。Linux 主机上 compose 自动创建的目录属主是 root，
+      # 首次启动前需要: mkdir -p data && sudo chown 1000:1000 data
+      # (macOS/Windows 的 Docker Desktop 会自动处理权限，无需此步骤)
+      - ./data:/app/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_DB: emailbox
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

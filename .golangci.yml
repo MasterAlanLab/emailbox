@@ -1,0 +1,193 @@
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.25"
+
+output:
+  formats:
+    text:
+      path: stdout
+      colors: true
+      print-linter-name: true
+
+linters:
+  enable:
+    - dupl
+    - errcheck
+    - gocritic
+    - gocyclo
+    - godot
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - prealloc
+    - revive
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - whitespace
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Fprint
+        - io/ioutil.ReadFile
+        - io/ioutil.ReadAll
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
+    gocyclo:
+      min-complexity: 15
+    dupl:
+      threshold: 100
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    misspell:
+      locale: US
+      ignore-rules:
+        - someword
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
+    gosec:
+      includes:
+        - G101
+        - G102
+        - G103
+        - G104
+        - G106
+        - G107
+        - G108
+        - G109
+        - G110
+      excludes:
+        - G204
+    prealloc:
+      simple: true
+      range-loops: true
+      for-loops: false
+    whitespace:
+      multi-if: false
+      multi-func: false
+    wsl_v5:
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
+  exclusions:
+    generated: lax
+    paths:
+      - web
+      - static
+      - vendor
+      - .git
+    rules:
+      - path: '(.+)\.go$'
+        text: Error return value of .((os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*printf?|os\.(Un)?Setenv). is not checked
+      - path: '(.+)\.go$'
+        text: (possible misuse of unsafe.Pointer|should have signature)
+      - path: '(.+)\.go$'
+        text: ineffective break statement. Did you mean to break out of the outer loop
+      - path: '(.+)\.go$'
+        text: Use of unsafe calls should be audited
+      - path: '(.+)\.go$'
+        text: Subprocess launch(ed with variable|ing should be audited)
+      - path: '(.+)\.go$'
+        text: G104
+      - path: '(.+)\.go$'
+        text: (comment on exported (method|function|type|const)|should have( a package)? comment|comment should be of the form)
+      - path: _test\.go
+        linters:
+          - dupl
+          - errcheck
+          - goconst
+          - gocyclo
+          - gosec
+      - path: main\.go
+        linters:
+          - gocyclo
+      - path: pkg/handler/.*\.go
+        linters:
+          - dupl
+      # 双引擎策略下 repo 层每张表都有一对结构相同、类型不同的 map 函数
+      # （sqlite 与 postgres 各一份生成类型），这种重复是设计的一部分，无法合并。
+      - path: pkg/repo/.*\.go
+        linters:
+          - dupl
+      # 权限名里的 token / apikey 是资源名，不是硬编码凭据。
+      - path: pkg/model/permission\.go
+        linters:
+          - gosec
+      # 这些是微软公开的 OAuth 端点地址与公共客户端 ID，不是凭据。
+      - path: pkg/mailer/provider\.go
+        linters:
+          - gosec
+      - text: "weak cryptographic primitive"
+        linters:
+          - gosec
+      - text: "exported .* should have comment.*or be unexported"
+        linters:
+          - revive
+      - text: "package comment should be of the form"
+        linters:
+          - revive
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - web
+      - static
+      - vendor
+      - .git
+      - \.pb\.go
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false
+  fix: false
+
+severity:
+  default: error
+  rules:
+    - linters:
+        - dupl
+      severity: info
+    - linters:
+        - gocritic
+      severity: warning

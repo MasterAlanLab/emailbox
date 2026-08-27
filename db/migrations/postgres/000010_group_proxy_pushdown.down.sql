@@ -1,0 +1,1 @@
+-- 不可逆，理由见 sqlite/000010_group_proxy_pushdown.down.sql。

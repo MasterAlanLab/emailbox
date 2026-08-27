@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS mail_refresh_logs;
+DROP TABLE IF EXISTS job_events;
+DROP TABLE IF EXISTS job_items;
+DROP TABLE IF EXISTS jobs;

@@ -1,0 +1,74 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Get previous tag
+        id: prev_tag
+        # 全程用 runner 注入的 $GITHUB_REF_NAME 环境变量，不用 ${{ github.ref_name }}
+        # 内插进脚本：tag 名允许 $、; 等 shell 元字符，内插存在命令注入面。
+        # 取“当前 tag 的祖先里最近的 tag”而非“最近创建的 tag”：
+        # 在旧分支上补打 hotfix tag 不会污染下一个正式版的 changelog 范围。
+        run: |
+          previous_tag=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || echo "")
+          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release title
+        id: title
+        run: |
+          # jq 的 // 只在 JSON 解析成功且字段为 null 时兜底：接口挂掉返回空或 HTML 时不会生效，
+          # 因此这里显式处理失败，避免发布标题变成空字符串或整个步骤直接失败。
+          default_quote="Stay hungry, stay foolish."
+          quote=$(curl -sS --max-time 5 https://v1.hitokoto.cn/ 2>/dev/null \
+            | jq -r '.hitokoto // empty' 2>/dev/null || true)
+          # 只接受单行纯文本，防止远端内容注入额外的步骤输出
+          quote=$(printf '%s' "$quote" | tr -d '\r\n' | cut -c1-80)
+          echo "quote=${quote:-$default_quote}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        id: changelog
+        env:
+          # tag 名经环境变量传入而非 ${{ }} 内插，理由同上
+          PREVIOUS_TAG: ${{ steps.prev_tag.outputs.previous_tag }}
+        run: |
+          {
+            echo "## What's Changed"
+            echo ""
+            if [[ -n "$PREVIOUS_TAG" ]]; then
+              git log --pretty=format:"* %s (%h)" "${PREVIOUS_TAG}..${GITHUB_REF_NAME}"
+              echo ""
+              echo ""
+              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREVIOUS_TAG}...${GITHUB_REF_NAME}"
+            else
+              # 首个 tag 没有对比基准：列出全部提交，也没有 compare 链接可给
+              git log --pretty=format:"* %s (%h)"
+              echo ""
+            fi
+          } > changelog.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: ${{ github.ref_name }} -- "${{ steps.title.outputs.quote }}"
+          body_path: changelog.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') }}
+          generate_release_notes: false
+        env:
+          # 用 PAT 创建的 Release 才能触发 build.yml（内置 GITHUB_TOKEN 创建的不会触发其他工作流）。
+          # 未配置 PAT_TOKEN 时回退到内置 token：Release 仍会创建，只是镜像需手动触发构建。
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}

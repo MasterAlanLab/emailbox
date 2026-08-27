@@ -1,0 +1,28 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="630" fill="#F8FAFC"/>
+  <rect x="40" y="40" width="1120" height="550" rx="24" fill="white" stroke="#E2E8F0" stroke-width="2"/>
+
+  <!-- Logo area -->
+  <rect x="100" y="180" width="80" height="80" rx="16" fill="#6366F1"/>
+  <text x="140" y="232" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="bold" fill="white" text-anchor="middle">M</text>
+
+  <!-- Title -->
+  <text x="200" y="220" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="bold" fill="#1E293B">MDZZ Toolbox</text>
+  <text x="200" y="270" font-family="system-ui, -apple-system, sans-serif" font-size="24" fill="#64748B">Free Online Image Tools</text>
+
+  <!-- Features -->
+  <rect x="100" y="320" width="300" height="60" rx="12" fill="#EEF2FF"/>
+  <text x="250" y="358" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="600" fill="#4F46E5" text-anchor="middle">Watermark Remover</text>
+
+  <rect x="420" y="320" width="300" height="60" rx="12" fill="#EEF2FF"/>
+  <text x="570" y="358" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="600" fill="#4F46E5" text-anchor="middle">Image Translator</text>
+
+  <rect x="740" y="320" width="300" height="60" rx="12" fill="#EEF2FF"/>
+  <text x="890" y="358" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="600" fill="#4F46E5" text-anchor="middle">100% Free</text>
+
+  <!-- Tagline -->
+  <text x="600" y="480" font-family="system-ui, -apple-system, sans-serif" font-size="28" fill="#475569" text-anchor="middle">AI-powered image processing. No registration required.</text>
+
+  <!-- URL -->
+  <text x="600" y="540" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="600" fill="#6366F1" text-anchor="middle">mdzz.uk</text>
+</svg>

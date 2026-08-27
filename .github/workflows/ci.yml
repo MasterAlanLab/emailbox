@@ -1,0 +1,122 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# 同一分支的新提交自动取消进行中的旧运行：
+# PR 上连续 push 时不必等旧的跑完，省 runner 时间也更快拿到反馈
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Go 后端检查和测试
+  go-lint-and-test:
+    name: Go Lint and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: emailbox_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/emailbox_test?sslmode=disable
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          # 与 go.mod 的 go 指令保持一致；setup-go 自带模块与构建缓存
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Download Go dependencies
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          # 与 Makefile 的 GOLANGCI_LINT_VERSION 保持一致
+          version: v2.12.2
+          args: --timeout=5m
+
+      # 直接复用 make 目标，避免 CI 与 Makefile 各自维护一份检查逻辑后漂移
+      - name: Verify sqlc generated code
+        run: make sqlc-verify
+
+      - name: Run Go tests
+        run: go test -v -race ./...
+
+      - name: Build Go binary
+        # make build-go 使用 CGO_ENABLED=0，与 build.sh/Dockerfile 的发布形态一致
+        run: make build-go
+
+  # 前端检查和测试
+  frontend-lint-and-test:
+    name: Frontend Lint and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # 前端全程使用 bun 运行，不需要单独安装 Node
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          # 版本唯一来源是 web/package.json 的 packageManager 字段。
+          # 不要在这里写死版本号：dependabot 改不了 workflow 输入，
+          # 曾出现这里 pin 1.3.2 而 Dockerfile 已被升到 1.3.14 的漂移
+          bun-version-file: web/package.json
+
+      # 只缓存下载内容，不缓存 node_modules：
+      # 后者可能来自不同的锁文件，与 --frozen-lockfile 的意图相悖
+      - name: Cache Bun downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Check frontend formatting
+        working-directory: web
+        run: bun run format:check
+
+      - name: Run frontend lint
+        working-directory: web
+        run: bun run lint
+
+      - name: Run frontend tests
+        working-directory: web
+        run: bun run test
+
+      - name: Build frontend
+        working-directory: web
+        run: bun run build

@@ -1,0 +1,196 @@
+/* Kumo 的两行必须排在 @import "tailwindcss" 之前：
+   Kumo 的 @theme 令牌要先注册，否则会被 Tailwind 的 preflight 覆盖，
+   表现为组件样式部分失效（典型症状是 Dialog 不居中）。
+   @source 是因为 Tailwind v4 默认不扫描 node_modules，
+   不加它 Kumo 组件用到的工具类不会被生成。 */
+@source "../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
+@import "@cloudflare/kumo/styles/tailwind";
+@import "tailwindcss";
+
+/* 颜色一律走 Kumo 的语义令牌（bg-kumo-base / text-kumo-default / border-kumo-line …）。
+   组件里不写任何字面色值：写死颜色会锁死亮色模式，
+   而 Kumo 靠 light-dark() 自动切换，两套体系并存必然打架。
+
+   要换品牌观感时改的是**令牌本身**，也就是下面这两个 @theme 块，而不是去组件里覆盖类名。 */
+
+/* ── Linear 设计语言（09 文档 §4、§10）──────────────────────────────────────
+   整套色板取自 Linear 的公开设计令牌。要点只有三条，其余都是它们的推论：
+
+   1. **深色是主场**：canvas #010102（那点蓝调是故意的），层次靠一条四级 surface 阶梯。
+   2. **不用投影**。Linear 全站没有 drop shadow，深浅完全由 surface 阶梯 + 1px hairline 表达。
+      所以不要给卡片加 shadow-*，那会立刻破坏这套观感。
+   3. **薰衣草只用在品牌处**：主 CTA、focus ring、链接强调。单色系统，
+      只有 success 一个彩色例外——多加一个彩色强调就不是 Linear 了。
+
+   亮色分支用 Linear 自己给的 inverse 色板（#ffffff / #f5f6f6 / #f6f7f7）。
+   Kumo 的暗色靠 color-scheme 驱动 light-dark() 解析，因此每一条都必须写成
+   light-dark()，写单值等于把另一个模式钉死。
+
+   ⚠ Kumo 在它自己的 `@layer base { :root, [data-theme=kumo] }` 里**还有一份**
+   同名令牌。我们赢是因为 @theme 编译后落在**无 layer** 的 :root 上，而 CSS 层叠规定
+   unlayered 声明优先于任何 layered 声明——不是因为它写在后面。
+   升级 Kumo 后如果发现配色变回默认灰蓝，先查那些声明是不是被挪出了 @layer。 */
+@theme {
+  /* 品牌。Kumo 的 primary Button 在运行时读 var(--color-kumo-brand)，再用 color-mix
+     派生出 bg / ring / 渐变（见 dist/chunks/button-*.js 的 getEmphasisStyle），
+     所以改这一个，按钮、focus ring、日期选择器会一起跟上。
+
+     这里**不**去反推「让 color-mix 之后正好等于 #5e6ad2」的原值：那个值是
+     oklch(38.2% 0.226 275)，深得离谱，会把链接和 focus ring 一起拖暗。
+     按钮因此比 Linear 的实心紫略淡一档，是有意的取舍。 */
+  --color-kumo-brand: light-dark(#5e6ad2, #5e6ad2);
+  --color-kumo-brand-hover: light-dark(#4f5ac0, #828fff);
+  --text-color-kumo-brand: light-dark(#5e6ad2, #828fff);
+  --color-kumo-focus: light-dark(#5e6ad2, #828fff);
+
+  /* Surface 阶梯。base 是页面底色，其余依次往上浮一层。
+     暗色用 Linear 的 canvas + surface-1..4；亮色用它的 inverse 色板并补齐中间档。 */
+  --color-kumo-base: light-dark(#ffffff, #010102);
+  --color-kumo-canvas: light-dark(#f8f9f9, #0f1011);
+  --color-kumo-elevated: light-dark(#fbfbfc, #141516);
+  --color-kumo-recessed: light-dark(#f1f2f3, #0f1011);
+  --color-kumo-overlay: light-dark(#f6f7f7, #141516);
+  --color-kumo-control: light-dark(#ffffff, #0f1011);
+  --color-kumo-tint: light-dark(#f5f6f6, #18191a);
+  --color-kumo-fill: light-dark(#eceef0, #18191a);
+  --color-kumo-interact: light-dark(#e8eaec, #202123);
+  --color-kumo-contrast: light-dark(#08090a, #f7f8f8);
+
+  /* 边框。Linear 只有 1px hairline 三档，没有更粗的分隔。 */
+  --color-kumo-line: light-dark(#e4e6e8, #23252a);
+  --color-kumo-hairline: light-dark(#eceef0, #1c1d20);
+
+  /* 文本阶梯。注意正文是 ink-muted 而不是最亮的 ink——
+     Linear 把 #f7f8f8 留给标题，正文用 #d0d6e0，这一档差别正是它耐看的原因。 */
+  --text-color-kumo-strong: light-dark(#08090a, #f7f8f8);
+  --text-color-kumo-default: light-dark(#3c4149, #d0d6e0);
+  --text-color-kumo-subtle: light-dark(#6f7681, #8a8f98);
+  --text-color-kumo-inactive: light-dark(#a1a7b0, #62666d);
+  --text-color-kumo-placeholder: light-dark(#8a8f98, #62666d);
+  --text-color-kumo-link: light-dark(#4f5ac0, #828fff);
+}
+
+/* ── 自有令牌（--color-ebx-*）───────────────────────────────────────────────
+   只放 Kumo 确实没有的东西。放进 @theme 而不是 :root，是为了让 Tailwind v4
+   顺带生成 bg-ebx-* / text-ebx-* 工具类——比在组件里写 bg-[var(--ebx-…)] 干净，
+   也不会撞上 eslint 那条原始色类规则（它匹配的是 blue/red 这些调色板名）。
+
+   同样强制 light-dark()：这些值和 Kumo 令牌混在同一个界面上，
+   只要有一个不跟随主题，暗色下就会出现一块突兀的亮斑。 */
+@theme {
+  /* 账号状态圆点。四态对应「登录成功 / 登录失败 / 尚未登录 / 存在未读」，
+     左栏分组面板和底部状态栏共用同一套颜色，不能各调各的。
+     成功用 Linear 的 semantic-success #27a644——它是这套单色系统里唯一的彩色例外。 */
+  --color-ebx-dot-online: light-dark(#27a644, #3fc85e);
+  --color-ebx-dot-error: light-dark(#d5484f, #e5484d);
+  --color-ebx-dot-idle: light-dark(#a1a7b0, #62666d);
+  --color-ebx-dot-unread: light-dark(#5e6ad2, #828fff);
+
+  /* 品牌渐变。Kumo 没有渐变令牌，而品牌标识和左栏 CTA 都要用。
+     渐变本身进不了 light-dark()（它接受颜色，不接受图像），所以两端色分开定义。 */
+  --color-ebx-brand-grad-from: light-dark(#5e6ad2, #5e6ad2);
+  --color-ebx-brand-grad-to: light-dark(#7c62c4, #8b5fbf);
+
+  /* 分组配色。取值集合由 mail_groups.color 的 CHECK 约束固定为这六个令牌名
+     （见 03 文档 §3.1），用户在分组管理页里选，分组列表上显示为一个小圆点。
+
+     不直接用 `bg-kumo-*`：Kumo 的 purple 只有文字色令牌，`bg-kumo-purple`
+     **不会被生成**——实测构建产物里没有这条规则，于是紫色分组的圆点是透明的。
+     这正是 StatusDot 注释里提过的那类静默失败，只在生产构建里露出来。
+     六个色一起自定义，免得五个走 Kumo、一个走别处，下次调色又要分两处找。
+
+     色相取自这套单色系统已有的值：绿 = semantic-success，红 = dot-error，
+     灰 = dot-idle，紫 = 品牌渐变的末端色。蓝与琥珀是新配的，都压过饱和度——
+     它们是分类标记，不该比主 CTA 更抢眼。 */
+  --color-ebx-group-blue: light-dark(#4a7fd4, #6b9fe8);
+  --color-ebx-group-green: light-dark(#27a644, #3fc85e);
+  --color-ebx-group-amber: light-dark(#c98a1b, #e0a336);
+  --color-ebx-group-red: light-dark(#d5484f, #e5484d);
+  --color-ebx-group-purple: light-dark(#7c62c4, #8b5fbf);
+  --color-ebx-group-gray: light-dark(#a1a7b0, #62666d);
+}
+
+/* 应用外壳尺寸。布局（CSS）和拖拽分隔（JS）要读同一个真源，
+   否则改了高度以后会出现「视觉上对齐、计算上差几像素」的滚动条。
+
+   这几个**故意不放在 @theme 里**：Tailwind v4 会把没有被任何工具类引用的 @theme 变量
+   摇掉，而这些值只被 var() 和 getComputedStyle 读取、不生成工具类，
+   放进去的结果是它们根本不出现在产物 CSS 里，JS 读到空字符串。 */
+:root {
+  --ebx-header-h: 56px;
+  --ebx-toolbar-h: 52px;
+  --ebx-status-h: 30px;
+  --ebx-sidebar-w: 300px;
+  /* 全局导航栏的两种宽度。收起时只剩图标，靠 title 提示。 */
+  --ebx-nav-w: 224px;
+  --ebx-nav-w-collapsed: 56px;
+}
+@layer base {
+  body {
+    min-width: 320px;
+    margin: 0;
+    font-family:
+      "SF Pro Text",
+      "SF Pro Display",
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
+    font-feature-settings: "ss01", "cv01", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+  button,
+  input,
+  select {
+    font: inherit;
+  }
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  /* 页面宽度约束。纯布局、不含颜色，因此不与 Kumo 令牌冲突。 */
+  .shell {
+    width: min(1120px, calc(100% - 40px));
+    margin-inline: auto;
+  }
+
+  /* Linear 的 display 级排版。
+     它最有辨识度的一点是**激进的负字距**：80px 标题收 -3px，约字号的 4%。
+     Tailwind 的 tracking-* 是固定值，跟不上字号变化，所以按档写死成三个类。
+     line-height 也随字号收紧（1.05~1.15）——大字排版留默认行高会显得散。 */
+  .display-xl {
+    font-size: clamp(2.5rem, 6vw, 5rem);
+    font-weight: 600;
+    line-height: 1.05;
+    letter-spacing: -0.04em;
+  }
+  .display-lg {
+    font-size: clamp(2rem, 4.5vw, 3.5rem);
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: -0.032em;
+  }
+  .display-md {
+    font-size: clamp(1.5rem, 3vw, 2.5rem);
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -0.025em;
+  }
+  /* eyebrow 是 Linear 用来给区块起头的小标签：小字号、中等字重、**正**字距。
+     它和上面几个反着来——字越小越要放开字距，否则挤成一团。 */
+  .eyebrow {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: 0.03em;
+  }
+
+  /* 相邻子项之间画一条细分隔线。纯排版、无颜色决策，
+     Kumo 没有对应组件（LayerCard 只管容器本身），所以留在这里。 */
+  .rule-list > * + * {
+    @apply border-t border-kumo-hairline;
+  }
+}

@@ -1,0 +1,22 @@
+version: "2"
+sql:
+  - engine: "sqlite"
+    schema: "db/migrations/sqlite"
+    queries: "db/query/sqlite"
+    gen:
+      go:
+        package: "sqlitedb"
+        out: "db/generated/sqlite"
+        sql_package: "database/sql"
+        emit_interface: true
+        emit_empty_slices: true
+  - engine: "postgresql"
+    schema: "db/migrations/postgres"
+    queries: "db/query/postgres"
+    gen:
+      go:
+        package: "postgresdb"
+        out: "db/generated/postgres"
+        sql_package: "database/sql"
+        emit_interface: true
+        emit_empty_slices: true

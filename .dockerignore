@@ -1,0 +1,12 @@
+# 构建产物与本地数据，不应进入 Docker 构建上下文
+.git
+.github
+node_modules
+web/node_modules
+web/dist
+static
+server
+tmp
+*.db
+.env
+docs

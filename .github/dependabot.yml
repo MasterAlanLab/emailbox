@@ -1,0 +1,39 @@
+# 配置项完整说明见：
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  # 前端依赖
+  # 使用 Bun 更新器，让依赖 PR 同时更新 package.json 和 bun.lock。
+  - package-ecosystem: "bun"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # typescript-eslint 尚不支持 TypeScript 7.x
+      # https://github.com/typescript-eslint/typescript-eslint/issues/10940
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
+
+  # Go 依赖
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # 工作流中引用的 action 版本。
+  # 缺少这一项时 .github/workflows 无人维护，build.yml 曾因此落后三个大版本。
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      # action 升级通常是纯版本号变动，合并成一个 PR 减少噪音
+      actions:
+        patterns: ["*"]
+
+  # Dockerfile 里的基础镜像
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
