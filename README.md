@@ -90,6 +90,17 @@ docker compose up -d --build   # http://localhost:1323
 - **海外 VPS**：[搬瓦工](https://cutt.ly/qywJNWzd) · [DMIT](https://cutt.ly/YywJIzY0) — 三网优化线路，支持支付宝
 - **海外虚拟信用卡**：[点这里](https://cutt.ly/IyrMR4Mg) — 付海外服务用得上
 - **Telegram 资源搜索机器人**：[点这里](https://cutt.ly/2yeh3GOE) — TG 最强搜索引擎，试试看
+- **GPT 中转站**：[满血 CC / GPT 中转](https://cutt.ly/JywJG3G5) — 确认不掺水，缺点是价格偏高
+- **订阅合租拼车**：[点这里](https://cutt.ly/5ywt8vb4) — 影视会员、AI 订阅都能合租
+
+### 🚀 艾伦の代充
+
+[ai.corouter.cc](https://ai.corouter.cc) — 用卡密自动完成 ChatGPT 等 AI 订阅代充，客户无需注册登录。
+
+也可以作为合伙人自己开展业务：邀请制注册后获得独立工作空间，充值业务积分、配置支付资源，
+自主生成和分发卡密，既能直接卖卡密也能通过 API 接进自己的站点，
+每位合伙人的卡片、订单、积分和 API Token 相互隔离。
+[查看合伙人机制与参与指南](https://ai.corouter.cc/partner-guide)
 
 ---
 

@@ -242,7 +242,7 @@ POST /mail/accounts/export         权限 account:secret
 响应里必须回传 `channel`（本次实际走通的通道），前端据此显示实际走通的链路。
 
 > 响应里还有一个 `source` 字段，恒为 `remote`。它是给已删除的「本地邮件保留」
-> 预留的位置（[07 文档 §5](07-roadmap.md)），现在没有第二个取值。
+> 预留的位置（那些能力已移出范围，见 [README](README.md)），现在没有第二个取值。
 
 **筛选参数**：
 `subject_contains`、`from_contains`、`keyword`（在正文里搜，会触发详情补齐，代价高，需限流）。
@@ -289,7 +289,7 @@ GET /mail/refresh/logs         → 分页，支持 status / account_id / 时间�
   于是那个数组永远是空的。给账号分类这件事由分组承担——它有配额、有完整的管理页。
   两套平行机制里只留能用的那套。
 - **`/mail/settings`（租户级键值设置）**。它承载的全部是转发与本地保留的配置项，
-  随那两个功能一起删掉（[07 文档 §5](07-roadmap.md)）；`tenant_settings` 表也不再需要。
+  随那两个功能一起删掉（见 [README「明确不做的事」](README.md)）；`tenant_settings` 表也不再需要。
 
 ## 8. OAuth 助手（**未实现**）
 
@@ -306,8 +306,8 @@ GET /mail/refresh/logs         → 分页，支持 status / account_id / 时间�
 微软应用（client_id / 回调域名 / 应用审核），而用户导入的账号各自属于不同的应用——
 这件事没有想清楚之前不做，比做一个只对某一类账号有效的授权入口好。
 
-真要做的话，`11_routes_graph_oauth.py` 那种模拟登录页抓 token 的做法**不移植**，
-只做标准授权码流程，理由见 [01 文档 §2.3](01-analysis.md)。
+真要做的话只做标准授权码流程，**不移植**老项目里那种模拟登录页抓 token 的做法：
+它依赖微软登录页当下的表单结构与风控判定，对方改一次版就整条链路失效。
 
 ## 9. 限流
 
@@ -320,7 +320,8 @@ GET /mail/refresh/logs         → 分页，支持 status / account_id / 时间�
 
 模板已用 `echomw.RateLimiterWithConfig` + 自定义 `DenyHandler` 返回统一响应格式，
 新增限流器沿用同一写法。注意内存限流器在多实例下不共享；
-若上线多实例，需要换成基于数据库或 Redis 的实现（记在 07 文档的风险项）。
+若上线多实例，需要换成基于数据库或 Redis 的实现——不过多实例本身也在
+「明确不做的事」里（见 [README](README.md)）。
 
 限流与配额是**两回事**：限流防瞬时滥用（按秒/分钟），配额防长期超用（按天/总量）。
 两者都要有，配额见 §11。

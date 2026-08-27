@@ -241,7 +241,7 @@ REGISTRATION_MODE = open | closed     （默认 open）
 ### 5.2 邮箱验证
 
 **不做邮箱验证。** 本平台没有发信能力（SMTP 随转发功能一起从方案中删除，
-见 [07 文档 §5](07-roadmap.md)），`users.email` 仅作登录标识与联系方式。
+见 [README「明确不做的事」](README.md)），`users.email` 仅作登录标识与联系方式。
 
 ### 5.3 与已有代码的衔接
 
@@ -253,7 +253,7 @@ REGISTRATION_MODE = open | closed     （默认 open）
 
 | # | 项 | 措施 |
 |---|---|---|
-| 1 | 越权读写他人邮箱 | 每个资源端点一条跨租户测试（[07 文档](07-roadmap.md) §1）；SQL 永不放宽 `tenant_id` |
+| 1 | 越权读写他人邮箱 | 每个资源端点一条跨租户测试（口径见 `AGENTS.md` §7）；SQL 永不放宽 `tenant_id` |
 | 2 | 管理员权限滥用 | 跨租户读写全审计；管理员数量在后台可见；不做 impersonation |
 | 3 | 禁用用户仍能操作 | 会话中间件校验 `users.status`；禁用时清空 sessions |
 | 4 | 注册滥用 / 薅配额 | IP 限流 + 默认套餐给保守额度 + `closed` 模式可随时切换 |

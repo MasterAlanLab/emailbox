@@ -234,7 +234,7 @@ Kumo 这个版本**有** `DropdownMenu`（`@cloudflare/kumo/components/dropdown`
   改了标题会跟着挪，全站又会出现「切页面时标题横跳」的老问题
 - **不要写 `calc(100vh - 顶栏 - 页脚)` 这类高度魔法数**：布局一改它就不再对应任何东西。
   需要占满剩余高度的，让父级成为 flex 容器、自己用 `flex-1`
-- **视觉语言是 Linear**（[10 文档](docs/plan/10-linear-redesign.md)）。三条硬规则：
+- **视觉语言是 Linear**。三条硬规则：
   **不写 `shadow-*`**（层次靠 surface 阶梯 + 1px hairline）、
   **display 标题配约 4% 的负字距**（用 `.display-xl/lg/md`，别自己拼 `text-*` + `tracking-*`）、
   **单色系统**（薰衣草只给品牌标记/主 CTA/focus ring，唯一彩色例外是状态点的 success）。
@@ -311,8 +311,6 @@ DOMPurify 净化 + `sandbox` iframe 双层隔离（**不给** `allow-scripts`、
 
 **并发断言要做变异验证**：写完先人为制造一次串行/竞争，确认用例会红，再还原。
 一条永远不会红的并发断言等于没写。
-
-详见 [07 文档 §1](docs/plan/07-roadmap.md)。
 
 ## 8. 工具与命令
 

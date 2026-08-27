@@ -105,7 +105,7 @@ Kumo 提供约 30 个组件。下表是本项目每个界面元素的落位，**
 | 需求 | 方案 |
 |---|---|
 | **虚拟滚动列表** | Kumo `Table` 面向常规数据量，不含虚拟化。账号列表/邮件列表另建 `VirtualList`（`@tanstack/react-virtual`），行内元素仍用 Kumo 的 `Checkbox`/`Badge`/`Text`/`Button` |
-| **可拖拽分隔的布局** | 自建 `SplitPane`，用 CSS grid + 拖拽把手，尺寸存 localStorage（改版后用在右栏的纵向切分上，见 09 文档） |
+| **可拖拽分隔的布局** | 自建 `SplitPane`，用 CSS grid + 拖拽把手，尺寸存 localStorage（2026-08 改版后用在右栏的纵向切分上） |
 | **邮件正文渲染** | 自建 `MessageBody`（sandbox iframe + DOMPurify，见 §6） |
 | **右键上下文菜单** | Kumo 有 `DropdownMenu` 但无 ContextMenu 触发器。用 `onContextMenu` 手动定位一个 `Popover` |
 
@@ -220,13 +220,13 @@ interface SelectionState {
 
 ### 5.1 `/mail` 三栏工作台（右栏纵向再切）
 
-> 已按 [09 文档](09-ui-revamp.md) 改版。原先四栏并列、详情占第四列——
+> 2026-08 改版过一次。原先四栏并列、详情占第四列——
 > 三栏挤在 1440 宽里每栏都不够读，现在详情移到右栏下段。
 
 整页是**应用外壳**：撑满视口、自身不滚动、没有 Footer，滚动由各面板自负。
 路由用 `handle.shell` 声明这一形态（`src/router/handle.ts`），`Layout` 据此分流。
 
-登录后**没有顶栏**：左侧是常驻导航栏 `AppSidebar`（10 文档的 Linear 改版把顶栏换掉了），
+登录后**没有顶栏**：左侧是常驻导航栏 `AppSidebar`（Linear 风格改版时把顶栏换掉了），
 右侧才是下面这块工作台。
 
 ```

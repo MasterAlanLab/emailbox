@@ -29,7 +29,7 @@
 | `000005_mail_ops` | jobs / job_items / job_events / refresh_logs | P4 |
 
 P0–P4 的表到 `000005` 就齐了。转发、分享链接、本地邮件保留、临时邮箱相关的表随 P5–P7
-一起从方案中删除（[07 文档 §5](07-roadmap.md)）。之后的迁移都是**对已有结构的修正**，
+一起从方案中删除（见 [README「明确不做的事」](README.md)）。之后的迁移都是**对已有结构的修正**，
 不是新阶段：
 
 | 迁移 | 内容 | 时间 |
@@ -121,7 +121,7 @@ CREATE INDEX idx_mail_accounts_status     ON mail_accounts(tenant_id, status);
 ```
 
 > **`000003` 里曾有三个 `forward_*` 列与 `idx_mail_accounts_forward` 索引**，
-> 是转发功能被移出方案（[07 文档 §5](07-roadmap.md)）后留下的遗留物，
+> 是转发功能被移出方案（见 [README](README.md)）后留下的遗留物，
 > 已由 `000006_drop_unused` 连同账号筛选里的 `forward` 条件一并删除。
 > 上面的建表语句是清理后的最终形态。
 
@@ -320,7 +320,7 @@ sqlc 会按文件名排序读取，这要求迁移文件名保持 `000002_`、`0
 | 引擎 | 写法 | 说明 |
 |---|---|---|
 | SQLite | `WHERE id IN (sqlc.slice(account_ids))` | sqlc 在调用时把它展开成 `IN (?, ?, ?)`，参数是 `[]string` |
-| PostgreSQL | `WHERE id = ANY($1::text[])` | 传 `pq.Array`（见 [02 文档 §2.1](02-architecture.md)）。单参数、无长度限制 |
+| PostgreSQL | `WHERE id = ANY($1::text[])` | 传 `pq.Array`（见下方说明）。单参数、无长度限制 |
 
 > **实施时的修正**：SQLite 侧原方案是 `json_each(?)`，实际走不通——
 > **sqlc v1.30 的 SQLite 解析器不认识 `json_each()` 这个表值函数**：
@@ -332,6 +332,13 @@ sqlc 会按文件名排序读取，这要求迁移文件名保持 `000002_`、`0
 > 代价是 SQLite 侧会占用等量的绑定变量（上限 32766，远大于旧版的 999），
 > 因此 `pkg/repo` 对单次传入的 ID 数量设了 5000 的上限（`maxInListSize`），
 > PostgreSQL 侧虽是单参数也一并设限，以免超大数组拖垮查询计划。
+
+> **`go.mod` 里的 `github.com/lib/pq` 不是数据库驱动**——连接始终走 `pgx/v5/stdlib`。
+> 它在这里的唯一作用，是 sqlc 在 `sql_package: database/sql` 模式下为上面这个数组参数
+> 生成的 `pq.Array(...)` 包装：它把 `[]string` 编码成 `{"a","b"}` 这种数组字面量当文本参数发出，
+> SQL 里的 `::text[]` 负责转回数组，pgx 完全兼容。
+> 要去掉这个依赖只能把 sqlc 切到 `sql_package: pgx/v5`，那会改变整个生成包的连接句柄类型，
+> 牵连 `pkg/database` 与全部 repo 方法——代价远大于收益。
 
 ```sql
 -- db/query/sqlite/mail_accounts.sql
