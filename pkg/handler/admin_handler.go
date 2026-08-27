@@ -179,27 +179,6 @@ func (h *AdminHandler) recordUserAudit(c *echo.Context, action, userID string, d
 	})
 }
 
-// ---------- 租户 ----------
-
-func (h *AdminHandler) ListTenants(c *echo.Context) error {
-	q := c.Request().URL.Query()
-	filter := model.AdminTenantFilter{
-		Query: strings.TrimSpace(q.Get("q")),
-		Page:  atoiOrZero(q.Get("page")),
-		Limit: atoiOrZero(q.Get("limit")),
-	}
-	filter.Normalize()
-
-	items, total, err := h.service.ListTenants(c.Request().Context(), filter)
-	if err != nil {
-		return adminError(c, err)
-	}
-	return success(c, map[string]any{
-		"items":      items,
-		"pagination": pagination(filter.Page, filter.Limit, total),
-	}, "获取成功")
-}
-
 // ---------- 套餐 ----------
 
 func (h *AdminHandler) ListPlans(c *echo.Context) error {
@@ -266,12 +245,11 @@ func (h *AdminHandler) GetTenantQuota(c *echo.Context) error {
 }
 
 type updateQuotaRequest struct {
-	PlanID            string `json:"plan_id"`
-	Note              string `json:"note"`
-	MaxAccounts       *int   `json:"max_accounts"`
-	MaxGroups         *int   `json:"max_groups"`
-	DailyMailFetch    *int   `json:"daily_mail_fetch"`
-	DailyTokenRefresh *int   `json:"daily_token_refresh"`
+	PlanID         string `json:"plan_id"`
+	Note           string `json:"note"`
+	MaxAccounts    *int   `json:"max_accounts"`
+	MaxGroups      *int   `json:"max_groups"`
+	DailyMailFetch *int   `json:"daily_mail_fetch"`
 }
 
 func (h *AdminHandler) UpdateTenantQuota(c *echo.Context) error {
@@ -285,11 +263,10 @@ func (h *AdminHandler) UpdateTenantQuota(c *echo.Context) error {
 	err := h.service.UpdateTenantQuota(c.Request().Context(), tenantID, actor.ID, service.QuotaUpdate{
 		PlanID: req.PlanID,
 		Overrides: repo.QuotaOverrides{
-			MaxAccounts:       req.MaxAccounts,
-			MaxGroups:         req.MaxGroups,
-			DailyMailFetch:    req.DailyMailFetch,
-			DailyTokenRefresh: req.DailyTokenRefresh,
-			Note:              req.Note,
+			MaxAccounts:    req.MaxAccounts,
+			MaxGroups:      req.MaxGroups,
+			DailyMailFetch: req.DailyMailFetch,
+			Note:           req.Note,
 		},
 	})
 	if err != nil {

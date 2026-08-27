@@ -3,7 +3,7 @@
 ## 1. 约定
 
 - 前缀：`/api/v1`
-- 响应体一律 `{code, data, message}`（AGENTS.md §4.2.2）；分页用 `{items, pagination}`
+- 响应体一律 `{code, data, message}`（AGENTS.md §5.1）；分页用 `{items, pagination}`
 - 方法：只用 `GET / POST / PATCH / DELETE`（**不用 PUT**——`main.go` 的 CORS
   `AllowMethods` 目前不含 PUT，且与模板现有风格一致）
 - 租户作用域：挂在模板已有的 `t := protected.Group("/tenants/:tenantID", tenant.Member)` 下，
@@ -18,6 +18,11 @@
 | 用户 | `/api/v1/tenants/:tenantID/...` | 会话 Cookie + `tenant.Member` | URL，且必须是自己所属租户 |
 | 管理员 | `/api/v1/admin/...` | 会话 Cookie + `RequirePlatformAdmin` | URL 显式指定（`/admin/tenants/:tenantID/mail/...`） |
 
+用户这一组还接受第二种身份：`Authorization: Bearer <API Key>`。Key 不是第二套接口，
+而是一个只读的虚拟角色 `model.TenantRoleAPI`——鉴权后走同一份路由，权限由
+`middleware.Require` 收敛到 `group:read` / `account:read` / `message:read` 三项。
+详见 §3.1。
+
 **两者共用同一份 service 与 repo**。管理员路由组只是「谁有权决定 tenantID」不同，
 SQL 里的 `WHERE tenant_id = ?` 永不放宽——理由与实现见 [08 文档 §2.3](08-saas-admin.md)。
 
@@ -27,7 +32,7 @@ SQL 里的 `WHERE tenant_id = ?` 永不放宽——理由与实现见 [08 文档
 
 | code | HTTP | 含义 |
 |---|---|---|
-| `1001` | 403 | `QUOTA_EXCEEDED` — 超出配额，`data` 带 `{metric, limit, used}` |
+| `1001` | 403 | `QUOTA_EXCEEDED` — 超出配额，`data` 为 null，上限与已用量写在 `message` 里 |
 | `1003` | 403 | `ACCOUNT_DISABLED` — 用户已被管理员禁用 |
 | `1004` | 409 | `MAIL_ACCOUNT_EXISTS` — 邮箱已存在 |
 | `1005` | 502 | `UPSTREAM_MAIL_ERROR` — 上游邮件服务失败，`data` 带 `{error_kind, channel}` |
@@ -108,6 +113,21 @@ Echo 的后注册中间件会覆盖前面的同类中间件（BodyLimit 读的�
 分组是平的一层（2026-08-27 起，见 PROGRESS「分组压平成一层」）：没有 `parent_id`、
 没有 `level`，也没有「含子树的账号数」。
 
+### 3.1 API Key（对外取件）
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/tenants/:tenantID/api-key` | tenant:update | 回显明文 Key，未生成时 `data: null` |
+| POST | `/tenants/:tenantID/api-key/reset` | tenant:update | 生成并覆盖，旧 Key 当场失效，写审计 `api_key.reset` |
+| GET | `/llms.txt` | 公开 | 给 Agent 的接入说明，由 `handler.APIEndpoints` 渲染，不含任何 Key |
+
+一个租户一把 Key，存两列：`token_hash` 供鉴权按 O(1) 命中，`token_enc` 是 AES-GCM
+密文、只为页面回显（迁移 `000012` 的注释里写了这个取舍的代价）。
+
+Key 能调的就是 `handler.APIEndpoints` 里那五条只读端点，且只能是自己所属的租户。
+它拿不到 `mail:account:secret`（导出）与 `tenant:update`——**读不到也重置不了自己**，
+泄露后无法自我续命。`api/apikey_test.go` 把这份矩阵钉死了。
+
 ## 4. 账号
 
 ### 4.1 CRUD 与查询
@@ -184,21 +204,23 @@ POST /mail/accounts/import          权限 account:write   BodyLimit 8MB
 
 ```
 POST /mail/accounts/export         权限 account:secret
-{ "scope": "group|selected|all", "group_ids": [], "account_ids": [],
-  "password_confirm": "<当前用户登录密码>" }
+{ "scope": "group|selected|all", "group_ids": [], "account_ids": [] }
 → text/plain 附件下载，格式与 outlookEmail 一致（可被本平台重新导入）
   响应头 X-Export-Count 带回实际导出的条数
 ```
 
-**必须二次验证登录密码**（对应 outlookEmail 的 `export_verify_tokens` 机制），
-并强制写 `audit_logs`。这是全平台风险最高的接口。
+这是全平台风险最高的接口，三道闸门：独立权限 `account:secret`、强制写 `audit_logs`、
+按用户限流。
+
+> **二次密码验证已于 2026-08-27 去掉。** 原设计照搬 outlookEmail 的
+> `export_verify_tokens`，让操作者在导出前再输一遍自己的登录密码。取消它是产品决定：
+> 这个平台的用户就是来批量取自己的凭据的，导出是常规操作而不是危险动作，
+> 每次都拦一道密码框换来的主要是「把密码练成肌肉记忆」。
+> 剩下三道闸门没有松，其中审计与限流才是事后能追责、事中能限速的那两件。
 
 实施细节：
 
-- 密码验证在 handler 层做，验的是**操作者本人**的密码——管理员导出他人租户时
-  验的仍是管理员自己的密码，与被导出的租户无关
-- `scope=group` 自动展开到子分组。用户在树上选中父分组时期待的是整棵子树，
-  只导直属账号会**静默少给**，而少给这件事在导出结果里看不出来
+- `scope=group` 只导这些分组下的直属账号（分组已经是平的一层，没有子树可展开）
 - 限流按**用户**而不是 IP（10 次/分钟）：同一出口 IP 后面可能有几十个用户，
   按 IP 限会互相误伤；而攻击者拿到会话后换 IP 是零成本的，按 IP 也拦不住
 - 单次上限 `MaxExportAccounts = 20000`，超出提示按分组分批
@@ -264,12 +286,14 @@ GET /mail/refresh/logs         → 分页，支持 status / account_id / 时间�
 
 - **`/mail/tags` 与 `POST /mail/accounts/batch/tags`**（2026-08-27，`000007_drop_tags`）。
   标签能建能删，账号响应里也带 `tags`，但**没有任何端点被前端用来把标签贴到账号上**，
-  于是那个数组永远是空的。给账号分类这件事由分组承担——它有树结构、有配额、
-  有完整的管理页。两套平行机制里只留能用的那套。
+  于是那个数组永远是空的。给账号分类这件事由分组承担——它有配额、有完整的管理页。
+  两套平行机制里只留能用的那套。
 - **`/mail/settings`（租户级键值设置）**。它承载的全部是转发与本地保留的配置项，
   随那两个功能一起删掉（[07 文档 §5](07-roadmap.md)）；`tenant_settings` 表也不再需要。
 
-## 8. OAuth 助手
+## 8. OAuth 助手（**未实现**）
+
+下面三个端点是设计里有、**代码里没有**的，别照着它们写调用方：
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -277,8 +301,13 @@ GET /mail/refresh/logs         → 分页，支持 status / account_id / 时间�
 | POST | `/mail/oauth/exchange` | body `{redirected_url}`，从中提取 code 并换 refresh_token |
 | POST | `/mail/accounts/:accountID/reauthorize` | 用新 token 覆盖账号凭据 |
 
-**只保留标准授权码流程**。outlookEmail 的 `11_routes_graph_oauth.py`（模拟登录页抓 token）
-不移植，理由见 [01 文档 §2.3](01-analysis.md)。
+现状是**用户自带 `refresh_token`**：导入格式里那一段就是它（04 文档 §7），
+换凭据走 `PATCH /mail/accounts/:accountID`。平台自己发起授权要先注册并托管一个
+微软应用（client_id / 回调域名 / 应用审核），而用户导入的账号各自属于不同的应用——
+这件事没有想清楚之前不做，比做一个只对某一类账号有效的授权入口好。
+
+真要做的话，`11_routes_graph_oauth.py` 那种模拟登录页抓 token 的做法**不移植**，
+只做标准授权码流程，理由见 [01 文档 §2.3](01-analysis.md)。
 
 ## 9. 限流
 
@@ -309,16 +338,20 @@ GET /mail/refresh/logs         → 分页，支持 status / account_id / 时间�
 | PATCH | `/admin/users/:userID` | 改 `status` / `platform_role`。**禁用时同步清空该用户全部 sessions**；不能撤销最后一个管理员 |
 | POST | `/admin/users/:userID/reset-password` | 生成临时密码，一次性返回；清空该用户全部 sessions |
 | DELETE | `/admin/users/:userID` | 软删用户 + 其个人租户下的邮箱账号，并**物理清除凭据密文列** |
-| POST | `/admin/users` | `REGISTRATION_MODE=closed` 时由管理员建号 |
+| ~~POST~~ | ~~`/admin/users`~~ | **未实现**。关闭注册时的建号由 `BOOTSTRAP_ADMIN_USERNAME` / `_PASSWORD` 在启动时完成，后台里没有「新建用户」入口 |
 
 ### 10.2 跨租户邮箱管理
 
 ```
-/admin/tenants                          GET   租户列表（含所有者、账号数、配额用量、超额标记）
 /admin/tenants/:tenantID/mail/**        *     与 /api/v1/tenants/:tenantID/mail/** 完全同构
 ```
 
-第二行是关键：**路径结构、请求体、响应体与用户侧一模一样**，
+**没有 `GET /admin/tenants`（租户列表）**：一个租户空间只属于一个用户，那份清单的每一行
+都能在 `/admin/users` 里找到对应的用户，两份列表只会让人怀疑「这两个数为什么对不上」。
+账号数、套餐、配额上限与超额标记因此都并进了用户行。该端点连同 `AdminTenantsPage`
+一起删除（前者 2026-08-27，后者更早）。
+
+上面这行是关键：**路径结构、请求体、响应体与用户侧一模一样**，
 handler 复用同一份实现，只是 tenantID 的来源与鉴权中间件不同。
 前端因此可以直接复用 `/mail` 的全部组件（[06 文档 §7](06-frontend.md)）。
 
@@ -343,7 +376,10 @@ handler 复用同一份实现，只是 tenantID 的来源与鉴权中间件不�
 |---|---|---|
 | GET | `/admin/audit` | 全平台审计日志，按 tenant / actor / action / 时间筛选 |
 | GET | `/admin/stats` | 平台概览：用户数、租户数、邮箱总数、今日拉信量、失败率 |
-| GET | `/admin/jobs` | 全平台任务列表（跨租户） |
+
+曾经列在这里的 `GET /admin/jobs`（全平台任务列表）**没有实现**：任务是按租户跑的，
+管理员要看某个用户的任务，从 `/admin/tenants/:tenantID/mail/jobs` 进去即可，
+再多一个跨租户的合并视图没有对应的使用场景。
 
 ### 10.5 审计要求
 
@@ -357,10 +393,11 @@ handler 复用同一份实现，只是 tenantID 的来源与鉴权中间件不�
 
 ## 11. 配额的接口约定
 
-- 每个受配额约束的创建接口在超额时返回 `code=1001` + HTTP 403：
+- 每个受配额约束的接口在超额时返回 `code=1001` + HTTP 403。`data` 为 null，
+  上限与已用量写在 `message` 里（前端直接展示这句话，不做二次拼装）：
   ```json
-  { "code": 1001, "data": { "metric": "max_accounts", "limit": 50, "used": 50 },
-    "message": "邮箱数量已达套餐上限，请联系管理员调整配额" }
+  { "code": 1001, "data": null,
+    "message": "QUOTA_EXCEEDED: 邮箱账号 数量上限为 50，当前 50" }
   ```
 - **批量导入是例外**：超额部分计入 `skipped`，已导入的保留，HTTP 200：
   ```json

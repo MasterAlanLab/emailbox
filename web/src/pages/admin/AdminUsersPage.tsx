@@ -136,9 +136,7 @@ export default function AdminUsersPage() {
                   )}
                 </p>
                 {/* 邮箱是可选的，没填就不留一行空白 */}
-                {user.email && (
-                  <p className="truncate text-xs text-kumo-subtle">{user.email}</p>
-                )}
+                {user.email && <p className="truncate text-xs text-kumo-subtle">{user.email}</p>}
               </div>
 
               <span className={user.over_quota ? "text-kumo-danger" : ""}>

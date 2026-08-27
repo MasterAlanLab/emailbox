@@ -14,7 +14,6 @@ export default function ProfileSettingsPage() {
   // 后端把 email 当指针处理：发空串是「清空」，不发才是「保持原值」。
   // 这个表单一次提交全部字段，所以清空邮箱只要把输入框留白即可。
   const [email, setEmail] = useState(user.email);
-  const [avatar, setAvatar] = useState(user.avatar_url);
   const [saved, setSaved] = useState(false);
   const { error, pending, run } = useAsyncAction();
 
@@ -22,7 +21,7 @@ export default function ProfileSettingsPage() {
     event.preventDefault();
     setSaved(false);
     void run(async () => {
-      const response = await userApi.updateProfile({ username, email, avatar_url: avatar });
+      const response = await userApi.updateProfile({ username, email });
       setUser(response.data);
       setSaved(true);
     });
@@ -47,11 +46,6 @@ export default function ProfileSettingsPage() {
           {/* 邮箱目前不参与任何流程：不用来登录、不发通知、不做找回。
               说清楚这一点，比让用户猜「不填会不会出事」强。 */}
           <p className="-mt-2 text-xs text-kumo-subtle">不用于登录，也不会收到邮件。</p>
-          <Input
-            label="头像 URL"
-            value={avatar}
-            onChange={(event) => setAvatar(event.target.value)}
-          />
           {error && <p className="text-sm text-kumo-danger">{error}</p>}
         </div>
         <div className="mt-6 flex items-center gap-3 border-t border-kumo-line pt-5">

@@ -15,16 +15,19 @@
 - 分组、别名、备注，账号可批量移动/停用/删除
 - 批量导入：三种文本格式自动识别（4 段 Outlook OAuth、2 段授权码、4 段自定义 IMAP），
   逐行报错、分批事务、超配额部分计入 skipped 而非整批失败
-- 导出：`account:secret` 权限 + 二次密码验证 + 强制审计 + 按用户限流，导出文件可原样重新导入
+- 导出：`account:secret` 权限 + 强制审计 + 按用户限流，导出文件可原样重新导入
 - 收信：Microsoft Graph → IMAP(新) → IMAP(旧) 三通道回退链，成功通道写回账号
 - 邮件正文经 DOMPurify 净化后在 sandbox iframe 内渲染，远程图片默认阻断
+- 对外取件 API：一个工作空间一把只读 Key（`Authorization: Bearer`），
+  配套公开的 `/llms.txt` 供 Agent 自助接入
 - SOCKS5 / HTTP 代理，支持 `{mail}` 模板变量与两级 failover
 - Token 批量刷新：任务表 + worker pool + SSE 进度，可停止、可断线续看，
   进程被强杀后遗留任务在下次启动被标为 `interrupted`
 
 **SaaS 与后台**
 
-- 套餐与配额（账号数、分组数、每日拉信/刷新次数），超额返回 `code=1001`
+- 套餐与配额（账号数、分组数、每日拉信次数），超额返回 `code=1001`；
+  令牌刷新只记用量、不设上限
 - 平台管理员：用户管理、套餐管理、租户配额覆盖、跨租户邮箱管理、审计查询
 - 审计：全部写操作 + 管理员的三类读操作（看账号列表、看邮件正文、导出）
 
@@ -51,13 +54,16 @@ make gen-key           # 把输出的 ENCRYPTION_KEY 写进 .env
 make dev               # 后端 :1323（Air 热重载）+ 前端 :5173（Vite）
 ```
 
-默认用 SQLite（`app.db`），开箱即用。注册第一个用户后，把它设成平台管理员：
+默认用 SQLite（`app.db`），开箱即用。`.env.example` 里预置了一个管理员，
+首次启动会自动建号：
 
 ```env
-BOOTSTRAP_ADMIN_USERNAME=you
+BOOTSTRAP_ADMIN_USERNAME=admin
+BOOTSTRAP_ADMIN_PASSWORD=admin123..
 ```
 
-重启服务即生效（用户不存在时不做任何事，等注册后下次启动再提权）。
+**登录后立刻改密码，并把 `BOOTSTRAP_ADMIN_PASSWORD` 删掉**——这个密码写在仓库的示例文件里。
+想用已有账号当管理员就只填用户名：用户存在即提权，且不会动他的密码。
 
 单二进制方式运行（前端产物会被复制进 `static/`，由 Go 一并伺服）：
 
@@ -83,7 +89,8 @@ DB_SSLMODE=disable
 
 ```env
 APP_ENV=production            # 缺 ENCRYPTION_KEY 时由「启动告警」升级为「启动失败」
-ENCRYPTION_KEY=<make gen-key> # 丢失后已存凭据无法恢复，务必备份
+ENCRYPTION_KEY=<make gen-key> # 丢失后已存凭据无法恢复，务必备份；示例文件里那个是公开的，必须换
+BOOTSTRAP_ADMIN_PASSWORD=      # 建完号就清空，别把它留在生产环境里
 COOKIE_SECURE=true            # HTTPS 部署必须，否则会话 Cookie 可能明文传输
 CORS_ALLOW_ORIGINS=https://app.example.com   # 不接受 *，非法配置启动即报错
 TRUST_PROXY=true              # 在 Nginx / 云负载均衡后面时必须，否则限流会把所有人当成同一个 IP
@@ -128,7 +135,7 @@ go run ./cmd/mailprobe -h   # 逐通道诊断某个邮箱账号能不能收信
 
 - [配置说明](docs/configuration.md) — 全部环境变量
 - [Docker 部署](docs/docker.md) — 镜像构建、生产配置与已知限制
-- [开发方案](docs/plan/README.md) — 架构、数据模型、协议层、API、前端、路线图共 8 篇
+- [开发方案](docs/plan/README.md) — 架构、数据模型、协议层、API、前端、路线图、SaaS 后台、两篇改版记录
 - [实施进度](docs/plan/PROGRESS.md) — 各阶段完成状态与实现过程中踩到的坑
 - [Go 代码检查](docs/golangci-lint.md) · [Air 热重载](docs/air.md)
 
@@ -139,6 +146,10 @@ P0 地基 / P1 分组与账号 / P2 邮件协议层 / P3 管理后台 / P4 任�
 邀请码、多实例、计费）已于 2026-08-21 从方案中删除，见
 [07-roadmap.md §5](docs/plan/07-roadmap.md)。当初为这些功能预埋的字段、路由与配置项
 已于 2026-08-25 随 `000006_drop_unused` 清理干净——代码里现在没有点了不生效的开关。
+
+其中「对外 API」这一条在 2026-08-27 以**只读取件 Key** 的形式重新做了一小块：
+没有独立路由、一租户一把、权限固定为读分组/读账号/读邮件，与原 P6 的设计不是一回事
+（对照见 [07-roadmap.md §5.1](docs/plan/07-roadmap.md)）。同日分组从三级树压平成一层。
 逐项状态见 [PROGRESS.md](docs/plan/PROGRESS.md)。
 
 ## 目录
@@ -157,7 +168,7 @@ pkg/job/             任务系统：Manager、worker pool、事件广播
 pkg/handler/         HTTP 处理器与审计中间件
 pkg/service/         业务逻辑
 pkg/repo/            数据访问层，在此适配两种方言
-pkg/middleware/      会话、租户、平台管理员中间件
+pkg/middleware/      认证（会话 Cookie / API Key）、租户、平台管理员中间件
 pkg/model/           数据结构与 RBAC 权限矩阵
 web/                 React 前端（Kumo 组件 + 语义令牌）
 ```

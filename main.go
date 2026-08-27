@@ -40,12 +40,13 @@ func main() {
 	}
 
 	store := repo.NewStore(database.GetDB(), configs.AppConfig.Database.Driver)
-	platformService := service.NewPlatformService(store)
-	// 提权失败不阻断启动：服务本身可用，只是后台进不去，日志里会有 WARN。
-	if err := platformService.BootstrapAdmin(context.Background(), configs.AppConfig.SaaS.BootstrapAdminUsername); err != nil {
+	authService := service.NewAuthService(store)
+	platformService := service.NewPlatformService(store, authService)
+	// 引导失败不阻断启动：服务本身可用，只是后台进不去，日志里会有 WARN。
+	if err := platformService.BootstrapAdmin(context.Background(),
+		configs.AppConfig.SaaS.BootstrapAdminUsername, configs.AppConfig.SaaS.BootstrapAdminPassword); err != nil {
 		slog.Error("初始化平台管理员失败", "error", err)
 	}
-	authService := service.NewAuthService(store)
 	userService := service.NewUserService(store)
 	tenantService := service.NewTenantService(store)
 	memberService := service.NewMemberService(store)
@@ -59,6 +60,7 @@ func main() {
 	quotaUsageService := service.NewQuotaService(store, quotaService)
 	messageService := service.NewMessageService(store, cipher, quotaService, service.ChainOptions{})
 	auditService := service.NewAuditService(store)
+	apiKeyService := service.NewAPIKeyService(store, cipher)
 
 	// 任务系统。单实例设计（02 文档 §4.3）：SQLite 部署本来就只能单实例，
 	// PostgreSQL 的多实例留到 P6 用 SKIP LOCKED 取件时再说。
@@ -78,8 +80,8 @@ func main() {
 		slog.Warn("已回收上次运行遗留的中断任务", "count", n)
 	}
 	adminService := service.NewAdminService(store, platformService, quotaService)
-	handlers := api.Handlers{Auth: handler.NewAuthHandler(authService), User: handler.NewUserHandler(userService), Tenant: handler.NewTenantHandler(tenantService), Member: handler.NewMemberHandler(memberService), Group: handler.NewGroupHandler(groupService), Account: handler.NewAccountHandler(accountService, authService), Quota: handler.NewQuotaHandler(quotaUsageService), Message: handler.NewMessageHandler(messageService), Admin: handler.NewAdminHandler(adminService, auditService, quotaUsageService), Job: handler.NewJobHandler(jobService, refreshService), Refresh: handler.NewRefreshHandler(refreshService), Audit: auditService}
-	authMiddleware := middleware2.NewAuthMiddleware(authService)
+	handlers := api.Handlers{Auth: handler.NewAuthHandler(authService), APIKey: handler.NewAPIKeyHandler(apiKeyService), User: handler.NewUserHandler(userService), Tenant: handler.NewTenantHandler(tenantService), Member: handler.NewMemberHandler(memberService), Group: handler.NewGroupHandler(groupService), Account: handler.NewAccountHandler(accountService), Quota: handler.NewQuotaHandler(quotaUsageService), Message: handler.NewMessageHandler(messageService), Admin: handler.NewAdminHandler(adminService, auditService, quotaUsageService), Job: handler.NewJobHandler(jobService, refreshService), Refresh: handler.NewRefreshHandler(refreshService), Audit: auditService}
+	authMiddleware := middleware2.NewAuthMiddleware(authService, apiKeyService)
 	tenantMiddleware := middleware2.NewTenantMiddleware(store)
 	platformMiddleware := middleware2.NewPlatformMiddleware(store)
 

@@ -16,7 +16,6 @@ const user = (id: string) => ({
   id,
   username: id,
   email: `${id}@example.com`,
-  avatar_url: "",
   status: "active" as const,
   platform_role: "user" as const,
 });
@@ -30,7 +29,6 @@ const member = (userID: string, tenantID: string): TenantMemberDetail => ({
   updated_at: "",
   username: userID,
   email: `${userID}@example.com`,
-  avatar_url: "",
 });
 
 describe("会话切换时的租户数据隔离", () => {

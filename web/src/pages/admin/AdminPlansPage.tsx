@@ -11,7 +11,6 @@ const NUMERIC = [
   { key: "max_accounts", label: "邮箱数" },
   { key: "max_groups", label: "分组数" },
   { key: "daily_mail_fetch", label: "每日拉信" },
-  { key: "daily_token_refresh", label: "每日刷新" },
 ] as const;
 
 export default function AdminPlansPage() {

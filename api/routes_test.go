@@ -79,15 +79,16 @@ func newTestServerWithStore(t *testing.T) (*echo.Echo, *repo.Store, *sql.DB) {
 		t.Fatal(err)
 	}
 	store := repo.NewStore(db, "sqlite")
+	apiKeyService := service.NewAPIKeyService(store, testCipher(t))
 	handlers := api.Handlers{
 		Auth:   handler.NewAuthHandler(service.NewAuthService(store)),
+		APIKey: handler.NewAPIKeyHandler(apiKeyService),
 		User:   handler.NewUserHandler(service.NewUserService(store)),
 		Tenant: handler.NewTenantHandler(service.NewTenantService(store)),
 		Member: handler.NewMemberHandler(service.NewMemberService(store)),
 		Group:  handler.NewGroupHandler(service.NewGroupService(store, testCipher(t), quota.NewService(store))),
 		Account: handler.NewAccountHandler(
-			service.NewAccountService(store, testCipher(t), quota.NewService(store)),
-			service.NewAuthService(store)),
+			service.NewAccountService(store, testCipher(t), quota.NewService(store))),
 		Quota: handler.NewQuotaHandler(service.NewQuotaService(store, quota.NewService(store))),
 		// 邮件端点接一个假通道：真实回退链要连微软与各家 IMAP，
 		// 这里要测的是路由、越权与参数校验，不是协议本身。
@@ -96,7 +97,7 @@ func newTestServerWithStore(t *testing.T) (*echo.Echo, *repo.Store, *sql.DB) {
 				WithChainFactory(testMailClient),
 		),
 	}
-	platformService := service.NewPlatformService(store)
+	platformService := service.NewPlatformService(store, service.NewAuthService(store))
 	auditService := service.NewAuditService(store)
 	handlers.Audit = auditService
 
@@ -126,7 +127,7 @@ func newTestServerWithStore(t *testing.T) (*echo.Echo, *repo.Store, *sql.DB) {
 
 	e := echo.New()
 	api.SetupRoutes(e, handlers,
-		middleware.NewAuthMiddleware(service.NewAuthService(store)),
+		middleware.NewAuthMiddleware(service.NewAuthService(store), apiKeyService),
 		middleware.NewTenantMiddleware(store),
 		middleware.NewPlatformMiddleware(store),
 	)

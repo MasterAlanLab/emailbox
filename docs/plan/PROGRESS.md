@@ -523,3 +523,144 @@ tenants / tenant_members / sessions / audit_logs 四张表都有外键指着它�
 
 接口上少了 `POST /groups/:groupID/move`，`GET /groups` 从树改成列表
 （`children` / `total_account_count` 一并去掉）。`GroupTree.tsx` 换成 `GroupList.tsx`。
+
+### 对外取件 API（2026-08-27）
+
+以前想用脚本取件只有一条路：拿登录接口换 Cookie，然后用会话冒充用户。
+那等于把一个人的全部权限交出去——包括导出全部凭据明文。
+
+现在有 Key 了，但**没有第二套接口**：Key 是一个只读的虚拟角色
+`model.TenantRoleAPI`，鉴权通过后走的还是 `/mail/**` 那一份路由，
+权限由现有的 `middleware.Require` 收敛。整个改动没有新增一个业务 handler。
+
+三处改动串起来：
+
+| 位置 | 做什么 |
+|---|---|
+| `middleware/session.go` | Cookie 优先；没有 Cookie 才看 `Authorization: Bearer`，命中则记 `actor_kind=api_key` |
+| `middleware/tenant.go` | Key 不查 `tenant_members`（它不属于任何用户），只校验 URL 的 tenantID 与 Key 绑定的一致，然后交出一个虚拟成员 |
+| `model/permission.go` | `TenantRoleAPI` 只有 group/account/message 的 read。`tenant_members.role` 的 CHECK 是 `('owner','admin','member')`，这个取值不可能从库里读出来 |
+
+Key 因此**读不到也重置不了自己**（那两个端点要 `tenant:update`），泄露后不能自我续命；
+导出接口要 `mail:account:secret`，同样拿不到。
+
+`token_hash` + `token_enc` 两列存两份：前者鉴权按 O(1) 命中，后者只为「回到页面
+还能看见自己的 Key」。代价是拿到库 + `ENCRYPTION_KEY` 就能还原它——这个库里本来
+就躺着同样可解密的 refresh_token 与邮箱密码，不新增风险类别。
+
+`/llms.txt` 公开、不含 Key，由 `handler.APIEndpoints` 渲染。`TestLLMsTxtMatchesRoutes`
+把文档里的每条路径拿去和 Echo 路由表比对：文档漂移比没有文档更糟，Agent 会照着一条
+不存在的路径反复重试。
+
+### 文档全量对账（2026-08-27）
+
+分组压平与 API Key 两件事之后把 `AGENTS.md` / `README.md` / `docs/` 全部过了一遍，
+按 [README §当前状态](README.md) 的约定「设计文档要与现实同步」逐条修。除了同步这两个
+功能之外，这次对账**翻出来四处早就漂移的地方**——都不是这两次改动造成的：
+
+| 位置 | 问题 |
+|---|---|
+| `05 §8 OAuth 助手` | 三个端点（`authorize-url` / `exchange` / `reauthorize`）**从未实现**，文档写得像已有。现状是用户自带 `refresh_token`。已标注为未实现并写清为什么不做 |
+| `05 §10.4` | `GET /admin/jobs` 同样不存在。任务是按租户跑的，管理员从 `/admin/tenants/:id/mail/jobs` 进去即可 |
+| `06 §4 状态管理` | 列了 7 个 store，实际只建了 4 个。`mailGroupStore` 等 5 个从来没建——数据只有一个页面用，放全局只是多一份要手动失效的副本 |
+| `AGENTS §5.1` / `05 §1.2` / `response.go` | 都写着「1001 的 `data` 带 `{metric, limit, used}`」，而 `mailError` 实际回的是 `data: null`，上限与用量在 `message` 里。三处一起改成现状 |
+
+另外两处小的：`06 §8` 说类型在 `web/src/types/mail.ts`（实际在 `web/src/api/mail.ts`）、
+`.env.example` 说 `BOOTSTRAP_ADMIN_USERNAME` 认「邮箱」（000008 之后认的是用户名）。
+
+**同批删掉了 `GET /api/v1/admin/tenants`**：`AdminTenantsPage` 删除之后它就没有调用方了，
+和 000006/000007 清掉的那批是同一类东西。一次删干净——路由、`AdminHandler.ListTenants`、
+`AdminService.ListTenants`、`Store.ListAdminTenants`、两个方言的
+`ListAdminTenantsPage` / `CountAdminTenants`、`model.AdminTenant` 与 `AdminTenantFilter`、
+前端的 `adminApi.tenants()` 与 `AdminTenant` 类型。
+
+删之前先把它带走的两条断言搬了家，这是这次唯一需要动脑的地方：
+
+- `TestAdminTenantsParity` 是**唯一**守着「`COALESCE(tenant_quotas.max_accounts, plans.max_accounts)`
+  顺序」的用例——写反的话管理员调低配额完全不起作用，而界面上还显示着调低后的数字。
+  用户列表的 SQL 里有同一段 COALESCE，断言因此并进 `TestAdminUsersParity`
+- `TestLoweringQuotaBlocksNewAccountsButKeepsExisting` 用租户列表验证超额标记可见，
+  改成查 `/admin/users`——那才是管理员真正会看的那份清单
+
+### 顺带修掉一个会随机变红的加密用例（2026-08-27）
+
+`TestDecryptRejectsCorruptedCiphertext` 的「篡改内容」分支原来是**翻转 base64 串的
+最后一个字符**。`RawURLEncoding` 的最后一个字符可能只有 2 或 4 位有效，其余是填充位，
+而 Go 默认的 base64 解码器**不校验填充位**——改到填充位上时解出来的字节一模一样，
+解密当然成功，用例就红了，而被测代码没有任何问题。
+
+跑 `go test -count=1` 时约一半概率失败（平时被测试缓存盖住了）。改成解码后翻认证标签
+最后一个字节的一位，必被 GCM 拒绝。一条会随机变红的安全断言比没有更糟：
+它会先被当成噪音忽略，然后有一天真的坏了也没人信。
+
+### 配额口径调整与两处删除（2026-08-27）
+
+**令牌刷新不再有额度**（`000013` 删掉 `plans` / `tenant_quotas` 的 `daily_token_refresh`）。
+刷新令牌是「账号还能不能用」的前提：卡住它，用户看到的不是「今天少刷一点」，而是一批账号
+集体登录失败——那个后果比省下的上游调用重得多。真正要防的「批量刷把服务商打到风控」，
+靠的是任务系统的并发数与账号间隔（`JOB_WORKERS` / `JOB_ACCOUNT_DELAY_MS`），
+不是一个每天清零的计数上限。
+
+用量仍然记：新增 `quota.Service.Record`（只记账、不判上限），与 `CheckAndConsume` 分开是
+有意的——一个叫 Check 的函数如果在某些指标上从不拒绝，读代码的人会以为那里有限额。
+用量页上「今日刷新令牌」因此显示为一个数字 + 「不限」徽章。
+
+**取件额度维持一视同仁**。中途考虑过「网页取件不计入、只限 API」，写到一半推翻了：
+会话 Cookie 同样能写进脚本，只限 API 等于留下一个「逆向网页就能绕开」的口子。
+网页、API Key、管理员因此共用同一个 `mail_fetch` 计数器与同一条上限。
+
+**删掉 `users.avatar_url`**（`000014`）：个人资料页有一个「头像 URL」输入框，
+但界面上**没有任何一处会显示它**——左栏、成员列表、后台用户列表用的都是用户名首字。
+和 000006 清掉的那批 `allow_*` 开关是同一类东西。
+
+**删掉左栏的「导入」入口**：`/mail` 的工具条上已经有「导入邮箱」，两个入口指向同一页。
+路由 `/mail/import` 保留。
+
+#### 顺带修好一个测不准的迁移用例
+
+`TestNoTxMigrationsAreRepeatable` 原来是在**跑完全部迁移**的库上重跑每个 no-tx 文件。
+000014 删掉 `avatar_url` 之后它立刻红了：000008 的整表重建当然找不到那一列。
+
+但那是个不会发生的场景——迁移是有序的，000008 只可能在版本 7 的库上执行。用例改成
+「为每个 no-tx 迁移单独建库、跑到它自己那一版、抹掉版本号再跑一次」，
+这才是「文件跑完、版本号还没记上」时崩溃的那个窗口，顺带把外键检查也加上了。
+
+### 导出去掉二次密码验证（2026-08-27）
+
+原设计照搬 outlookEmail 的 `export_verify_tokens`：导出前再输一遍自己的登录密码。
+取消它是产品决定——这个平台的用户就是来批量取自己凭据的，导出是常规操作而不是危险动作，
+每次拦一道密码框，换来的主要是「把密码练成肌肉记忆」。
+
+**剩下三道闸门一件没松**：独立权限 `account:secret`、强制审计（路由上的 `AuditWrite`）、
+按用户 10 次/分钟限流。真正的差别在于：密码框防的是「会话被盗用/电脑没锁屏」这一类，
+而那两件是事后能追责、事中能限速的。取消之后这类场景的暴露面确实变大了，
+这一点写进了 05 §4.4 与 AGENTS §5.4，不留给下一个人自己去发现。
+
+`AccountHandler` 因此不再需要 `AuthService`（它只为这一处密码比对而存在），
+构造函数收回到一个参数；`AuthService.VerifyPassword` 与 `ErrPasswordMismatch`
+一并删除——那是它们唯一的调用方，留着就是下一个「点了不生效的开关」。测试 `TestAccountExportVerifiesPasswordAndRoundTrips`
+改名为 `TestAccountExportRoundTripsAndAudits`，去掉密码分支，保留 round-trip 与审计断言。
+
+### 启动时自动建出管理员（2026-08-27）
+
+原来的 `BOOTSTRAP_ADMIN_USERNAME` 只**提权**，不建号。于是一个刚
+`cp .env.example .env && make dev` 的人只能看到一行 WARN 说后台进不去，
+而正确操作是「先注册 → 改配置 → 重启」这三步——它在任何界面上都不明显。
+
+现在多了 `BOOTSTRAP_ADMIN_PASSWORD`：用户不存在且填了密码时，启动直接把他建出来
+（绕过 `REGISTRATION_MODE=closed`，这是部署者在自己机器上开门，不是公开注册）。
+
+两个刻意的边界：
+
+- **用户已存在时不碰密码。** 每次启动都按配置重置的话，配置文件就成了一个能悄悄接管
+  已有账号的入口，而且用户改完密码会在下次重启被静默改回去
+- **建号失败不阻断启动**：其余用户照常能用，只是后台进不去，日志里有 ERROR
+
+实现上把注册的「用户 + 个人工作空间 + 成员 + 默认分组 + 配额」五件套抽成了
+`AuthService.createAccount`，注册与引导共用。抄第二遍迟早会漏掉其中一件，
+而漏掉任何一件的用户登录后页面就是坏的，且无法自助修复。
+`TestBootstrapAdminCreatesUserWhenPasswordGiven` 逐项断言这五件都在。
+
+`.env.example` 同时补了一个**示例 `ENCRYPTION_KEY`**（解开是
+`example-key-do-not-use-in-prod!!`），让 `cp .env.example .env` 之后不再报
+「凭据将以明文存储」。它和那个 admin 密码一样是公开的，两处都写明了必须替换。

@@ -12,9 +12,8 @@ type TenantMember struct {
 }
 type TenantMemberDetail struct {
 	TenantMember
-	Username  string `json:"username"`
-	Email     string `json:"email"`
-	AvatarURL string `json:"avatar_url"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
 }
 
 // AddMemberRequest 按用户名找人。邮箱自 000008 起可以不填，

@@ -29,6 +29,8 @@ const (
 	AuditMessageWrite = "message.write"
 	AuditGroupWrite   = "group.write"
 
+	AuditAPIKeyReset = "api_key.reset"
+
 	AuditTokenRefresh = "token.refresh"
 	AuditJobSubmit    = "job.submit"
 	AuditJobStop      = "job.stop"

@@ -369,34 +369,34 @@ func TestRefreshStatsGroupsByErrorKind(t *testing.T) {
 	}
 }
 
-// 提交时按账号数一次性预扣配额：跑到一半再拒绝等于让用户为半批结果付了全额。
-func TestBatchRefreshPreDeductsQuota(t *testing.T) {
-	e, store, db := newTestServerWithStore(t)
+// 令牌刷新**没有额度**（000013 起）：它是「账号还能不能用」的前提，
+// 卡住它等于让用户的账号批量失效。但用量仍然照记——用量页上那个数字是
+// 「是不是有脚本在空转」的唯一线索。
+func TestBatchRefreshHasNoQuotaButStillCounts(t *testing.T) {
+	e, _, _ := newTestServerWithStore(t)
 	token, tenantID := register(t, e, "alice", "alice@example.com")
 	seedRefreshableAccounts(t, e, token, tenantID, "ok", "ok", "ok")
 
-	// 把每日刷新上限压到 2，低于这批的 3 个
-	if _, err := db.Exec(
-		`UPDATE tenant_quotas SET daily_token_refresh = 2 WHERE tenant_id = ?`, tenantID); err != nil {
-		t.Fatal(err)
-	}
-
 	status, body := do(t, e, http.MethodPost,
 		mailPath(tenantID, "/jobs/token-refresh"), token, `{"scope":"all"}`)
-	if status != http.StatusForbidden {
-		t.Fatalf("超额提交拿到 %d，期望 403（%s）", status, body)
-	}
-	if !strings.Contains(body, `"code":1001`) {
-		t.Errorf("超额响应缺少 code=1001: %s", body)
+	if status != http.StatusOK {
+		t.Fatalf("提交拿到 %d，期望 200（%s）", status, body)
 	}
 
-	// 被拒的提交不该留下任何任务，也不该扣掉配额
-	jobs, total, err := store.ListJobs(context.Background(), tenantID, model.JobFilter{})
-	if err != nil {
+	// 3 个账号 → 用量 +3
+	_, usage := do(t, e, http.MethodGet, "/api/v1/tenants/"+tenantID+"/quota", token, "")
+	var payload struct {
+		Data struct {
+			Usage struct {
+				TokenRefresh int `json:"token_refresh"`
+			} `json:"usage"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(usage), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if total != 0 {
-		t.Errorf("被拒的提交留下了 %d 个任务: %+v", total, jobs)
+	if payload.Data.Usage.TokenRefresh != 3 {
+		t.Errorf("刷新用量 = %d，期望 3（%s）", payload.Data.Usage.TokenRefresh, usage)
 	}
 }
 

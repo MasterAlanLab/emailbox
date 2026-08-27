@@ -149,6 +149,10 @@ linters:
       - path: pkg/model/permission\.go
         linters:
           - gosec
+      # 审计动作名（api_key.reset 等）同理：是被操作的资源，不是凭据本身。
+      - path: pkg/model/audit\.go
+        linters:
+          - gosec
       # 这些是微软公开的 OAuth 端点地址与公共客户端 ID，不是凭据。
       - path: pkg/mailer/provider\.go
         linters:

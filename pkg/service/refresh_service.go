@@ -115,8 +115,10 @@ func (s *RefreshService) Run(ctx context.Context, j model.Job, item model.JobIte
 
 // RefreshOne 同步刷新一个账号，供「单个刷新」端点使用。
 func (s *RefreshService) RefreshOne(ctx context.Context, tenantID, accountID string) error {
-	// 单个刷新也要扣配额：不扣的话，一个循环调用单刷接口的脚本可以绕开整个限额。
-	if err := s.quota.CheckAndConsume(ctx, tenantID, model.MetricTokenRefresh, 1); err != nil {
+	// 只记账，不设限。令牌刷新是「账号还能不能用」的前提：卡住它，用户看到的
+	// 不是「今天少刷点」，而是一批账号集体登录失败——那个后果比省下的上游调用重得多。
+	// 记账仍然要做，用量页上的这个数字是判断「是不是有脚本在空转」的唯一线索。
+	if err := s.quota.Record(ctx, tenantID, model.MetricTokenRefresh, 1); err != nil {
 		return err
 	}
 	return s.refresh(ctx, tenantID, accountID, "", RefreshTypeManual)
@@ -175,9 +177,8 @@ func (s *RefreshService) SubmitBatch(
 		return nil, ErrNoRefreshableAccounts
 	}
 
-	// 配额在提交时按账号数一次性预扣（08 文档 §4.2）：跑到一半再拒绝，
-	// 等于让用户为半批结果付了全额，而且没法判断该从哪里续。
-	if err := s.quota.CheckAndConsume(ctx, tenantID, model.MetricTokenRefresh, len(accounts)); err != nil {
+	// 按账号数一次性记账（不设限，理由见 RefreshOne）。
+	if err := s.quota.Record(ctx, tenantID, model.MetricTokenRefresh, len(accounts)); err != nil {
 		return nil, err
 	}
 

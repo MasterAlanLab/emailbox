@@ -36,19 +36,18 @@ const createPlan = `-- name: CreatePlan :exec
 INSERT INTO plans (
     id, code, name, is_default,
     max_accounts, max_groups,
-    daily_mail_fetch, daily_token_refresh
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    daily_mail_fetch
+) VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreatePlanParams struct {
-	ID                string
-	Code              string
-	Name              string
-	IsDefault         int64
-	MaxAccounts       int64
-	MaxGroups         int64
-	DailyMailFetch    int64
-	DailyTokenRefresh int64
+	ID             string
+	Code           string
+	Name           string
+	IsDefault      int64
+	MaxAccounts    int64
+	MaxGroups      int64
+	DailyMailFetch int64
 }
 
 func (q *Queries) CreatePlan(ctx context.Context, arg CreatePlanParams) error {
@@ -60,7 +59,6 @@ func (q *Queries) CreatePlan(ctx context.Context, arg CreatePlanParams) error {
 		arg.MaxAccounts,
 		arg.MaxGroups,
 		arg.DailyMailFetch,
-		arg.DailyTokenRefresh,
 	)
 	return err
 }
@@ -78,7 +76,7 @@ func (q *Queries) DeletePlan(ctx context.Context, id string) (int64, error) {
 }
 
 const getDefaultPlan = `-- name: GetDefaultPlan :one
-SELECT id, code, name, is_default, max_accounts, max_groups, daily_mail_fetch, daily_token_refresh, created_at, updated_at FROM plans WHERE is_default = 1 ORDER BY created_at LIMIT 1
+SELECT id, code, name, is_default, max_accounts, max_groups, daily_mail_fetch, created_at, updated_at FROM plans WHERE is_default = 1 ORDER BY created_at LIMIT 1
 `
 
 func (q *Queries) GetDefaultPlan(ctx context.Context) (Plan, error) {
@@ -92,7 +90,6 @@ func (q *Queries) GetDefaultPlan(ctx context.Context) (Plan, error) {
 		&i.MaxAccounts,
 		&i.MaxGroups,
 		&i.DailyMailFetch,
-		&i.DailyTokenRefresh,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -100,7 +97,7 @@ func (q *Queries) GetDefaultPlan(ctx context.Context) (Plan, error) {
 }
 
 const getPlanByCode = `-- name: GetPlanByCode :one
-SELECT id, code, name, is_default, max_accounts, max_groups, daily_mail_fetch, daily_token_refresh, created_at, updated_at FROM plans WHERE code = ? LIMIT 1
+SELECT id, code, name, is_default, max_accounts, max_groups, daily_mail_fetch, created_at, updated_at FROM plans WHERE code = ? LIMIT 1
 `
 
 func (q *Queries) GetPlanByCode(ctx context.Context, code string) (Plan, error) {
@@ -114,7 +111,6 @@ func (q *Queries) GetPlanByCode(ctx context.Context, code string) (Plan, error) 
 		&i.MaxAccounts,
 		&i.MaxGroups,
 		&i.DailyMailFetch,
-		&i.DailyTokenRefresh,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -123,7 +119,7 @@ func (q *Queries) GetPlanByCode(ctx context.Context, code string) (Plan, error) 
 
 const getPlanByID = `-- name: GetPlanByID :one
 
-SELECT id, code, name, is_default, max_accounts, max_groups, daily_mail_fetch, daily_token_refresh, created_at, updated_at FROM plans WHERE id = ? LIMIT 1
+SELECT id, code, name, is_default, max_accounts, max_groups, daily_mail_fetch, created_at, updated_at FROM plans WHERE id = ? LIMIT 1
 `
 
 // NOTE: keep this file ASCII-only. sqlc miscomputes query boundaries when a
@@ -140,7 +136,6 @@ func (q *Queries) GetPlanByID(ctx context.Context, id string) (Plan, error) {
 		&i.MaxAccounts,
 		&i.MaxGroups,
 		&i.DailyMailFetch,
-		&i.DailyTokenRefresh,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -148,7 +143,7 @@ func (q *Queries) GetPlanByID(ctx context.Context, id string) (Plan, error) {
 }
 
 const listPlans = `-- name: ListPlans :many
-SELECT id, code, name, is_default, max_accounts, max_groups, daily_mail_fetch, daily_token_refresh, created_at, updated_at FROM plans ORDER BY created_at
+SELECT id, code, name, is_default, max_accounts, max_groups, daily_mail_fetch, created_at, updated_at FROM plans ORDER BY created_at
 `
 
 func (q *Queries) ListPlans(ctx context.Context) ([]Plan, error) {
@@ -168,7 +163,6 @@ func (q *Queries) ListPlans(ctx context.Context) ([]Plan, error) {
 			&i.MaxAccounts,
 			&i.MaxGroups,
 			&i.DailyMailFetch,
-			&i.DailyTokenRefresh,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -189,19 +183,18 @@ const updatePlan = `-- name: UpdatePlan :execrows
 UPDATE plans
 SET name = ?, is_default = ?,
     max_accounts = ?, max_groups = ?,
-    daily_mail_fetch = ?, daily_token_refresh = ?,
+    daily_mail_fetch = ?,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
 `
 
 type UpdatePlanParams struct {
-	Name              string
-	IsDefault         int64
-	MaxAccounts       int64
-	MaxGroups         int64
-	DailyMailFetch    int64
-	DailyTokenRefresh int64
-	ID                string
+	Name           string
+	IsDefault      int64
+	MaxAccounts    int64
+	MaxGroups      int64
+	DailyMailFetch int64
+	ID             string
 }
 
 // code is not updatable: it is the stable identifier other systems key off.
@@ -212,7 +205,6 @@ func (q *Queries) UpdatePlan(ctx context.Context, arg UpdatePlanParams) (int64, 
 		arg.MaxAccounts,
 		arg.MaxGroups,
 		arg.DailyMailFetch,
-		arg.DailyTokenRefresh,
 		arg.ID,
 	)
 	if err != nil {

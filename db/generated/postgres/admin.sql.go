@@ -11,22 +11,6 @@ import (
 	"time"
 )
 
-const countAdminTenants = `-- name: CountAdminTenants :one
-SELECT COUNT(*) FROM tenants t
-LEFT JOIN users u ON u.id = t.created_by
-WHERE t.deleted_at IS NULL
-  AND ($1::text IS NULL
-       OR strpos(lower(t.name), $1::text) > 0
-       OR strpos(lower(u.email), $1::text) > 0)
-`
-
-func (q *Queries) CountAdminTenants(ctx context.Context, q_ sql.NullString) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countAdminTenants, q_)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const countAdminUsers = `-- name: CountAdminUsers :one
 SELECT COUNT(*) FROM users u
 WHERE u.deleted_at IS NULL
@@ -128,6 +112,8 @@ type GetPlatformStatsRow struct {
 	TokenRefreshToday  interface{}
 }
 
+// max_accounts is resolved here (override first, then plan) so the list can
+// flag tenants sitting over their limit after an admin lowered it.
 // One round trip for the whole overview card. Each sub-select is an indexed
 // count; running eight of them separately would be eight round trips for a
 // page that is refreshed on every admin visit.
@@ -145,81 +131,6 @@ func (q *Queries) GetPlatformStats(ctx context.Context, forDay string) (GetPlatf
 		&i.TokenRefreshToday,
 	)
 	return i, err
-}
-
-const listAdminTenantsPage = `-- name: ListAdminTenantsPage :many
-SELECT t.id, t.name, t.slug, t.kind, t.created_at,
-       COALESCE(u.id, '')    AS owner_user_id,
-       COALESCE(u.email, '') AS owner_email,
-       COALESCE(pl.code, '') AS plan_code,
-       COALESCE(tq.max_accounts, pl.max_accounts, -1) AS max_accounts,
-       (SELECT COUNT(*) FROM mail_accounts ma
-         WHERE ma.tenant_id = t.id AND ma.deleted_at IS NULL) AS account_count
-FROM tenants t
-LEFT JOIN users u ON u.id = t.created_by
-LEFT JOIN tenant_quotas tq ON tq.tenant_id = t.id
-LEFT JOIN plans pl ON pl.id = tq.plan_id
-WHERE t.deleted_at IS NULL
-  AND ($1::text IS NULL
-       OR strpos(lower(t.name), $1::text) > 0
-       OR strpos(lower(u.email), $1::text) > 0)
-ORDER BY t.created_at DESC, t.id
-LIMIT $3 OFFSET $2
-`
-
-type ListAdminTenantsPageParams struct {
-	Q         sql.NullString
-	RowOffset int32
-	RowLimit  int32
-}
-
-type ListAdminTenantsPageRow struct {
-	ID           string
-	Name         string
-	Slug         string
-	Kind         string
-	CreatedAt    time.Time
-	OwnerUserID  string
-	OwnerEmail   string
-	PlanCode     string
-	MaxAccounts  int32
-	AccountCount int64
-}
-
-// max_accounts is resolved here (override first, then plan) so the list can
-// flag tenants sitting over their limit after an admin lowered it.
-func (q *Queries) ListAdminTenantsPage(ctx context.Context, arg ListAdminTenantsPageParams) ([]ListAdminTenantsPageRow, error) {
-	rows, err := q.db.QueryContext(ctx, listAdminTenantsPage, arg.Q, arg.RowOffset, arg.RowLimit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListAdminTenantsPageRow{}
-	for rows.Next() {
-		var i ListAdminTenantsPageRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Slug,
-			&i.Kind,
-			&i.CreatedAt,
-			&i.OwnerUserID,
-			&i.OwnerEmail,
-			&i.PlanCode,
-			&i.MaxAccounts,
-			&i.AccountCount,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const listAdminUsersPage = `-- name: ListAdminUsersPage :many

@@ -33,7 +33,6 @@ const LIMITS: Limits = {
   max_accounts: 50,
   max_groups: 20,
   daily_mail_fetch: 1000,
-  daily_token_refresh: 500,
 };
 
 function mockGroups(groups: MailGroupNode[]) {

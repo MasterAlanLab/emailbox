@@ -18,14 +18,10 @@ const (
 )
 
 // ExportAccountsRequest 是导出请求（05 文档 §4.4）。
-//
-// PasswordConfirm 是操作者自己的登录密码：导出等价于取走全部凭据明文，
-// 只认会话不够——会话可能是被盗的，也可能只是没锁屏的电脑被人借用了。
 type ExportAccountsRequest struct {
-	Scope           string   `json:"scope"`
-	GroupIDs        []string `json:"group_ids"`
-	AccountIDs      []string `json:"account_ids"`
-	PasswordConfirm string   `json:"password_confirm"`
+	Scope      string   `json:"scope"`
+	GroupIDs   []string `json:"group_ids"`
+	AccountIDs []string `json:"account_ids"`
 }
 
 // AccountStatus 是账号的可用状态。banned 由协议层在识别到「账号被封」时置位。
@@ -57,7 +53,7 @@ const (
 // MailAccount 是一个托管的邮箱账号。
 //
 // 三个凭据字段是加密存储的密文，绝不能出现在任何列表/详情接口里——
-// 只有导出接口（需 account:secret 权限 + 二次密码验证 + 审计）才返回明文。
+// 只有导出接口（需 account:secret 权限 + 审计）才返回明文。
 type MailAccount struct {
 	ID              string        `json:"id"`
 	TenantID        string        `json:"-"`

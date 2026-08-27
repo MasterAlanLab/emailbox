@@ -1,6 +1,7 @@
 import {
   CaretLeft,
   CaretRight,
+  Code,
   Envelope,
   FolderOpen,
   Gauge,
@@ -9,7 +10,6 @@ import {
   ShieldCheck,
   SignOut,
   Sun,
-  UploadSimple,
   type Icon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -36,12 +36,12 @@ interface NavItem {
 const PRIMARY: NavItem[] = [
   { to: "/mail", label: "邮箱", icon: Envelope, end: true },
   { to: "/mail/groups", label: "分组", icon: FolderOpen },
-  { to: "/mail/import", label: "导入", icon: UploadSimple },
   { to: "/mail/tokens", label: "令牌", icon: Key },
 ];
 
 const SECONDARY: NavItem[] = [
   { to: "/settings/usage", label: "用量", icon: Gauge },
+  { to: "/settings/api", label: "API", icon: Code },
   { to: "/admin", label: "后台", icon: ShieldCheck, adminOnly: true },
 ];
 

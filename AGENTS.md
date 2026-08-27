@@ -58,7 +58,7 @@ pkg/job/        任务系统：Manager、worker pool、事件广播
 pkg/handler/    HTTP 处理器、审计中间件、SSE writer
 pkg/service/    业务逻辑
 pkg/repo/       数据访问，在此吸收两种方言的差异
-pkg/middleware/ 会话、租户成员、平台管理员
+pkg/middleware/ 认证（会话 Cookie / API Key）、租户成员、平台管理员
 pkg/model/      数据结构、DTO、RBAC 权限矩阵
 web/src/        React 前端
 ```
@@ -86,7 +86,7 @@ web/src/        React 前端
 
 | code | 含义 |
 |---|---|
-| 1001 | 超出配额，`data` 带 `{metric, limit, used}` |
+| 1001 | 超出配额，`data` 为 null，上限与已用量写在 `message` 里 |
 | 1003 | 用户已被管理员禁用 |
 | 1004 | 邮箱账号已存在 |
 | 1005 | 上游邮件服务失败，`data` 带 `{error_kind, channel}` |
@@ -124,7 +124,7 @@ CI 会跑 `sqlc-verify` 和 PostgreSQL service container。
 
 **一个租户空间只属于一个用户。**数据模型保留了完整的多租户结构（以后要做团队协作时
 不用改表），但前端不展示这个概念：没有工作区切换、没有成员管理，后台也只有一份用户清单
-（`AdminTenantsPage` 已删，配额与「进入其邮箱」并进了用户行）。
+（`AdminTenantsPage` 与 `GET /admin/tenants` 都已删除，配额与「进入其邮箱」并进了用户行）。
 新增涉及租户的界面时，先想清楚它对用户意味着什么——多半应该表述成「用户」而不是「工作空间」。
 
 
@@ -135,6 +135,16 @@ CI 会跑 `sqlc-verify` 和 PostgreSQL service container。
   假的 `tenant_member`——那个假成员会流进审计和业务判断，事后分不清是真成员还是管理员
 - 用户侧与管理员侧挂**同一份路由表**（`api.mountMailRoutes` 挂两次），不要抄第二遍
 
+**第二条认证入口是 API Key**（`Authorization: Bearer`，2026-08-27 起）。它不是第二套接口：
+Key 认证通过后被塞成一个只读的虚拟租户角色 `model.TenantRoleAPI`，走同一份 `/mail/**` 路由，
+权限照常由 `middleware.Require` 收敛到 `group:read` / `account:read` / `message:read`。
+三条不能松的约束：
+
+- Key 只在 `/api/v1/tenants/<id>/**` 下有效（`middleware.tenantScopePrefix`）。
+  它不属于任何用户，放它进以 `user_id` 为主语的端点，handler 会拿着空 `user_id` 往下走
+- Key 拿不到 `tenant:update`，因此**读不到也重置不了自己**；拿不到 `account:secret`，导出照样 403
+- 新增只读端点时想清楚 Key 是否也该能调——它跟着权限走，不跟着路由走
+
 ### 5.4 凭据与审计
 
 - 邮箱密码、`refresh_token`、含口令的代理地址进出库经 `pkg/crypto`，密文永不出接口
@@ -144,16 +154,22 @@ CI 会跑 `sqlc-verify` 和 PostgreSQL service container。
   用整行改写会把用户此刻正在编辑的分组、备注、代理一起覆盖掉
 - 写操作挂 `handler.AuditWrite`，管理员的读挂 `handler.AuditAdminRead`
   （只记管理员：普通用户翻十页邮件就是十条，会把真正要看的淹掉）
-- **导出是全平台风险最高的接口**，四件必须同时在场：`account:secret` 权限、
-  二次密码验证、强制审计、按用户限流。少任何一件都等于开了一个不设防或不留痕的凭据出口
+- **导出是全平台风险最高的接口**，三件必须同时在场：`account:secret` 权限、
+  强制审计、按用户限流。少任何一件都等于开了一个不设防或不留痕的凭据出口
+  （二次密码验证 2026-08-27 取消：这个平台的用户本来就是来批量取自己凭据的，
+  导出是常规操作；审计与限流才是事后能追责、事中能限速的那两件）
 
 ### 5.5 配额
 
 `pkg/quota` 的 `Effective`（`COALESCE(override, plan)`）、`CheckAndConsume`（先加后判、超额回滚）、
 `CheckCount`。要点：
 
-- 走远端**之前**扣（`daily_mail_fetch`），批量任务在**提交时**按数量一次性预扣
-  （`daily_token_refresh`）——跑到一半再拒绝等于让用户为半批结果付全额
+- 走远端**之前**扣（`daily_mail_fetch`）：扣完才发请求，超额时一个远端调用都不产生
+- **取件额度对所有来源一视同仁**：网页、API Key、管理员共用同一个计数器与同一条上限。
+  只限 API 是行不通的——会话 Cookie 一样能写进脚本，那等于留了个「逆向网页就能绕开」的口子
+- **令牌刷新没有额度**（000013 起），只用 `quota.Record` 记账：它是「账号还能不能用」的
+  前提，卡住它，用户看到的不是「今天少刷一点」而是一批账号集体登录失败。
+  防批量刷把服务商打到风控靠的是 `JOB_WORKERS` / `JOB_ACCOUNT_DELAY_MS`，不是每日计数
 - 调低配额只挡新增、不追溯已有数据
 - 批量导入超额的部分计 `skipped` 并说明原因，不要整批失败
 
@@ -180,8 +196,9 @@ CI 会跑 `sqlc-verify` 和 PostgreSQL service container。
 页面在 `src/pages/`，跨页面复用的在 `src/components/`（按域分子目录，如 `mail/`、`admin/`、`layout/`）。
 组件文件 PascalCase，文件超过 ~200 行就拆。
 
-**Kumo 没有的四样要自建**：Tree（`GroupTree`）、虚拟列表（`VirtualList`，
-基于 `@tanstack/react-virtual`）、邮件正文渲染（`MessageBody`）、纵向分栏（`SplitPane`）。
+**Kumo 没有的三样要自建**：虚拟列表（`VirtualList`，基于 `@tanstack/react-virtual`）、
+邮件正文渲染（`MessageBody`）、纵向分栏（`SplitPane`）。曾经还有第四样 Tree（`GroupTree`）——
+分组在 2026-08-27 压平成一层之后不再需要树，左栏的 `GroupList` 直接复用 `SidebarRow`。
 自建组件跟随 Kumo 的 `forwardRef` / `displayName` / `cn()` 约定。
 
 Kumo 这个版本**有** `DropdownMenu`（`@cloudflare/kumo/components/dropdown`），

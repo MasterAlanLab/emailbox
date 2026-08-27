@@ -64,25 +64,46 @@ func TestCheckAndConsumeAccumulatesThenRejects(t *testing.T) {
 	svc := quota.NewService(store)
 	ctx := context.Background()
 
-	// free 套餐每日 5000 次令牌刷新。
-	if err := svc.CheckAndConsume(ctx, tenantID, model.MetricTokenRefresh, 4999); err != nil {
+	// free 套餐每日 2000 次取件。
+	if err := svc.CheckAndConsume(ctx, tenantID, model.MetricMailFetch, 1999); err != nil {
 		t.Fatalf("额度内的消费不应失败: %v", err)
 	}
-	if err := svc.CheckAndConsume(ctx, tenantID, model.MetricTokenRefresh, 1); err != nil {
+	if err := svc.CheckAndConsume(ctx, tenantID, model.MetricMailFetch, 1); err != nil {
 		t.Fatalf("刚好用满不应失败: %v", err)
 	}
-	err := svc.CheckAndConsume(ctx, tenantID, model.MetricTokenRefresh, 1)
+	err := svc.CheckAndConsume(ctx, tenantID, model.MetricMailFetch, 1)
 	if !errors.Is(err, quota.ErrQuotaExceeded) {
 		t.Fatalf("超额应返回 ErrQuotaExceeded，实际 %v", err)
 	}
 
 	// 超额的那次必须整体回滚，不能把用量推过上限——否则今天的额度会被永久“透支”。
+	used, err := svc.Usage(ctx, tenantID, model.MetricMailFetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if used != 2000 {
+		t.Errorf("被拒绝的消费不应留下用量，期望 2000，实际 %d", used)
+	}
+}
+
+// 令牌刷新只记账、没有上限：卡住它，用户看到的不是「今天少刷一点」，
+// 而是一批账号集体登录失败。用量页上那个数字仍然要能涨。
+func TestRecordCountsWithoutLimit(t *testing.T) {
+	store, tenantID := seedTenant(t)
+	svc := quota.NewService(store)
+	ctx := context.Background()
+
+	for range 3 {
+		if err := svc.Record(ctx, tenantID, model.MetricTokenRefresh, 5000); err != nil {
+			t.Fatalf("记账不该失败: %v", err)
+		}
+	}
 	used, err := svc.Usage(ctx, tenantID, model.MetricTokenRefresh)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if used != 5000 {
-		t.Errorf("被拒绝的消费不应留下用量，期望 5000，实际 %d", used)
+	if used != 15000 {
+		t.Errorf("用量应累加到 15000，实际 %d", used)
 	}
 }
 

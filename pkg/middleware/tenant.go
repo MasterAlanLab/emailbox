@@ -13,6 +13,17 @@ type TenantMiddleware struct{ store *repo.Store }
 func NewTenantMiddleware(s *repo.Store) *TenantMiddleware { return &TenantMiddleware{store: s} }
 func (m *TenantMiddleware) Member(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// API Key 不是成员，也不该是：它不属于任何用户，给它建一行 tenant_members
+		// 等于让「谁在这个工作空间里」这份名单多出一个不是人的条目。
+		// 它绑定的租户在鉴权时就定了，这里只校验 URL 里的 tenantID 与之一致，
+		// 然后交出一个只读的虚拟成员——下游的 Require 照常判权限。
+		if keyTenant := APIKeyTenant(c); keyTenant != "" {
+			if c.Param("tenantID") != keyTenant {
+				return echo.NewHTTPError(http.StatusForbidden, "API Key 无权访问该工作空间")
+			}
+			c.Set("tenant_member", &model.TenantMember{TenantID: keyTenant, Role: model.TenantRoleAPI})
+			return next(c)
+		}
 		member, e := m.store.GetMember(c.Request().Context(), c.Param("tenantID"), UserID(c))
 		if e != nil {
 			return echo.NewHTTPError(http.StatusForbidden, "您不是该租户成员")

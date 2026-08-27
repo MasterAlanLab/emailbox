@@ -11,32 +11,53 @@ import (
 )
 
 // PlatformService 管理平台角色（users.platform_role）。
-type PlatformService struct{ store *repo.Store }
+//
+// 它还持有 AuthService：引导管理员时可能要把这个用户**建出来**，
+// 而「用户 + 工作空间 + 成员 + 默认分组 + 配额」这五件套只有一处实现
+// （AuthService.createAccount），抄第二遍迟早漏掉其中一件。
+type PlatformService struct {
+	store *repo.Store
+	auth  *AuthService
+}
 
-func NewPlatformService(store *repo.Store) *PlatformService { return &PlatformService{store: store} }
+func NewPlatformService(store *repo.Store, auth *AuthService) *PlatformService {
+	return &PlatformService{store: store, auth: auth}
+}
 
 // ErrLastAdmin 表示该操作会让系统失去最后一个平台管理员。
 var ErrLastAdmin = errors.New("不能撤销最后一个平台管理员")
 
-// BootstrapAdmin 在启动时把 BOOTSTRAP_ADMIN_USERNAME 对应的用户提升为平台管理员。
+// BootstrapAdmin 在启动时准备好平台管理员：把 BOOTSTRAP_ADMIN_USERNAME 对应的用户
+// 提升为管理员；该用户还不存在且配了 BOOTSTRAP_ADMIN_PASSWORD 时，先把他建出来。
 //
 // 刻意不采用「第一个注册的人自动成为管理员」——那在开放注册的平台上是明显的抢注漏洞。
-// 用户还不存在时不做任何事，等他注册后下次启动生效。
-// 返回错误只在数据库出问题时；配置缺失或用户不存在都属于正常情况。
+// 返回错误只在数据库出问题时；配置缺失属于正常情况。
 //
 // 认的是**用户名**而不是邮箱：000008 之后邮箱可以不填，按邮箱找的话，
 // 一个所有人都没填邮箱的部署将永远产生不出管理员，后台也就永远进不去。
-func (s *PlatformService) BootstrapAdmin(ctx context.Context, username string) error {
+//
+// **用户已存在时不碰他的密码。** 每次启动都按配置重置密码的话，配置文件就成了
+// 一个能悄悄接管已有账号的入口，而且改一次密码会在下次重启时被静默改回去。
+func (s *PlatformService) BootstrapAdmin(ctx context.Context, username, password string) error {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return s.warnIfNoAdmin(ctx)
 	}
 	user, err := s.store.GetUserByUsername(ctx, username)
-	if err != nil {
-		if errors.Is(err, repo.ErrNotFound) {
-			slog.Warn("BOOTSTRAP_ADMIN_USERNAME 对应的用户尚不存在，等其注册后下次启动生效", "username", username)
+	if errors.Is(err, repo.ErrNotFound) {
+		if strings.TrimSpace(password) == "" {
+			slog.Warn("BOOTSTRAP_ADMIN_USERNAME 对应的用户尚不存在；配 BOOTSTRAP_ADMIN_PASSWORD 可在启动时自动建号，或等其自行注册后下次启动生效",
+				"username", username)
 			return s.warnIfNoAdmin(ctx)
 		}
+		if user, err = s.auth.CreateBootstrapAdmin(ctx, username, password); err != nil {
+			// 建不出来不该挡住服务启动：其余用户照常能用，后台进不去而已。
+			slog.Error("按 BOOTSTRAP_ADMIN_USERNAME 建号失败", "username", username, "error", err)
+			return s.warnIfNoAdmin(ctx)
+		}
+		slog.Warn("已按配置创建管理员账号，请立刻登录改密码，并把 BOOTSTRAP_ADMIN_PASSWORD 从环境里删掉",
+			"username", username, "user_id", user.ID)
+	} else if err != nil {
 		return err
 	}
 	if user.IsPlatformAdmin() {

@@ -5,7 +5,7 @@
 | 阶段 | 名称 | 主要交付 | 依赖 |
 |---|---|---|---|
 | P0 | 地基改造 | 模块改名、加密设施、Kumo 接入、SaaS 数据模型与注册流程、平台管理员中间件、双引擎 SQL 基建 | – |
-| P1 | 分组与账号 | 分组树、账号 CRUD、批量导入/导出、别名、代理配置、配额强制 | P0 |
+| P1 | 分组与账号 | 分组、账号 CRUD、批量导入/导出、别名、代理配置、配额强制 | P0 |
 | P2 | 邮件协议层 | `pkg/mailer` 全量：Graph + IMAP + 回退链 + 代理；邮件读取/详情/附件 | P0 |
 | P3 | 管理后台 | 用户管理、跨租户邮箱管理、套餐与配额管理、审计 | P1 |
 | P4 | 任务系统 | jobs 表、worker pool、SSE、Token 批量刷新、刷新统计与日志 | P1, P2 |
@@ -101,7 +101,7 @@ P3 与 P4 也可并行（一人做后台，一人做任务系统）。
    - **配额强制**：`max_accounts` / `max_groups` 在创建路径检查；
      导入超额部分计入 `skipped` 而非整批失败
 6. `pkg/handler` + 路由注册（[05 文档 §3、§4](05-api-design.md)）
-7. 前端：`/mail` 左两栏（`GroupTree` + `AccountList`）、`/mail/import` 向导、
+7. 前端：`/mail` 左两栏（`GroupList` + `AccountList`）、`/mail/import` 向导、
    `/mail/groups` 分组管理、`/settings/usage` 配额页
    - `selectionStore` 与 `AccountBatchMenu`（Kumo `DropdownMenu`）
    - 自建 `VirtualList`（`@tanstack/react-virtual`）与 `SplitPane`
@@ -109,7 +109,8 @@ P3 与 P4 也可并行（一人做后台，一人做任务系统）。
 ### 验收
 
 - 配额为 50 的租户导入 200 行 → 创建 50、跳过 150，响应明确说明原因
-- 分组三级限制、防环、级联删除、账号回落默认分组，均有单测
+- 分组的重名、删除后账号回落默认分组、系统分组不可删，均有单测
+  （原先的三级限制、防环、级联删除随 2026-08-27 的分组压平一并删除）
 - 别名冲突的 4 种情形均被拒绝
 - 导出文件能被本平台重新导入且账号数一致（round-trip 测试）
 - 账号列表 1 万条下前端滚动不掉帧
@@ -202,7 +203,7 @@ CLI 调试工具（`cmd/mailprobe`），用真实账号验证后再接入 servic
 3. SSE：`stream.go` 广播 + `job_events` 回放（`Last-Event-ID` / `?last_event_id=`）
 4. `RefreshService`：单个刷新、批量提交、写回 `refresh_token_enc` + `last_refresh_*`
    - **refresh_token 轮换**：微软返回新 token 时必须持久化，漏了会导致下次刷新失败
-   - `daily_token_refresh` 配额在提交时按 `len(account_ids)` 预扣
+   - 刷新用量在提交时按 `len(account_ids)` 记账（**没有额度**，见 08 文档 §4.2）
 5. 统计接口：按 `error_kind` 聚合
 6. 前端：`/mail/tokens`（Kumo `Table` + `Pagination` + `Meter` 进度 + `Code` 日志）+ `jobStore`
 
@@ -251,8 +252,8 @@ CLI 调试工具（`cmd/mailprobe`），用真实账号验证后再接入 servic
 | R5 | 内存限流器不支持多实例 | 多实例部署限流失效 | **本方案明确单实例部署**；要上多实例再换实现 |
 | R6 | **Kumo 缺 Tree / 虚拟化 / ContextMenu** | 三个核心交互要自建 | 已在 [06 文档 §2.1](06-frontend.md) 列出自建清单与依赖；自建组件遵循 Kumo 的 forwardRef/displayName/`cn()` 约定 |
 | R7 | Kumo 的令牌约束与模板既有样式冲突 | 亮/暗模式错乱 | P0 一次性清理 `style.css` 与 5 个既有页面；ESLint 规则长期拦截 |
-| R8 | 前端类型与后端 model 手工同步易漂移 | 运行时错误 | 集中在 `types/mail.ts`；类型量级不大，手写即可，暂不引入代码生成 |
-| R9 | 导出接口泄露全量凭据 | 灾难级 | 独立权限 `account:secret` + 二次密码验证 + 强制审计 + 频率限制 |
+| R8 | 前端类型与后端 model 手工同步易漂移 | 运行时错误 | 集中在 `web/src/api/mail.ts`；类型量级不大，手写即可，暂不引入代码生成 |
+| R9 | 导出接口泄露全量凭据 | 灾难级 | 独立权限 `account:secret` + 强制审计 + 按用户限流（二次密码验证已于 2026-08-27 取消，见 05 §4.4） |
 | R10 | 邮件 HTML 的 XSS | 多租户下爆炸半径是整个平台 | DOMPurify + sandbox iframe 双层（[06 文档 §6.1](06-frontend.md)） |
 | R11 | 批量刷新触发微软风控导致账号被封 | 用户资产损失 | 账号间延迟可配、并发数可配、检测到 abuse mode 立即停该账号并标记；配额天然限速 |
 | R12 | 管理员权限滥用 | 信任崩塌 | 跨租户读写全审计、不做 impersonation、管理员名单后台可见（[08 文档 §2.4](08-saas-admin.md)） |
@@ -302,3 +303,18 @@ P0 的第 5 项（**注册五件套事务化**）优先做——它决定了此�
 开关，比没有这个开关更糟。
 
 **日后若要重做这些能力**，按新需求重写设计，不要去翻历史版本，也不要指望库里还留着位置。
+
+### 5.1 API Key：2026-08-27 重新做了一小块
+
+上表里「API Key 与对外 API」这一条部分回来了，但**是按新需求重写的，不是把 P6 捡回来**，
+两者的范围差得很远：
+
+| | 原 P6 设计 | 实际做的 |
+|---|---|---|
+| 路由 | 独立的 `/api/external/v1/**` | 没有新接口，Key 走同一份 `/mail/**` |
+| 权限 | 按 Key 配置作用域 | 固定只读三项，不可配 |
+| 数量 | 一租户多把、可命名、可设过期 | 一租户一把，只能重置 |
+| 配套 | 分享链接、Webhook | 只有一份公开的 `/llms.txt` |
+
+做法见 [05 文档 §3.1](05-api-design.md) 与 [PROGRESS.md](PROGRESS.md)「对外取件 API」。
+仍然不做的：多把 Key、按分组限定作用域、Key 级限流、过期时间、写权限、Webhook 推送。

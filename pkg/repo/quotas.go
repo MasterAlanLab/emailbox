@@ -70,7 +70,7 @@ func (s *Store) GetEffectiveQuota(ctx context.Context, tenantID string) (*model.
 		return &model.Limits{
 			PlanCode: v.PlanCode, PlanName: v.PlanName,
 			MaxAccounts: int(v.MaxAccounts), MaxGroups: int(v.MaxGroups),
-			DailyMailFetch: int(v.DailyMailFetch), DailyTokenRefresh: int(v.DailyTokenRefresh),
+			DailyMailFetch: int(v.DailyMailFetch),
 		}, nil
 	}
 	v, e := s.postgres.GetEffectiveQuota(ctx, tenantID)
@@ -80,7 +80,7 @@ func (s *Store) GetEffectiveQuota(ctx context.Context, tenantID string) (*model.
 	return &model.Limits{
 		PlanCode: v.PlanCode, PlanName: v.PlanName,
 		MaxAccounts: int(v.MaxAccounts), MaxGroups: int(v.MaxGroups),
-		DailyMailFetch: int(v.DailyMailFetch), DailyTokenRefresh: int(v.DailyTokenRefresh),
+		DailyMailFetch: int(v.DailyMailFetch),
 	}, nil
 }
 
@@ -117,8 +117,8 @@ func mapSQLitePlan(p sqlitedb.Plan) *model.Plan {
 	return &model.Plan{
 		ID: p.ID, Code: p.Code, Name: p.Name, IsDefault: p.IsDefault != 0,
 		MaxAccounts: int(p.MaxAccounts), MaxGroups: int(p.MaxGroups),
-		DailyMailFetch: int(p.DailyMailFetch), DailyTokenRefresh: int(p.DailyTokenRefresh),
-		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		DailyMailFetch: int(p.DailyMailFetch),
+		CreatedAt:      p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 }
 
@@ -126,20 +126,19 @@ func mapPostgresPlan(p postgresdb.Plan) *model.Plan {
 	return &model.Plan{
 		ID: p.ID, Code: p.Code, Name: p.Name, IsDefault: p.IsDefault != 0,
 		MaxAccounts: int(p.MaxAccounts), MaxGroups: int(p.MaxGroups),
-		DailyMailFetch: int(p.DailyMailFetch), DailyTokenRefresh: int(p.DailyTokenRefresh),
-		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		DailyMailFetch: int(p.DailyMailFetch),
+		CreatedAt:      p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 }
 
 // QuotaOverrides 是管理员针对单个租户的配额覆盖值。
 // nil 表示该项不覆盖，取套餐的基线值。
 type QuotaOverrides struct {
-	MaxAccounts       *int
-	MaxGroups         *int
-	DailyMailFetch    *int
-	DailyTokenRefresh *int
-	Note              string
-	UpdatedBy         *string
+	MaxAccounts    *int
+	MaxGroups      *int
+	DailyMailFetch *int
+	Note           string
+	UpdatedBy      *string
 }
 
 // UpdateTenantQuotaOverrides 写入配额覆盖值。
@@ -150,14 +149,14 @@ func (s *Store) UpdateTenantQuotaOverrides(ctx context.Context, tenantID string,
 	if s.driver == "sqlite" {
 		n, e = s.sqlite.UpdateTenantQuotaOverrides(ctx, sqlitedb.UpdateTenantQuotaOverridesParams{
 			MaxAccounts: nullInt64(o.MaxAccounts), MaxGroups: nullInt64(o.MaxGroups),
-			DailyMailFetch: nullInt64(o.DailyMailFetch), DailyTokenRefresh: nullInt64(o.DailyTokenRefresh),
-			Note: o.Note, UpdatedBy: nullableString(o.UpdatedBy), TenantID: tenantID,
+			DailyMailFetch: nullInt64(o.DailyMailFetch),
+			Note:           o.Note, UpdatedBy: nullableString(o.UpdatedBy), TenantID: tenantID,
 		})
 	} else {
 		n, e = s.postgres.UpdateTenantQuotaOverrides(ctx, postgresdb.UpdateTenantQuotaOverridesParams{
 			MaxAccounts: nullInt32(o.MaxAccounts), MaxGroups: nullInt32(o.MaxGroups),
-			DailyMailFetch: nullInt32(o.DailyMailFetch), DailyTokenRefresh: nullInt32(o.DailyTokenRefresh),
-			Note: o.Note, UpdatedBy: nullableString(o.UpdatedBy), TenantID: tenantID,
+			DailyMailFetch: nullInt32(o.DailyMailFetch),
+			Note:           o.Note, UpdatedBy: nullableString(o.UpdatedBy), TenantID: tenantID,
 		})
 	}
 	return rowsAffected(n, e)
@@ -192,13 +191,13 @@ func (s *Store) CreatePlan(ctx context.Context, p model.Plan) error {
 		err = s.sqlite.CreatePlan(ctx, sqlitedb.CreatePlanParams{
 			ID: p.ID, Code: p.Code, Name: p.Name, IsDefault: boolToInt64(p.IsDefault),
 			MaxAccounts: int64(p.MaxAccounts), MaxGroups: int64(p.MaxGroups),
-			DailyMailFetch: int64(p.DailyMailFetch), DailyTokenRefresh: int64(p.DailyTokenRefresh),
+			DailyMailFetch: int64(p.DailyMailFetch),
 		})
 	} else {
 		err = s.postgres.CreatePlan(ctx, postgresdb.CreatePlanParams{
 			ID: p.ID, Code: p.Code, Name: p.Name, IsDefault: boolToInt32(p.IsDefault),
 			MaxAccounts: int32(p.MaxAccounts), MaxGroups: int32(p.MaxGroups),
-			DailyMailFetch: int32(p.DailyMailFetch), DailyTokenRefresh: int32(p.DailyTokenRefresh),
+			DailyMailFetch: int32(p.DailyMailFetch),
 		})
 	}
 	return normalize(err)
@@ -210,13 +209,13 @@ func (s *Store) UpdatePlan(ctx context.Context, p model.Plan) error {
 		return rowsAffected(s.sqlite.UpdatePlan(ctx, sqlitedb.UpdatePlanParams{
 			Name: p.Name, IsDefault: boolToInt64(p.IsDefault),
 			MaxAccounts: int64(p.MaxAccounts), MaxGroups: int64(p.MaxGroups),
-			DailyMailFetch: int64(p.DailyMailFetch), DailyTokenRefresh: int64(p.DailyTokenRefresh), ID: p.ID,
+			DailyMailFetch: int64(p.DailyMailFetch), ID: p.ID,
 		}))
 	}
 	return rowsAffected(s.postgres.UpdatePlan(ctx, postgresdb.UpdatePlanParams{
 		Name: p.Name, IsDefault: boolToInt32(p.IsDefault),
 		MaxAccounts: int32(p.MaxAccounts), MaxGroups: int32(p.MaxGroups),
-		DailyMailFetch: int32(p.DailyMailFetch), DailyTokenRefresh: int32(p.DailyTokenRefresh), ID: p.ID,
+		DailyMailFetch: int32(p.DailyMailFetch), ID: p.ID,
 	}))
 }
 

@@ -187,12 +187,6 @@ func (s *AdminService) DeleteUser(ctx context.Context, actorID, userID string) (
 	return accounts, nil
 }
 
-// ---------- 租户 ----------
-
-func (s *AdminService) ListTenants(ctx context.Context, f model.AdminTenantFilter) ([]model.AdminTenant, int, error) {
-	return s.store.ListAdminTenants(ctx, f)
-}
-
 // ---------- 套餐 ----------
 
 func (s *AdminService) ListPlans(ctx context.Context) ([]model.Plan, error) {

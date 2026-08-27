@@ -22,7 +22,6 @@ type Querier interface {
 	ClearSessionsActiveTenant(ctx context.Context, activeTenantID sql.NullString) error
 	ConsumeUsage(ctx context.Context, arg ConsumeUsageParams) (int64, error)
 	CountAccountsPerGroup(ctx context.Context, tenantID string) ([]CountAccountsPerGroupRow, error)
-	CountAdminTenants(ctx context.Context, q_ interface{}) (int64, error)
 	CountAdminUsers(ctx context.Context, arg CountAdminUsersParams) (int64, error)
 	CountAuditLogs(ctx context.Context, arg CountAuditLogsParams) (int64, error)
 	CountConflictingAliases(ctx context.Context, arg CountConflictingAliasesParams) (int64, error)
@@ -94,6 +93,11 @@ type Querier interface {
 	DeleteTenantMemberKeepingOwner(ctx context.Context, arg DeleteTenantMemberKeepingOwnerParams) (int64, error)
 	FinishJob(ctx context.Context, arg FinishJobParams) (int64, error)
 	FinishJobItem(ctx context.Context, arg FinishJobItemParams) error
+	GetAPIKeyByHash(ctx context.Context, tokenHash string) (TenantApiKey, error)
+	// NOTE: keep this file ASCII-only. sqlc miscomputes query boundaries when a
+	// .sql file contains multi-byte characters and silently truncates the SQL.
+	// Explanations live in pkg/repo/api_keys.go instead.
+	GetAPIKeyByTenant(ctx context.Context, tenantID string) (TenantApiKey, error)
 	GetAdminUser(ctx context.Context, id string) (GetAdminUserRow, error)
 	GetDefaultPlan(ctx context.Context) (Plan, error)
 	GetEffectiveQuota(ctx context.Context, tenantID string) (GetEffectiveQuotaRow, error)
@@ -110,6 +114,8 @@ type Querier interface {
 	// .sql file contains multi-byte characters and silently truncates the SQL.
 	// Explanations live in pkg/repo/quotas.go instead.
 	GetPlanByID(ctx context.Context, id string) (Plan, error)
+	// max_accounts is resolved here (override first, then plan) so the list can
+	// flag tenants sitting over their limit after an admin lowered it.
 	// One round trip for the whole overview card. Each sub-select is an indexed
 	// count; running eight of them separately would be eight round trips for a
 	// page that is refreshed on every admin visit.
@@ -129,9 +135,6 @@ type Querier interface {
 	// the error text, not its kind. Bounded by a time window so the aggregate does
 	// not slowly turn into a full-table scan as history accumulates.
 	GroupRefreshFailuresByKind(ctx context.Context, arg GroupRefreshFailuresByKindParams) ([]GroupRefreshFailuresByKindRow, error)
-	// max_accounts is resolved here (override first, then plan) so the list can
-	// flag tenants sitting over their limit after an admin lowered it.
-	ListAdminTenantsPage(ctx context.Context, arg ListAdminTenantsPageParams) ([]ListAdminTenantsPageRow, error)
 	// NOTE: keep this file ASCII-only. sqlc miscomputes query boundaries when a
 	// .sql file contains multi-byte characters and silently truncates the SQL.
 	// Explanations live in pkg/repo/admin.go instead.
@@ -205,6 +208,7 @@ type Querier interface {
 	UpdateUserPlatformRole(ctx context.Context, arg UpdateUserPlatformRoleParams) (int64, error)
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (int64, error)
 	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) (int64, error)
+	UpsertAPIKey(ctx context.Context, arg UpsertAPIKeyParams) error
 }
 
 var _ Querier = (*Queries)(nil)

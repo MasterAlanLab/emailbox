@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -98,14 +99,18 @@ func TestDecryptRejectsCorruptedCiphertext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
 	}
-	// 翻转最后一个字符来模拟篡改
-	tampered := []byte(enc)
-	if tampered[len(tampered)-1] == 'A' {
-		tampered[len(tampered)-1] = 'B'
-	} else {
-		tampered[len(tampered)-1] = 'A'
+	// 篡改要落在**解码后的字节**上。
+	// 这里原来是「翻转 base64 串的最后一个字符」，那是个会随机变红的写法：
+	// RawURLEncoding 的最后一个字符可能只有 2 或 4 位是有效的，剩下是填充位，
+	// 而 Go 默认的解码器不校验填充位——改到填充位上时解出来的字节一模一样，
+	// 解密当然成功，用例就红了，而被测代码没有任何问题。
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(enc, Prefix))
+	if err != nil {
+		t.Fatalf("解码自己产生的密文失败: %v", err)
 	}
-	cases["篡改内容"] = string(tampered)
+	// 翻最后一个字节的一位：那是 GCM 认证标签的一部分，必被拒绝
+	raw[len(raw)-1] ^= 0x01
+	cases["篡改内容"] = Prefix + base64.RawURLEncoding.EncodeToString(raw)
 
 	for name, input := range cases {
 		if _, err := c.Decrypt(input); err == nil {

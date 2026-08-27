@@ -21,21 +21,6 @@ export interface AdminUser {
   over_quota: boolean;
 }
 
-export interface AdminTenant {
-  id: string;
-  name: string;
-  slug: string;
-  kind: "personal" | "team";
-  created_at: string;
-  owner_user_id: string;
-  owner_email: string;
-  plan_code: string;
-  max_accounts: number;
-  account_count: number;
-  // 调低配额不追溯删除已有数据，因此「已经超额」是合法且会长期存在的状态。
-  over_quota: boolean;
-}
-
 export interface Plan {
   id: string;
   code: string;
@@ -44,7 +29,6 @@ export interface Plan {
   max_accounts: number;
   max_groups: number;
   daily_mail_fetch: number;
-  daily_token_refresh: number;
   created_at: string;
   updated_at: string;
 }
@@ -87,7 +71,6 @@ export interface AdminQuotaUpdate {
   max_accounts?: number | null;
   max_groups?: number | null;
   daily_mail_fetch?: number | null;
-  daily_token_refresh?: number | null;
 }
 
 export interface TenantQuotaUsage {
@@ -120,8 +103,6 @@ export const adminApi = {
     (await client.delete<ApiResponse<{ deleted_accounts: number }>>(`${base}/users/${userID}`))
       .data,
 
-  tenants: async (params: { q?: string; page?: number }) =>
-    (await client.get<ApiResponse<Page<AdminTenant>>>(`${base}/tenants`, { params })).data,
   tenantQuota: async (tenantID: string) =>
     (await client.get<ApiResponse<TenantQuotaUsage>>(`${base}/tenants/${tenantID}/quota`)).data,
   updateTenantQuota: async (tenantID: string, data: AdminQuotaUpdate) =>

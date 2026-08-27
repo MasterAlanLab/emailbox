@@ -46,6 +46,7 @@ func IsBulkPath(path string) bool {
 
 type Handlers struct {
 	Auth    *handler.AuthHandler
+	APIKey  *handler.APIKeyHandler
 	User    *handler.UserHandler
 	Tenant  *handler.TenantHandler
 	Member  *handler.MemberHandler
@@ -66,6 +67,10 @@ func SetupRoutes(
 	tenant *middleware.TenantMiddleware,
 	platform *middleware.PlatformMiddleware,
 ) {
+	// llms.txt 是给 Agent 看的接入说明：公开、无鉴权、不含任何 Key。
+	// 挂在根路径是这个文件的惯例（llmstxt.org），抓取方不必先知道 /api/v1。
+	e.GET("/llms.txt", h.APIKey.LLMs)
+
 	v1 := e.Group("/api/v1")
 	// 未认证的凭据接口按 IP 限流，缓解暴力破解和 bcrypt CPU 消耗。
 	// Rate 的单位是「次/秒」：0.2 即约 12 次/分钟，Burst 允许用户连续试错 10 次。
@@ -92,6 +97,11 @@ func SetupRoutes(
 	t.DELETE("", h.Tenant.Delete, middleware.Require(model.PermissionTenantDelete))
 	t.POST("/select", h.Tenant.Select, middleware.Require(model.PermissionTenantRead))
 	t.GET("/quota", h.Quota.Get, middleware.Require(model.PermissionTenantRead))
+	// API Key 的读与重置都要 tenant:update：它等价于发放一把能读全部邮件的钥匙，
+	// 不能让只读成员拿到。Key 自己的角色没有这一项，因此读不到也重置不了自己。
+	t.GET("/api-key", h.APIKey.Get, middleware.Require(model.PermissionTenantUpdate))
+	t.POST("/api-key/reset", h.APIKey.Reset, middleware.Require(model.PermissionTenantUpdate),
+		handler.AuditWrite(h.Audit, model.AuditAPIKeyReset, "api_key", ""))
 	t.GET("/members", h.Member.List, middleware.Require(model.PermissionMemberRead))
 	t.POST("/members", h.Member.Add, middleware.Require(model.PermissionMemberCreate))
 	t.PATCH("/members/:userID", h.Member.Update, middleware.Require(model.PermissionMemberUpdate))
@@ -150,8 +160,8 @@ func mountMailRoutes(m *echo.Group, h Handlers, exportLimiter echo.MiddlewareFun
 	m.POST("/accounts/import", h.Account.Import, middleware.Require(model.PermissionAccountWrite),
 		BulkBody(), audit(model.AuditAccountImport, "account", ""))
 	// 导出是全平台风险最高的接口：一次调用等于取走整租户的凭据明文。
-	// 权限、二次密码验证（handler 内）、审计、限流四件必须同时在场，
-	// 缺任何一件都等于开了一个不留痕或不设防的凭据出口（07 文档 R9）。
+	// 权限、审计、限流三件必须同时在场，缺任何一件都等于开了一个不留痕或
+	// 不设防的凭据出口（07 文档 R9）。
 	m.POST("/accounts/export", h.Account.Export, middleware.Require(model.PermissionAccountSecret),
 		exportLimiter, BulkBody(), audit(model.AuditAccountExport, "account", ""))
 	m.GET("/accounts/:accountID", h.Account.Get, middleware.Require(model.PermissionAccountRead),
@@ -225,8 +235,6 @@ func mountAdminRoutes(admin *echo.Group, h Handlers, platform *middleware.Platfo
 	admin.POST("/plans", h.Admin.CreatePlan)
 	admin.PATCH("/plans/:planID", h.Admin.UpdatePlan)
 	admin.DELETE("/plans/:planID", h.Admin.DeletePlan)
-
-	admin.GET("/tenants", h.Admin.ListTenants)
 
 	// 跨租户视图。TenantContext 确认租户存在，之后的邮箱路由与用户侧完全同构。
 	at := admin.Group("/tenants/:tenantID", platform.TenantContext)

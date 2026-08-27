@@ -10,6 +10,15 @@ APP_ENV=development
 
 `production` 下若干安全项会从「启动告警」升级为「启动失败」，目前包括 `ENCRYPTION_KEY`。
 
+## 服务监听
+
+```env
+SERVER_HOST=0.0.0.0
+SERVER_PORT=1323
+```
+
+单进程部署，Go 同时伺服 API 与 `static/` 下的前端产物。
+
 ## SQLite
 
 ```env
@@ -70,6 +79,10 @@ CORS_ALLOW_ORIGINS=http://localhost:5173,http://localhost:3000
 ENCRYPTION_KEY=
 ```
 
+`.env.example` 里带了一个**示例密钥**（解开来是 `example-key-do-not-use-in-prod!!`），
+只为让人 `cp .env.example .env` 之后能直接跑起来。它写在仓库里、谁都看得见，
+用它等于没加密——任何真实部署都必须 `make gen-key` 换成自己的。
+
 邮箱账号的登录密码、OAuth `refresh_token`、含认证信息的代理地址等在落库前用
 AES-256-GCM 加密，密文格式为 `enc:v1:` + base64url(nonce ‖ 密文 ‖ tag)，每条记录使用独立随机 nonce。
 
@@ -86,13 +99,25 @@ REGISTRATION_MODE=open
 
 # 启动时把该用户名对应的用户提升为平台管理员
 BOOTSTRAP_ADMIN_USERNAME=admin
+# 该用户还不存在时，用这个密码把他建出来（连同个人工作空间、默认分组、配额）
+BOOTSTRAP_ADMIN_PASSWORD=admin123..
 
 # 新注册租户默认套餐的 code
 DEFAULT_PLAN_CODE=free
 ```
 
-`BOOTSTRAP_ADMIN_USERNAME` 对应的用户不存在时不做任何事，等他注册后下次启动生效。
 不采用「第一个注册的人自动成为管理员」——那在开放注册的平台上是明显的抢注漏洞。
+
+两条规则：
+
+- **只填用户名**：用户不存在时什么都不做，等他注册后下次启动生效
+- **填了密码**：用户不存在时直接建号并提权（绕过 `REGISTRATION_MODE=closed`，
+  这是部署者在自己机器上开门，不是公开注册）。**用户已存在时不会改他的密码**——
+  配置文件不该能悄悄接管一个已有账号，也不该在用户改完密码后于下次重启静默改回去
+
+`.env.example` 里的 `admin` / `admin123..` 是为了 `cp .env.example .env` 之后后台直接能进。
+它写在仓库里，等于公开凭据：**建号成功后立刻登录改密码，并把 `BOOTSTRAP_ADMIN_PASSWORD`
+从环境里删掉**。启动日志里的那条 WARN 就是提醒这件事的。
 
 认用户名而不是邮箱：邮箱是可选字段，按邮箱找的话，一个所有人都没填邮箱的部署
 将永远产生不出管理员，后台也就永远进不去。用户名两端的空白会被忽略，

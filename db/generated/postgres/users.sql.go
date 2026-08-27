@@ -21,7 +21,7 @@ func (q *Queries) CountPlatformAdmins(ctx context.Context) (int64, error) {
 }
 
 const createUser = `-- name: CreateUser :exec
-INSERT INTO users (id, username, email, password_hash, avatar_url, status) VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO users (id, username, email, password_hash, status) VALUES ($1, $2, $3, $4, $5)
 `
 
 type CreateUserParams struct {
@@ -29,7 +29,6 @@ type CreateUserParams struct {
 	Username     string
 	Email        string
 	PasswordHash string
-	AvatarUrl    string
 	Status       string
 }
 
@@ -39,14 +38,13 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
 		arg.Username,
 		arg.Email,
 		arg.PasswordHash,
-		arg.AvatarUrl,
 		arg.Status,
 	)
 	return err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at, deleted_at, platform_role, last_login_at FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1
+SELECT id, username, email, password_hash, status, created_at, updated_at, deleted_at, platform_role, last_login_at FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1
 `
 
 func (q *Queries) GetUserByID(ctx context.Context, id string) (User, error) {
@@ -57,7 +55,6 @@ func (q *Queries) GetUserByID(ctx context.Context, id string) (User, error) {
 		&i.Username,
 		&i.Email,
 		&i.PasswordHash,
-		&i.AvatarUrl,
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -69,7 +66,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id string) (User, error) {
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, email, password_hash, avatar_url, status, created_at, updated_at, deleted_at, platform_role, last_login_at FROM users WHERE username = $1 AND deleted_at IS NULL LIMIT 1
+SELECT id, username, email, password_hash, status, created_at, updated_at, deleted_at, platform_role, last_login_at FROM users WHERE username = $1 AND deleted_at IS NULL LIMIT 1
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
@@ -80,7 +77,6 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.Username,
 		&i.Email,
 		&i.PasswordHash,
-		&i.AvatarUrl,
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -126,23 +122,17 @@ func (q *Queries) UpdateUserPlatformRole(ctx context.Context, arg UpdateUserPlat
 }
 
 const updateUserProfile = `-- name: UpdateUserProfile :execrows
-UPDATE users SET username = $1, email = $2, avatar_url = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4 AND deleted_at IS NULL
+UPDATE users SET username = $1, email = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 AND deleted_at IS NULL
 `
 
 type UpdateUserProfileParams struct {
-	Username  string
-	Email     string
-	AvatarUrl string
-	ID        string
+	Username string
+	Email    string
+	ID       string
 }
 
 func (q *Queries) UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateUserProfile,
-		arg.Username,
-		arg.Email,
-		arg.AvatarUrl,
-		arg.ID,
-	)
+	result, err := q.db.ExecContext(ctx, updateUserProfile, arg.Username, arg.Email, arg.ID)
 	if err != nil {
 		return 0, err
 	}

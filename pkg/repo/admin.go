@@ -199,55 +199,6 @@ func (s *Store) SoftDeleteMailAccountsByTenant(ctx context.Context, tenantID str
 	return int(n), nil
 }
 
-// ListAdminTenants 按条件分页取租户，同时返回总条数。
-func (s *Store) ListAdminTenants(ctx context.Context, f model.AdminTenantFilter) ([]model.AdminTenant, int, error) {
-	f.Normalize()
-	q := searchTerm(f.Query)
-	out := []model.AdminTenant{}
-
-	if s.driver == "sqlite" {
-		rows, err := s.sqlite.ListAdminTenantsPage(ctx, sqlitedb.ListAdminTenantsPageParams{
-			Q:         anyStr(q),
-			RowLimit:  int64(f.Limit),
-			RowOffset: int64(f.Offset()),
-		})
-		if err != nil {
-			return nil, 0, err
-		}
-		for _, r := range rows {
-			t := model.AdminTenant{
-				ID: r.ID, Name: r.Name, Slug: r.Slug, Kind: r.Kind, CreatedAt: r.CreatedAt,
-				OwnerUserID: r.OwnerUserID, OwnerEmail: r.OwnerEmail, PlanCode: r.PlanCode,
-				MaxAccounts: int(asInt64(r.MaxAccounts)), AccountCount: int(r.AccountCount),
-			}
-			t.ComputeOverQuota()
-			out = append(out, t)
-		}
-		total, err := s.sqlite.CountAdminTenants(ctx, anyStr(q))
-		return out, int(total), err
-	}
-
-	rows, err := s.postgres.ListAdminTenantsPage(ctx, postgresdb.ListAdminTenantsPageParams{
-		Q:         nullStr(q),
-		RowLimit:  int32(f.Limit),
-		RowOffset: int32(f.Offset()),
-	})
-	if err != nil {
-		return nil, 0, err
-	}
-	for _, r := range rows {
-		t := model.AdminTenant{
-			ID: r.ID, Name: r.Name, Slug: r.Slug, Kind: r.Kind, CreatedAt: r.CreatedAt,
-			OwnerUserID: r.OwnerUserID, OwnerEmail: r.OwnerEmail, PlanCode: r.PlanCode,
-			MaxAccounts: int(asInt64(r.MaxAccounts)), AccountCount: int(r.AccountCount),
-		}
-		t.ComputeOverQuota()
-		out = append(out, t)
-	}
-	total, err := s.postgres.CountAdminTenants(ctx, nullStr(q))
-	return out, int(total), err
-}
-
 // GetPlatformStats 一次取齐总览卡片的所有计数。day 是租户时区下的 YYYY-MM-DD。
 func (s *Store) GetPlatformStats(ctx context.Context, day string) (*model.PlatformStats, error) {
 	if s.driver == "sqlite" {

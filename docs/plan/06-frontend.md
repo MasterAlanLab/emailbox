@@ -104,13 +104,16 @@ Kumo 提供约 30 个组件。下表是本项目每个界面元素的落位，**
 
 | 需求 | 方案 |
 |---|---|
-| **三级分组树** | 无 `Tree` 组件。用 `Button`(ghost) + `Badge`(计数) + `DropdownMenu`(节点菜单) 组合出 `GroupTree`；展开/折叠自己管状态；拖拽移动用原生 HTML5 DnD |
 | **虚拟滚动列表** | Kumo `Table` 面向常规数据量，不含虚拟化。账号列表/邮件列表另建 `VirtualList`（`@tanstack/react-virtual`），行内元素仍用 Kumo 的 `Checkbox`/`Badge`/`Text`/`Button` |
-| **四栏可拖拽分隔的布局** | 自建 `SplitPane`，用 CSS grid + 拖拽把手，尺寸存 localStorage |
+| **可拖拽分隔的布局** | 自建 `SplitPane`，用 CSS grid + 拖拽把手，尺寸存 localStorage（改版后用在右栏的纵向切分上，见 09 文档） |
 | **邮件正文渲染** | 自建 `MessageBody`（sandbox iframe + DOMPurify，见 §6） |
 | **右键上下文菜单** | Kumo 有 `DropdownMenu` 但无 ContextMenu 触发器。用 `onContextMenu` 手动定位一个 `Popover` |
 
 新增前端依赖因此为：`@tanstack/react-virtual`、`dompurify`、`date-fns`（时间格式化）。
+
+原本这里还有一行「三级分组树：无 `Tree` 组件，自建 `GroupTree`」。分组 2026-08-27 压平成
+一层之后不需要树了：左栏的 `GroupList` 和管理页的列表都是平铺的行，直接复用 `SidebarRow`
+与 `DropdownMenu`。
 
 ### 2.2 关于 Table vs 虚拟列表的分工
 
@@ -126,14 +129,14 @@ Kumo 提供约 30 个组件。下表是本项目每个界面元素的落位，**
 ```
 /                         首页（保留，改造为 SaaS 落地页）
 /login /register          （保留，Kumo 化）
-/dashboard                概览：账号总数、失败账号、配额用量、最近任务、刷新成功率趋势
-/mail                     ★核心工作台（四栏）
-/mail/groups              分组管理（树 + 新建/改名/改色/移动/重排/删除）
+/mail                     ★核心工作台（三栏，右栏纵向再切）
+/mail/groups              分组管理（新建/改名/改色/重排/删除）
 /mail/import              批量导入向导
 /mail/tokens              Token 刷新管理（Table + 任务流）
 /settings/profile         （保留）
 /settings/security        （保留）
-/settings/workspace       ★新增：工作空间信息 + 配额用量（Meter）
+/settings/usage           配额与用量（Meter）
+/settings/api             对外取件 API：Key + 接口清单 + llms.txt 入口
 /admin                    ★管理员总览（仅 platform_role=admin 可见）
 /admin/users              用户管理
 /admin/tenants/:id/mail   以管理员身份查看/操作某租户的邮箱（复用 /mail 的组件）
@@ -143,6 +146,10 @@ Kumo 提供约 30 个组件。下表是本项目每个界面元素的落位，**
 
 模板已有的 `/tenant/settings`、`/tenant/members` 路由**保留但隐藏入口**
 （个人工作空间用不到，团队版启用时直接复用）。
+
+与最初设计的两处出入：`/dashboard` 概览页没有做——它要展示的东西分散在 `/mail` 顶栏、
+状态栏与 `/settings/usage` 里，再来一页只是重复；`/settings/workspace` 落地成了
+`/settings/usage`，因为「工作空间」这个概念对普通用户不露面（AGENTS.md §5.3）。
 
 ### 3.1 路由守卫
 
@@ -163,20 +170,21 @@ export function AdminRoute({ children }: { children: React.ReactNode }) {
 
 ## 4. 状态管理
 
-沿用 Zustand（AGENTS.md §5.2 已有 store 模板）。新增：
+沿用 Zustand（AGENTS.md §6.3 有本项目的选择器约束，违反会白屏）。原计划为每个数据域
+各开一个 store，实际只落地了四个：
 
 ```
 web/src/store/
-  mailGroupStore.ts     分组树、展开态、当前选中分组
-  mailAccountStore.ts   账号分页列表、筛选条件、加载态
-  mailMessageStore.ts   当前账号的邮件列表、当前文件夹、当前详情
+  authStore.ts          当前用户（含 platform_role）与会话恢复
+  tenantStore.ts        当前工作空间
   selectionStore.ts     ★批量选择（账号 / 邮件 两套独立实例）
   jobStore.ts           任务列表 + SSE 连接状态与进度
-  quotaStore.ts         当前工作空间的配额与用量
-  adminStore.ts         管理员上下文（当前正在查看哪个租户）
 ```
 
-`authStore` 需扩展 `user.platform_role` 字段。
+**`mailGroupStore` / `mailAccountStore` / `mailMessageStore` / `quotaStore` / `adminStore`
+都没有建**：它们的数据只有一个页面用，取回来就渲染，放进全局 store 只是多一份要手动
+失效的副本。判断标准是「有没有第二个消费者」——分组列表同时被左栏、筛选栏、导入页用，
+但它们都在 `/mail` 这一棵组件树里，props 传下去比全局 store 更容易看清数据从哪来。
 
 **关于 react-query 的取舍**：邮件数据有「远端慢、需乐观更新、需后台重验证」的特征，
 react-query 会简化不少。但模板既有代码全是 Zustand + `useAsyncAction`，混用会分裂风格。
@@ -218,23 +226,24 @@ interface SelectionState {
 整页是**应用外壳**：撑满视口、自身不滚动、没有 Footer，滚动由各面板自负。
 路由用 `handle.shell` 声明这一形态（`src/router/handle.ts`），`Layout` 据此分流。
 
+登录后**没有顶栏**：左侧是常驻导航栏 `AppSidebar`（10 文档的 Linear 改版把顶栏换掉了），
+右侧才是下面这块工作台。
+
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│ Header：品牌 + 全局搜索(写入 ?q=) + 导航 + 头像                │ 56px
-├───────────────────────────────────────────────────────────────┤
 │ MailToolbar：导入/导出/刷新 ‖ 启用/停用/删除(批量)             │ 52px
 ├──────────────┬───────────────────┬────────────────────────────┤
 │ MailSidebar  │ 账号列表          │ 邮件列表                    │
 │  CTA         │  AccountFilterBar │  FolderTabs(underline)      │
 │  账号状态段  │  VirtualList      │  + 已读筛选(segmented)      │
-│  分组树      │  @container 列    ├────────────────────────────┤ ← SplitPane
+│  分组列表    │  @container 列    ├────────────────────────────┤ ← SplitPane
 │              │  Pagination       │ 邮件详情 sandbox iframe     │   可拖拽
 ├──────────────┴───────────────────┴────────────────────────────┤
 │ MailStatusBar：账号/成功/失败/未登录 + 时钟                    │ 30px
 └───────────────────────────────────────────────────────────────┘
 ```
 
-左栏是**两个并列维度**而不是嵌套：状态段筛 `refresh_status`，分组段筛分组树，两者可叠加。
+左栏是**两个并列维度**而不是嵌套：状态段筛 `refresh_status`，分组段筛分组，两者可叠加。
 
 响应式（AGENTS.md §6.6）：
 
@@ -245,11 +254,11 @@ interface SelectionState {
 账号列表的列数按**容器**宽度切换（`@container`）而不是视口：这一栏夹在中间，
 1440 视口下它自己只有 ~570px，按视口断点算会让列宽溢出、画到右栏上去。
 
-组件划分（`web/src/components/mail/`），单个组件不超过 200 行（AGENTS.md §5.1.2），
+组件划分（`web/src/components/mail/`），单个组件不超过 200 行（AGENTS.md §6.1），
 列表行用 `React.memo`：
 
 ```
-GroupTree.tsx        GroupTreeNode.tsx     GroupFormDialog.tsx
+GroupList.tsx        GroupDot.tsx          GroupFormDialog.tsx
 AccountList.tsx      AccountRow.tsx        AccountFilterBar.tsx
 AccountBatchMenu.tsx AccountFormDialog.tsx
 MessageList.tsx      MessageRow.tsx        FolderTabs.tsx
@@ -285,10 +294,20 @@ VirtualList.tsx      SplitPane.tsx
   「你正在以管理员身份查看 <用户名> 的工作空间，所有操作都会被记录」——
   防止管理员误以为在自己的空间里操作
 
-### 5.5 `/settings/workspace` 配额页
+### 5.5 `/settings/usage` 配额页
 
 每项配额一个 `Meter`（已用/上限），不限量的显示为 `Badge` 「不限」。
 接近上限（≥80%）时整页顶部出 `Banner`。
+
+### 5.6 `/settings/api` 对外取件 API
+
+三块，从上到下：**请求头**（`Authorization: Bearer …`，默认打码只留前缀与末四位，
+可显示/复制，重置走同行二次确认）、**接口清单**（五条只读端点的表格）、
+**给 Agent**（`/llms.txt` 链接 + 一段可复制的接入说明）。
+
+两个判断：① 明文默认不摆在屏幕上，但打码要留出足够特征，否则用户无法确认
+「页面上这把」和「脚本里配的那把」是不是同一把；② 重置用同一行的两个按钮做二次确认，
+不用弹窗——这一步要防的是手滑，不是让人重新读一遍说明。
 
 ## 6. 安全
 
@@ -316,7 +335,7 @@ outlookEmail 只做了 DOMPurify（同文档渲染），本方案额外加一层
 
 - 列表/详情只显示 `has_password: true` 之类布尔标志，不回传明文
 - 「复制邮箱+别名」（`ClipboardText`）不复制密码
-- 导出走二次密码验证 `Dialog`
+- 导出走一个说明用途的 `Dialog`：界面上明说导出的是**明文**、且这次操作会记进审计
 - 代理 URL 在输入框以外一律显示打码版
 
 ### 6.3 CSRF
@@ -385,7 +404,8 @@ export function subscribeJob(base: string, jobID: string, lastEventID: string | 
 
 ## 8. 类型定义
 
-`web/src/types/mail.ts` 集中定义，与后端 model 的 JSON 标签严格对应：
+实际落在 `web/src/api/mail.ts`（类型与该域的请求函数放在一起，不另开 `types/` 目录），
+与后端 model 的 JSON 标签严格对应：
 
 ```ts
 export type MailProvider = "outlook" | "gmail" | "qq" | "163" | "126" | "yahoo" | "aliyun" | "2925" | "custom";
@@ -420,7 +440,7 @@ export type GroupColor = "blue" | "green" | "amber" | "red" | "purple" | "gray";
 
 1. **组件注册表**：Kumo 提供 AI 可读的组件注册表与 CLI 查文档能力。
    实现页面前先查注册表确认组件的确切 props，不要凭印象写。
-2. **`forwardRef` + `displayName`**：自建组件（`VirtualList`、`GroupTree` 等）也遵循这一约定，
+2. **`forwardRef` + `displayName`**：自建组件（`VirtualList`、`MessageBody` 等）也遵循这一约定，
    与 Kumo 组件保持一致，方便 DevTools 调试。
 3. **包导入**：一律 `import { Button } from "@cloudflare/kumo"`，不写相对路径。
    Kumo 支持粒度导入以优化打包体积，若构建产物偏大再评估切换到子路径导入。

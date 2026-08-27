@@ -13,7 +13,7 @@ const (
 	CodeOK      = 0
 	CodeFailure = 1
 
-	CodeQuotaExceeded    = 1001 // 超出配额，data 带 {metric, limit, used}
+	CodeQuotaExceeded    = 1001 // 超出配额，data 为 null，上限与已用量在 message 里
 	CodeAccountDisabled  = 1003 // 用户已被管理员禁用
 	CodeMailAccountExist = 1004 // 邮箱账号已存在
 	CodeUpstreamMailErr  = 1005 // 上游邮件服务失败，data 带 {error_kind, channel}

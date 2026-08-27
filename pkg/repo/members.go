@@ -32,7 +32,7 @@ func (s *Store) ListMembers(ctx context.Context, tenantID string) ([]model.Tenan
 			return nil, e
 		}
 		for _, x := range v {
-			out = append(out, model.TenantMemberDetail{TenantMember: model.TenantMember{ID: x.ID, TenantID: x.TenantID, UserID: x.UserID, Role: model.TenantRole(x.Role), CreatedAt: x.CreatedAt, UpdatedAt: x.UpdatedAt}, Username: x.Username, Email: x.Email, AvatarURL: x.AvatarUrl})
+			out = append(out, model.TenantMemberDetail{TenantMember: model.TenantMember{ID: x.ID, TenantID: x.TenantID, UserID: x.UserID, Role: model.TenantRole(x.Role), CreatedAt: x.CreatedAt, UpdatedAt: x.UpdatedAt}, Username: x.Username, Email: x.Email})
 		}
 	} else {
 		v, e := s.postgres.ListTenantMembers(ctx, tenantID)
@@ -40,7 +40,7 @@ func (s *Store) ListMembers(ctx context.Context, tenantID string) ([]model.Tenan
 			return nil, e
 		}
 		for _, x := range v {
-			out = append(out, model.TenantMemberDetail{TenantMember: model.TenantMember{ID: x.ID, TenantID: x.TenantID, UserID: x.UserID, Role: model.TenantRole(x.Role), CreatedAt: x.CreatedAt, UpdatedAt: x.UpdatedAt}, Username: x.Username, Email: x.Email, AvatarURL: x.AvatarUrl})
+			out = append(out, model.TenantMemberDetail{TenantMember: model.TenantMember{ID: x.ID, TenantID: x.TenantID, UserID: x.UserID, Role: model.TenantRole(x.Role), CreatedAt: x.CreatedAt, UpdatedAt: x.UpdatedAt}, Username: x.Username, Email: x.Email})
 		}
 	}
 	return out, nil

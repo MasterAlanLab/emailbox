@@ -43,14 +43,6 @@ func (s *UserService) Update(ctx context.Context, id string, req model.UpdatePro
 		}
 		u.Email = email
 	}
-	// 只有显式提供 avatar_url 时才修改，否则局部更新会把已有头像清空。
-	if req.AvatarURL != nil {
-		avatar := strings.TrimSpace(*req.AvatarURL)
-		if len(avatar) > maxAvatarURLLen {
-			return nil, fmt.Errorf("头像地址长度不能超过 %d 个字符", maxAvatarURLLen)
-		}
-		u.AvatarURL = avatar
-	}
 	if e = s.store.UpdateUserProfile(ctx, u); e != nil {
 		if errors.Is(e, repo.ErrConflict) {
 			return nil, errors.New("用户名或邮箱已被使用")

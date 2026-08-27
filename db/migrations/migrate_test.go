@@ -91,15 +91,17 @@ func TestUpOnPopulatedDatabase(t *testing.T) {
 	}
 
 	// 行不能丢，列不能串——整表重建最典型的两种事故。
-	var username, email, hash, avatar, status, role string
+	// avatar_url 灌进去时还在（000014 之前），迁移跑完之后它已经被删掉，
+	// 所以这里只核对留下来的列。
+	var username, email, hash, status, role string
 	err = db.QueryRowContext(ctx,
-		`SELECT username, email, password_hash, avatar_url, status, platform_role FROM users WHERE id = 'u1'`,
-	).Scan(&username, &email, &hash, &avatar, &status, &role)
+		`SELECT username, email, password_hash, status, platform_role FROM users WHERE id = 'u1'`,
+	).Scan(&username, &email, &hash, &status, &role)
 	if err != nil {
 		t.Fatalf("查 u1 失败: %v", err)
 	}
-	got := []string{username, email, hash, avatar, status, role}
-	want := []string{"alan", "alan@x.com", "HASH1", "av1", "active", "admin"}
+	got := []string{username, email, hash, status, role}
+	want := []string{"alan", "alan@x.com", "HASH1", "active", "admin"}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("users 第 %d 列 = %q，期望 %q（整行 %v）", i, got[i], want[i], got)
@@ -243,24 +245,11 @@ func TestFlattenGroupsKeepsAccountsAndInheritedProxy(t *testing.T) {
 // 两者之间崩溃，下次启动会把该文件**再跑一遍**。所以它必须可重复执行，
 // 否则一次意外断电就会让服务再也起不来。
 func TestNoTxMigrationsAreRepeatable(t *testing.T) {
-	ctx := context.Background()
-	db, err := sql.Open("sqlite", "file:"+t.TempDir()+"/repeat.db?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	if err := Up(ctx, db, "sqlite"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.ExecContext(ctx,
-		`INSERT INTO users(id,username,email,password_hash) VALUES ('u1','alan','alan@x.com','H1')`); err != nil {
-		t.Fatal(err)
-	}
-
 	all, err := loadMigrations("sqlite")
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	checked := 0
 	for _, m := range all {
 		content, err := files.ReadFile(path.Join("sqlite", m.name))
@@ -271,20 +260,59 @@ func TestNoTxMigrationsAreRepeatable(t *testing.T) {
 			continue
 		}
 		checked++
-		// 抹掉版本记录再跑一次，正是崩溃后重启会发生的事。
-		if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = ?`, m.version); err != nil {
-			t.Fatal(err)
-		}
-		if err := Up(ctx, db, "sqlite"); err != nil {
-			t.Fatalf("%s 重复执行失败（它声明了 %s，必须可重跑）: %v", m.name, NoTxDirective, err)
-		}
-		var n int
-		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id = 'u1'`).Scan(&n); err != nil {
-			t.Fatal(err)
-		}
-		if n != 1 {
-			t.Errorf("%s 重跑后 users 行数变了: %d", m.name, n)
-		}
+
+		// 关键是**在它当时会遇到的 schema 上**重跑，而不是在跑完全部迁移的库上：
+		// 迁移是有序的，000008 只可能在版本 7 的库上执行。拿一个已经跑到最新的库
+		// 去重跑它，测的是一个永远不会发生的场景——000014 删掉 avatar_url 之后，
+		// 000008 的整表重建当然会因为找不到那一列而失败。
+		t.Run(m.name, func(t *testing.T) {
+			ctx := context.Background()
+			db, err := sql.Open("sqlite", "file:"+t.TempDir()+"/repeat.db?_pragma=foreign_keys(1)")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Close() })
+
+			if _, err := db.ExecContext(ctx,
+				`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)`); err != nil {
+				t.Fatal(err)
+			}
+			for _, prev := range all {
+				if prev.version > m.version {
+					break
+				}
+				if err := apply(ctx, db, "sqlite", prev); err != nil {
+					t.Fatalf("预置迁移 %s 失败: %v", prev.name, err)
+				}
+			}
+			if _, err := db.ExecContext(ctx,
+				`INSERT INTO users(id,username,password_hash) VALUES ('u1','alan','H1')`); err != nil {
+				t.Fatal(err)
+			}
+
+			// 抹掉版本记录再跑一次，正是「文件跑完、版本号还没记上」时崩溃的那个窗口。
+			if _, err := db.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version = ?`, m.version); err != nil {
+				t.Fatal(err)
+			}
+			if err := Up(ctx, db, "sqlite"); err != nil {
+				t.Fatalf("重复执行失败（它声明了 %s，必须可重跑）: %v", NoTxDirective, err)
+			}
+
+			var n int
+			if err := db.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id = 'u1'`).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n != 1 {
+				t.Errorf("重跑后 users 行数变了: %d", n)
+			}
+			var violations int
+			if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_check`).Scan(&violations); err != nil {
+				t.Fatal(err)
+			}
+			if violations != 0 {
+				t.Errorf("重跑后存在 %d 条外键违规", violations)
+			}
+		})
 	}
 	if checked == 0 {
 		t.Skip("当前没有使用 no-transaction 的迁移")

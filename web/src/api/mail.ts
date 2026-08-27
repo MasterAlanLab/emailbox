@@ -109,7 +109,6 @@ export interface Limits {
   max_accounts: number;
   max_groups: number;
   daily_mail_fetch: number;
-  daily_token_refresh: number;
 }
 
 // 邮件相关类型。与 pkg/mailer/mailer.go 手工同步。

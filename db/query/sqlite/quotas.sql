@@ -11,8 +11,7 @@ SELECT
     pl.name                                                  AS plan_name,
     COALESCE(tq.max_accounts, pl.max_accounts)               AS max_accounts,
     COALESCE(tq.max_groups, pl.max_groups)                   AS max_groups,
-    COALESCE(tq.daily_mail_fetch, pl.daily_mail_fetch)       AS daily_mail_fetch,
-    COALESCE(tq.daily_token_refresh, pl.daily_token_refresh) AS daily_token_refresh
+    COALESCE(tq.daily_mail_fetch, pl.daily_mail_fetch)       AS daily_mail_fetch
 FROM tenant_quotas AS tq
 JOIN plans AS pl ON pl.id = tq.plan_id
 WHERE tq.tenant_id = ?;
@@ -30,7 +29,7 @@ RETURNING count;
 -- name: UpdateTenantQuotaOverrides :execrows
 UPDATE tenant_quotas
 SET max_accounts = ?, max_groups = ?,
-    daily_mail_fetch = ?, daily_token_refresh = ?,
+    daily_mail_fetch = ?,
     note = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
 WHERE tenant_id = ?;
 

@@ -113,7 +113,10 @@ CREATE INDEX idx_users_platform_role ON users(platform_role) WHERE platform_role
 
 ## 3. 用户管理
 
-管理后台能力（对应 `/api/v1/admin/users`，见 [05 文档](05-api-design.md) §12）：
+管理后台能力（对应 `/api/v1/admin/users`，见 [05 文档 §10.1](05-api-design.md)）。
+**后台只有这一份清单**：一个租户空间只属于一个用户，单列一份「工作空间」列表的每一行
+都能在这里找到对应的用户，两份列表只会让人怀疑「这两个数为什么对不上」——
+所以配额与「进入其邮箱」都并进了用户行。
 
 | 能力 | 说明 |
 |---|---|
@@ -141,7 +144,6 @@ CREATE TABLE plans (
     max_accounts        INTEGER NOT NULL DEFAULT 50,    -- -1 表示不限
     max_groups          INTEGER NOT NULL DEFAULT 20,
     daily_mail_fetch    INTEGER NOT NULL DEFAULT 2000,
-    daily_token_refresh INTEGER NOT NULL DEFAULT 5000,
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -153,7 +155,6 @@ CREATE TABLE tenant_quotas (
     max_accounts        INTEGER,
     max_groups          INTEGER,
     daily_mail_fetch    INTEGER,
-    daily_token_refresh INTEGER,
     note                TEXT NOT NULL DEFAULT '',   -- 管理员备注为什么调额
     updated_by          TEXT REFERENCES users(id),
     updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -162,23 +163,28 @@ CREATE TABLE tenant_quotas (
 -- 按天累加的用量计数（用于 daily_* 类配额）
 CREATE TABLE usage_counters (
     tenant_id  TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    day        TEXT NOT NULL,      -- YYYY-MM-DD，按租户时区
-    metric     TEXT NOT NULL,      -- mail_fetch | token_refresh
+    day        TEXT NOT NULL,      -- YYYY-MM-DD，按 quota.DefaultTimezone 计算
+    metric     TEXT NOT NULL,      -- mail_fetch（有上限）| token_refresh（只记账）
     count      INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (tenant_id, day, metric)
 );
 CREATE INDEX idx_usage_counters_day ON usage_counters(day);
 ```
 
-> 标「遗留」的五列随 `000002_saas` 已经落库，而它们要管的功能（转发、对外 API、
-> 本地邮件保留）后来被移出方案（[07 文档 §5](07-roadmap.md)）。**没有任何强制点读它们**，
-> 后台套餐表单里也不该再暴露。清理需要一次新迁移，作为独立的技术债任务处理。
+> `000002_saas` 当初还建了五列给转发 / 对外 API / 本地保留用（`max_api_keys`、
+> `max_share_links`、`allow_forwarding`、`allow_retention`、`allow_external_api`）。
+> 那些功能移出方案后，这五列已随 `000006_drop_unused`（2026-08-25）从两张表里删除，
+> `model.Plan` / `model.Limits` / 后台套餐表单 / 用量页同步清理。上面的 DDL 是清理后的现状。
+>
+> **跨天点固定按 `quota.DefaultTimezone`（Asia/Shanghai）算**，容器缺 tzdata 时退回 UTC。
+> 原计划做成「按租户设置读取」，但承载它的 `tenant_settings` 表随 P5 一起删了；
+> 真要做的话得先决定这个设置存在哪。
 
 ### 4.2 计算与强制
 
 ```go
 // pkg/quota/quota.go —— 无状态，只读配置
-type Limits struct { MaxAccounts, MaxGroups, DailyMailFetch, DailyTokenRefresh int }
+type Limits struct { MaxAccounts, MaxGroups, DailyMailFetch int }
 
 // 生效值 = COALESCE(tenant_quotas.<col>, plans.<col>)；-1 视为不限
 func (s *Service) Effective(ctx, tenantID) (Limits, error)
@@ -195,7 +201,15 @@ func (s *Service) CheckAndConsume(ctx, tenantID, metric string, n int) error
 | `max_accounts` | `AccountService.Create` / `Import` | 单个创建 → 403 `QUOTA_EXCEEDED`；**导入 → 超额部分计入 `skipped`，已导入的保留**，响应里明确告知「因配额限制跳过 N 个」 |
 | `max_groups` | `GroupService.Create` | 403 |
 | `daily_mail_fetch` | `MessageService` 每次走远端前 | 403，文案提示明日重置或联系管理员 |
-| `daily_token_refresh` | 任务提交时按 `len(account_ids)` 预扣 | 提交即拒绝，不做「跑到一半停」 |
+
+**取件额度对所有来源一视同仁**（网页 / API Key / 管理员共用同一个计数器与同一条上限）。
+只对 API 设限是行不通的：会话 Cookie 同样能写进脚本，那等于留下「逆向网页就能绕开」的口子。
+
+**令牌刷新没有额度**（`000013` 删掉了 `daily_token_refresh` 两列）：它是「账号还能不能用」
+的前提，卡住它，用户看到的不是「今天少刷一点」，而是一批账号集体登录失败。
+真正要防的「批量刷把服务商打到风控」靠的是任务系统的并发数与账号间隔
+（`JOB_WORKERS` / `JOB_ACCOUNT_DELAY_MS`）。`usage_counters.token_refresh` 仍然照常累加，
+只是没有人拿它去判上限——用量页上那个数字是「是不是有脚本在空转」的唯一线索。
 
 > **导入的超额处理是有意设计成"部分成功"的**。批量平台的用户常常一次粘几千行，
 > 整批因为超 3 个而全失败，体验极差且浪费上游调用。

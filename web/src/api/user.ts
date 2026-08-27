@@ -4,7 +4,6 @@ export interface User {
   id: string;
   username: string;
   email: string;
-  avatar_url: string;
   status: "active" | "disabled";
   // 与租户角色正交：它决定能否跨租户管理整个系统。前端只用它决定是否显示后台入口，
   // 真正的拦截在服务端的 RequirePlatformAdmin —— 改前端 state 什么也拿不到。
@@ -41,7 +40,7 @@ export const userApi = {
   logout: async () => (await client.post<ApiResponse<null>>("/api/v1/auth/logout")).data,
   session: async () => (await client.get<ApiResponse<AuthResponse>>("/api/v1/auth/session")).data,
   profile: async () => (await client.get<ApiResponse<User>>("/api/v1/user/profile")).data,
-  updateProfile: async (data: Partial<Pick<User, "username" | "email" | "avatar_url">>) =>
+  updateProfile: async (data: Partial<Pick<User, "username" | "email">>) =>
     (await client.patch<ApiResponse<User>>("/api/v1/user/profile", data)).data,
   changePassword: async (data: { old_password: string; new_password: string }) =>
     (await client.post<ApiResponse<null>>("/api/v1/user/change-password", data)).data,

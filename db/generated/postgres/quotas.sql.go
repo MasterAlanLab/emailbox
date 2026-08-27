@@ -60,20 +60,18 @@ SELECT
     pl.name                                                  AS plan_name,
     COALESCE(tq.max_accounts, pl.max_accounts)               AS max_accounts,
     COALESCE(tq.max_groups, pl.max_groups)                   AS max_groups,
-    COALESCE(tq.daily_mail_fetch, pl.daily_mail_fetch)       AS daily_mail_fetch,
-    COALESCE(tq.daily_token_refresh, pl.daily_token_refresh) AS daily_token_refresh
+    COALESCE(tq.daily_mail_fetch, pl.daily_mail_fetch)       AS daily_mail_fetch
 FROM tenant_quotas AS tq
 JOIN plans AS pl ON pl.id = tq.plan_id
 WHERE tq.tenant_id = $1
 `
 
 type GetEffectiveQuotaRow struct {
-	PlanCode          string
-	PlanName          string
-	MaxAccounts       int32
-	MaxGroups         int32
-	DailyMailFetch    int32
-	DailyTokenRefresh int32
+	PlanCode       string
+	PlanName       string
+	MaxAccounts    int32
+	MaxGroups      int32
+	DailyMailFetch int32
 }
 
 func (q *Queries) GetEffectiveQuota(ctx context.Context, tenantID string) (GetEffectiveQuotaRow, error) {
@@ -85,7 +83,6 @@ func (q *Queries) GetEffectiveQuota(ctx context.Context, tenantID string) (GetEf
 		&i.MaxAccounts,
 		&i.MaxGroups,
 		&i.DailyMailFetch,
-		&i.DailyTokenRefresh,
 	)
 	return i, err
 }
@@ -127,19 +124,18 @@ func (q *Queries) UpdateTenantPlan(ctx context.Context, arg UpdateTenantPlanPara
 const updateTenantQuotaOverrides = `-- name: UpdateTenantQuotaOverrides :execrows
 UPDATE tenant_quotas
 SET max_accounts = $1, max_groups = $2,
-    daily_mail_fetch = $3, daily_token_refresh = $4,
-    note = $5, updated_by = $6, updated_at = CURRENT_TIMESTAMP
-WHERE tenant_id = $7
+    daily_mail_fetch = $3,
+    note = $4, updated_by = $5, updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = $6
 `
 
 type UpdateTenantQuotaOverridesParams struct {
-	MaxAccounts       sql.NullInt32
-	MaxGroups         sql.NullInt32
-	DailyMailFetch    sql.NullInt32
-	DailyTokenRefresh sql.NullInt32
-	Note              string
-	UpdatedBy         sql.NullString
-	TenantID          string
+	MaxAccounts    sql.NullInt32
+	MaxGroups      sql.NullInt32
+	DailyMailFetch sql.NullInt32
+	Note           string
+	UpdatedBy      sql.NullString
+	TenantID       string
 }
 
 // Admin overrides. NULL in a column means "fall back to the plan value".
@@ -148,7 +144,6 @@ func (q *Queries) UpdateTenantQuotaOverrides(ctx context.Context, arg UpdateTena
 		arg.MaxAccounts,
 		arg.MaxGroups,
 		arg.DailyMailFetch,
-		arg.DailyTokenRefresh,
 		arg.Note,
 		arg.UpdatedBy,
 		arg.TenantID,

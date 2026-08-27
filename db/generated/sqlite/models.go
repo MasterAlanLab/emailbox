@@ -131,16 +131,15 @@ type MailRefreshLog struct {
 }
 
 type Plan struct {
-	ID                string
-	Code              string
-	Name              string
-	IsDefault         int64
-	MaxAccounts       int64
-	MaxGroups         int64
-	DailyMailFetch    int64
-	DailyTokenRefresh int64
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID             string
+	Code           string
+	Name           string
+	IsDefault      int64
+	MaxAccounts    int64
+	MaxGroups      int64
+	DailyMailFetch int64
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type Session struct {
@@ -164,6 +163,14 @@ type Tenant struct {
 	Kind      string
 }
 
+type TenantApiKey struct {
+	TenantID  string
+	TokenHash string
+	TokenEnc  string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type TenantMember struct {
 	ID        string
 	TenantID  string
@@ -174,15 +181,14 @@ type TenantMember struct {
 }
 
 type TenantQuota struct {
-	TenantID          string
-	PlanID            string
-	MaxAccounts       sql.NullInt64
-	MaxGroups         sql.NullInt64
-	DailyMailFetch    sql.NullInt64
-	DailyTokenRefresh sql.NullInt64
-	Note              string
-	UpdatedBy         sql.NullString
-	UpdatedAt         time.Time
+	TenantID       string
+	PlanID         string
+	MaxAccounts    sql.NullInt64
+	MaxGroups      sql.NullInt64
+	DailyMailFetch sql.NullInt64
+	Note           string
+	UpdatedBy      sql.NullString
+	UpdatedAt      time.Time
 }
 
 type UsageCounter struct {
@@ -197,7 +203,6 @@ type User struct {
 	Username     string
 	Email        string
 	PasswordHash string
-	AvatarUrl    string
 	Status       string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time

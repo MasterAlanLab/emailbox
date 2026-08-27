@@ -28,25 +28,36 @@
 | `000004_platform_admin` | audit_logs、`users.last_login_at` | P3 |
 | `000005_mail_ops` | jobs / job_items / job_events / refresh_logs | P4 |
 
-`000005_mail_ops` 是最后一个迁移——转发、对外 API、分享链接、本地邮件保留、临时邮箱
-相关的表已随 P5–P7 一起从方案中删除（[07 文档 §5](07-roadmap.md)）。
+P0–P4 的表到 `000005` 就齐了。转发、分享链接、本地邮件保留、临时邮箱相关的表随 P5–P7
+一起从方案中删除（[07 文档 §5](07-roadmap.md)）。之后的迁移都是**对已有结构的修正**，
+不是新阶段：
+
+| 迁移 | 内容 | 时间 |
+|---|---|---|
+| `000006_drop_unused` | 删除为转发 / 对外 API 预埋、但从未接线的列（`mail_accounts` 三列 + `plans`/`tenant_quotas` 各五列） | 2026-08-25 |
+| `000007_drop_tags` | 删除标签（`mail_tags` / `mail_account_tags`）——界面上从来没有一处能把标签贴到账号上 | 2026-08-25 |
+| `000008_optional_user_email` | 邮箱降级为可选资料字段，登录身份换成用户名；表级 UNIQUE 改成部分唯一索引（SQLite 整表重建） | 2026-08-26 |
+| `000009_audit_actor_name` | `audit_logs.actor_email` → `actor_name`：邮箱可选之后，用它做「用户被删后还能追溯」会正好是空的 | 2026-08-26 |
+| `000010_group_proxy_pushdown` | 压平分组前，把「子分组继承父分组代理」的结果写进数据，避免这批账号悄悄从代理变直连 | 2026-08-27 |
+| `000011_flat_groups` | 分组从三级树压平成一层，删 `parent_id` / `level`（SQLite 整表重建） | 2026-08-27 |
+| `000012_tenant_api_keys` | 对外取件 API Key，一租户一把 | 2026-08-27 |
+| `000013_drop_token_refresh_quota` | 取消「每日刷新令牌」额度，删掉 `plans` / `tenant_quotas` 的 `daily_token_refresh` | 2026-08-27 |
+| `000014_drop_avatar_url` | 删掉 `users.avatar_url`：个人资料页有输入框，但界面上没有一处显示头像 | 2026-08-27 |
 
 每个迁移 sqlite / postgres 各一份 `.up.sql` / `.down.sql`。
 `000002_saas` 的表定义见 [08 文档 §2、§4](08-saas-admin.md)，不在本文重复。
 
 ## 3. 核心表
 
-### 3.1 `mail_groups` — 分组树（最多三级）
+### 3.1 `mail_groups` — 分组（平的一层）
 
 ```sql
 CREATE TABLE mail_groups (
     id                   TEXT PRIMARY KEY,
     tenant_id            TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    parent_id            TEXT REFERENCES mail_groups(id) ON DELETE CASCADE,
     name                 TEXT NOT NULL,
     description          TEXT NOT NULL DEFAULT '',
     color                TEXT NOT NULL DEFAULT 'gray',  -- 语义令牌名，见 06 文档 §1.4
-    level                INTEGER NOT NULL DEFAULT 1 CHECK (level IN (1,2,3)),
     sort_order           INTEGER NOT NULL DEFAULT 0,
     is_system            INTEGER NOT NULL DEFAULT 0,
     proxy_url            TEXT NOT NULL DEFAULT '',
@@ -56,14 +67,18 @@ CREATE TABLE mail_groups (
     updated_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (tenant_id, name)
 );
-CREATE INDEX idx_mail_groups_tenant_parent ON mail_groups(tenant_id, parent_id, sort_order);
+CREATE INDEX idx_mail_groups_tenant_sort ON mail_groups(tenant_id, sort_order);
 ```
 
-- `level` 由 service 在创建/移动时计算并校验（≤3），移动子树时递归重算——
-  对应 Python 的 `rebuild_group_levels` / `validate_group_move`（含防环检测）。
+- **原设计是照搬 outlookEmail 的三级树**（`parent_id` + `level` + 防环 + 递归重算），
+  2026-08-27 随 `000011_flat_groups` 压平成一层。层级在这个产品里没有对应的用法，
+  带来的却全是要向用户解释的规则：建分组先选上级、界面上标「最多三层」、账号数分
+  「直属 / 含子树」两个口径、删除还要交代子分组会一起消失。理由见
+  [PROGRESS.md](PROGRESS.md)「分组压平成一层」。
 - 每个租户在首次使用时自动创建一个 `is_system=1` 的「默认分组」；删除分组时，
-  其下账号回落到默认分组，子分组级联删除（与 outlookEmail 行为一致）。
-- 代理三列共同构成「主 + 两个备用」，子分组为空时向上继承（见 04 文档）。
+  其下账号回落到它，账号本身不删。系统分组自己删不掉。
+- 代理三列共同构成「主 + 两个备用」，账号没配代理时用所属分组的（见 04 文档）。
+  压平之前子分组会向上继承，那份继承结果已由 `000010` 写进各分组自己身上。
 
 ### 3.2 `mail_accounts` — 邮箱账号（核心表）
 
@@ -237,6 +252,28 @@ CREATE TABLE audit_logs (
 );
 CREATE INDEX idx_audit_logs_tenant ON audit_logs(tenant_id, created_at DESC);
 ```
+
+### 4.4 `tenant_api_keys` — 对外取件 Key
+
+```sql
+CREATE TABLE tenant_api_keys (
+    tenant_id  TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    token_enc  TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+一租户一把（主键就是 `tenant_id`），重置即覆盖，旧 Key 当场失效。
+
+**两列存两份不是冗余**：`token_hash` 供中间件按 O(1) 命中（和 `sessions` 一样只存摘要），
+`token_enc` 是明文的 AES-GCM 密文、只为了「回到页面还能看见自己的 Key」——密文每次
+nonce 不同，没法用它查。代价是拿到库 + `ENCRYPTION_KEY` 就能还原 Key；这个库里本来就躺着
+同样可解密的 `refresh_token` 与邮箱密码，Key 的敏感度不高于它们，不新增风险类别。
+若改成「只在创建时显示一次」，删掉 `token_enc` 即可。
+
+接口与权限见 [05 文档 §3.1](05-api-design.md)。
 
 ## 5. sqlc 组织
 
@@ -438,6 +475,10 @@ repo 层一次取回后在 Go 里组装成 `map[accountID][]string`，
 
 在个人工作空间模式下，用户在自己的租户里恒为 `owner`，因此拥有全部租户级权限；
 member/admin 两档是为未来的团队版预留的。详见 [08 文档 §2.1](08-saas-admin.md)。
+
+还有第三个只存在于内存里的租户角色 `api`（`model.TenantRoleAPI`）：API Key 认证通过后
+由中间件挂上，只有 `group:read` / `account:read` / `message:read`。
+`tenant_members.role` 的 CHECK 是 `('owner','admin','member')`，这个取值不可能从库里读出来。
 
 `pkg/model/permission.go` 新增：
 

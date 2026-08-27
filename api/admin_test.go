@@ -43,7 +43,6 @@ func adminEndpoints(tenantID, userID string) []struct{ method, path string } {
 		{http.MethodPost, "/api/v1/admin/plans"},
 		{http.MethodPatch, "/api/v1/admin/plans/plan-1"},
 		{http.MethodDelete, "/api/v1/admin/plans/plan-1"},
-		{http.MethodGet, "/api/v1/admin/tenants"},
 		{http.MethodGet, "/api/v1/admin/tenants/" + tenantID + "/quota"},
 		{http.MethodPatch, "/api/v1/admin/tenants/" + tenantID + "/quota"},
 		{http.MethodGet, "/api/v1/admin/tenants/" + tenantID + "/mail/groups"},
@@ -310,13 +309,13 @@ func TestLoweringQuotaBlocksNewAccountsButKeepsExisting(t *testing.T) {
 		t.Error("调低配额不应影响已有账号")
 	}
 
-	// 后台的租户列表上要看得见超额标记
-	status, body = do(t, e, http.MethodGet, "/api/v1/admin/tenants?q=owner@example.com", adminToken, "")
+	// 后台的用户列表上要看得见超额标记——那是管理员唯一会看的那份清单
+	status, body = do(t, e, http.MethodGet, "/api/v1/admin/users?q=owner@example.com", adminToken, "")
 	if status != http.StatusOK {
-		t.Fatalf("租户列表失败: %d %s", status, body)
+		t.Fatalf("用户列表失败: %d %s", status, body)
 	}
 	if !strings.Contains(body, `"over_quota":true`) {
-		t.Errorf("租户列表缺少超额标记: %s", body)
+		t.Errorf("用户列表缺少超额标记: %s", body)
 	}
 }
 

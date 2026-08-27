@@ -6,6 +6,13 @@ const (
 	TenantRoleOwner  TenantRole = "owner"
 	TenantRoleAdmin  TenantRole = "admin"
 	TenantRoleMember TenantRole = "member"
+	// TenantRoleAPI 是 API Key 的虚拟角色，只存在于内存里：
+	// tenant_members.role 的 CHECK 是 ('owner','admin','member')，
+	// 这个取值永远不可能从库里读出来，只能由鉴权中间件在识别出 Key 之后设上。
+	//
+	// 让 Key 复用角色体系，是为了让它自动受 middleware.Require 约束——
+	// /mail/** 那份路由一行不用改，权限收敛就已经生效。
+	TenantRoleAPI TenantRole = "api"
 )
 
 // PlatformRole 是与租户角色正交的另一个维度：租户角色决定「在某个租户内能做什么」，
@@ -64,6 +71,14 @@ var RolePermissions = map[TenantRole]map[Permission]bool{
 		PermissionMessageWrite:   true,
 		PermissionTokenRefresh:   true,
 		PermissionAuditRead:      true,
+	},
+	// API Key 只读，且只读取件需要的那三样。
+	// 没有 mail:account:secret（导出等于取走全部凭据明文）、没有任何写权限、
+	// 也没有 tenant:update——所以 Key 无法读取或重置它自己，泄露后不能自我续命。
+	TenantRoleAPI: {
+		PermissionMailGroupRead: true,
+		PermissionAccountRead:   true,
+		PermissionMessageRead:   true,
 	},
 	TenantRoleAdmin: {
 		PermissionTenantRead:     true,

@@ -1,28 +1,21 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"emailbox/pkg/middleware"
 	"emailbox/pkg/model"
 	"emailbox/pkg/service"
 
 	"github.com/labstack/echo/v5"
 )
 
-// AccountHandler 也持有 AuthService：导出接口要二次验证操作者的登录密码，
-// 而密码哈希的比对只有 AuthService 做（bcrypt 参数与登录路径必须是同一套）。
-type AccountHandler struct {
-	service *service.AccountService
-	auth    *service.AuthService
-}
+type AccountHandler struct{ service *service.AccountService }
 
-func NewAccountHandler(s *service.AccountService, auth *service.AuthService) *AccountHandler {
-	return &AccountHandler{service: s, auth: auth}
+func NewAccountHandler(s *service.AccountService) *AccountHandler {
+	return &AccountHandler{service: s}
 }
 
 // parseAccountFilter 从查询参数构造筛选条件。
@@ -127,20 +120,14 @@ func (h *AccountHandler) Import(c *echo.Context) error {
 
 // Export 导出账号凭据（05 文档 §4.4）。返回 text/plain 附件，格式与导入一致。
 //
-// 二次密码验证在这里做而不是在 service 里：验的是**操作者本人**的密码，
-// 与被导出的租户无关——管理员导出他人租户时验的仍是管理员自己的密码。
+// 曾经在这里做过一次二次密码验证，2026-08-27 去掉了。剩下的三道闸门没有松：
+// `account:secret` 权限、强制审计、按用户限流。
 func (h *AccountHandler) Export(c *echo.Context) error {
 	var req model.ExportAccountsRequest
 	if err := c.Bind(&req); err != nil {
 		return failure(c, http.StatusBadRequest, err)
 	}
 	ctx := c.Request().Context()
-	if err := h.auth.VerifyPassword(ctx, middleware.UserID(c), req.PasswordConfirm); err != nil {
-		if errors.Is(err, service.ErrPasswordMismatch) {
-			return failure(c, http.StatusForbidden, err)
-		}
-		return failure(c, http.StatusInternalServerError, err)
-	}
 	content, count, err := h.service.Export(ctx, c.Param("tenantID"), req)
 	if err != nil {
 		return mailError(c, err)

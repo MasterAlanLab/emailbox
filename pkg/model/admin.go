@@ -53,46 +53,6 @@ func (f *AdminUserFilter) Normalize() {
 
 func (f AdminUserFilter) Offset() int { return (f.Page - 1) * f.Limit }
 
-// AdminTenant 是跨租户视图里的一行。
-type AdminTenant struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Slug         string    `json:"slug"`
-	Kind         string    `json:"kind"`
-	CreatedAt    time.Time `json:"created_at"`
-	OwnerUserID  string    `json:"owner_user_id"`
-	OwnerEmail   string    `json:"owner_email"`
-	PlanCode     string    `json:"plan_code"`
-	MaxAccounts  int       `json:"max_accounts"`
-	AccountCount int       `json:"account_count"`
-	// OverQuota 标记「现有账号数已经超过上限」。调低配额不追溯删除已有数据
-	// （08 文档 §4.2），因此这个状态是合法且会长期存在的，后台要能一眼看见。
-	OverQuota bool `json:"over_quota"`
-}
-
-// ComputeOverQuota 由账号数与上限推出超额标记。Unlimited 永不超额。
-func (t *AdminTenant) ComputeOverQuota() {
-	t.OverQuota = t.MaxAccounts != Unlimited && t.AccountCount > t.MaxAccounts
-}
-
-// AdminTenantFilter 是租户列表的查询条件。
-type AdminTenantFilter struct {
-	Query string
-	Page  int
-	Limit int
-}
-
-func (f *AdminTenantFilter) Normalize() {
-	if f.Page < 1 {
-		f.Page = 1
-	}
-	if f.Limit < 1 || f.Limit > 200 {
-		f.Limit = 50
-	}
-}
-
-func (f AdminTenantFilter) Offset() int { return (f.Page - 1) * f.Limit }
-
 // PlatformStats 是 /admin 总览卡片的数据。
 type PlatformStats struct {
 	UserCount          int `json:"user_count"`

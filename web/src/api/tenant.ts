@@ -15,7 +15,6 @@ export interface TenantMember {
 export interface TenantMemberDetail extends TenantMember {
   username: string;
   email: string;
-  avatar_url: string;
 }
 // QuotaUsage 是配额页要展示的一切：生效上限 + 当前用量。
 // 与后端 service.QuotaUsage 手工同步。

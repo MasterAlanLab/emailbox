@@ -15,8 +15,8 @@ import (
 // 这是全平台风险最高的接口：一次成功的调用等于取走该租户全部邮箱的凭据明文。
 // 三道闸门缺一不可，且分布在三层——
 //   - 权限 account:secret（路由）
-//   - 二次密码验证（handler，走 AuthService.VerifyPassword）
 //   - 强制审计（路由上的 AuditWrite）
+//   - 按用户限流（路由上的 exportLimiter）
 //
 // 这里只负责第四件事：SQL 一律带 tenant_id，管理员跨租户导出也照样落在目标租户上。
 func (s *AccountService) Export(ctx context.Context, tenantID string, req model.ExportAccountsRequest) (string, int, error) {

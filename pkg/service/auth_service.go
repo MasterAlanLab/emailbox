@@ -35,11 +35,10 @@ func NewAuthService(store *repo.Store) *AuthService { return &AuthService{store:
 // SQLite 的 TEXT 没有长度限制，不在此处校验会导致同一份输入在两种数据库上行为不同：
 // SQLite 静默写入，PostgreSQL 报驱动错误。
 const (
-	maxUsernameLen  = 50
-	maxEmailLen     = 255
-	maxAvatarURLLen = 500
-	maxTenantName   = 100
-	maxTenantSlug   = 100
+	maxUsernameLen = 50
+	maxEmailLen    = 255
+	maxTenantName  = 100
+	maxTenantSlug  = 100
 	// bcrypt 只处理前 72 字节，超出会直接返回错误。
 	maxPasswordLen = 72
 )
@@ -144,13 +143,31 @@ func (s *AuthService) Register(ctx context.Context, req model.RegisterRequest) (
 		slog.Error("读取默认套餐失败", "error", err)
 		return nil, "", errors.New("注册失败，请稍后重试")
 	}
-	user := &model.User{ID: uuid.NewString(), Username: req.Username, Email: req.Email, PasswordHash: string(hash), Status: model.UserStatusActive, PlatformRole: model.PlatformRoleUser}
-	tenant := &model.Tenant{ID: uuid.NewString(), Name: req.Username + " 的工作空间", Slug: slugify(req.Username) + "-" + uuid.NewString()[:8], Kind: model.TenantKindPersonal, CreatedBy: user.ID}
+	user, tenant, err := s.createAccount(ctx, req.Username, req.Email, string(hash), plan.ID)
+	if err != nil {
+		return nil, "", err
+	}
+	token, err := s.createSession(ctx, user.ID, &tenant.ID)
+	if err != nil {
+		return nil, "", err
+	}
+	return &model.AuthResponse{User: user.ToResponse(), Tenants: []model.Tenant{*tenant}, ActiveTenantID: &tenant.ID}, token, nil
+}
+
+// createAccount 建出「用户 + 个人工作空间 + 成员关系 + 默认邮箱分组 + 配额」这五件套。
+//
+// 注册与启动时的管理员引导共用它：两条路径必须建出**完全一样**的东西。
+// 抄第二遍迟早会漏掉其中一件，而漏掉任何一件的用户登录后页面就是坏的，
+// 且无法自助修复——没有默认分组时，删除任何分组都会因为账号无处回落而失败。
+// 这也是它们必须同生共死（一个事务）的原因。
+func (s *AuthService) createAccount(
+	ctx context.Context, username, email, passwordHash, planID string,
+) (*model.User, *model.Tenant, error) {
+	user := &model.User{ID: uuid.NewString(), Username: username, Email: email, PasswordHash: passwordHash, Status: model.UserStatusActive, PlatformRole: model.PlatformRoleUser}
+	tenant := &model.Tenant{ID: uuid.NewString(), Name: username + " 的工作空间", Slug: slugify(username) + "-" + uuid.NewString()[:8], Kind: model.TenantKindPersonal, CreatedBy: user.ID}
 	member := &model.TenantMember{ID: uuid.NewString(), TenantID: tenant.ID, UserID: user.ID, Role: model.TenantRoleOwner}
-	// 用户、个人工作空间、成员关系、默认邮箱分组、配额记录必须同生共死：
-	// 留下一个缺其中任何一项的用户，都会导致他登录后页面报错且无法自助修复
-	// （没有默认分组时，删除任何分组都会因为账号无处回落而失败）。
-	err = s.store.WithTx(ctx, func(tx *repo.Store) error {
+
+	err := s.store.WithTx(ctx, func(tx *repo.Store) error {
 		if e := tx.CreateUser(ctx, user); e != nil {
 			return e
 		}
@@ -163,30 +180,45 @@ func (s *AuthService) Register(ctx context.Context, req model.RegisterRequest) (
 		if e := EnsureDefaultGroup(ctx, tx, tenant.ID); e != nil {
 			return e
 		}
-		return tx.CreateTenantQuota(ctx, tenant.ID, plan.ID)
+		return tx.CreateTenantQuota(ctx, tenant.ID, planID)
 	})
 	if err != nil {
 		if errors.Is(err, repo.ErrConflict) {
-			return nil, "", errors.New("用户名已被使用")
+			return nil, nil, errors.New("用户名已被使用")
 		}
 		// 原始错误只记日志：它会被当作 400 返回，绕过 handler 层的 5xx 脱敏。
-		slog.Error("注册失败", "error", err)
-		return nil, "", errors.New("注册失败，请稍后重试")
+		slog.Error("创建账号失败", "username", username, "error", err)
+		return nil, nil, errors.New("注册失败，请稍后重试")
 	}
-	user, err = s.store.GetUserByID(ctx, user.ID)
-	if err != nil {
-		return nil, "", err
+	if user, err = s.store.GetUserByID(ctx, user.ID); err != nil {
+		return nil, nil, err
 	}
-	tenant, err = s.store.GetTenantByID(ctx, tenant.ID)
-	if err != nil {
-		return nil, "", err
+	if tenant, err = s.store.GetTenantByID(ctx, tenant.ID); err != nil {
+		return nil, nil, err
 	}
-	token, err := s.createSession(ctx, user.ID, &tenant.ID)
-	if err != nil {
-		return nil, "", err
-	}
-	return &model.AuthResponse{User: user.ToResponse(), Tenants: []model.Tenant{*tenant}, ActiveTenantID: &tenant.ID}, token, nil
+	return user, tenant, nil
 }
+
+// CreateBootstrapAdmin 按 BOOTSTRAP_ADMIN_USERNAME / _PASSWORD 建出第一个账号。
+//
+// 绕过 REGISTRATION_MODE：这是部署者在自己的机器上引导后台入口，
+// 不是公开注册。密码仍然走同一套校验与 bcrypt。
+func (s *AuthService) CreateBootstrapAdmin(ctx context.Context, username, password string) (*model.User, error) {
+	if err := validateCredentials(username, "", password); err != nil {
+		return nil, err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, err
+	}
+	plan, err := s.defaultPlan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	user, _, err := s.createAccount(ctx, username, "", string(hash), plan.ID)
+	return user, err
+}
+
 func (s *AuthService) Login(ctx context.Context, req model.LoginRequest) (*model.AuthResponse, string, error) {
 	user, err := s.store.GetUserByUsername(ctx, strings.TrimSpace(req.Username))
 	if err != nil {
@@ -222,26 +254,6 @@ func (s *AuthService) Login(ctx context.Context, req model.LoginRequest) (*model
 		slog.Warn("记录最后登录时间失败", "user_id", user.ID, "error", err)
 	}
 	return &model.AuthResponse{User: user.ToResponse(), Tenants: tenants, ActiveTenantID: active}, token, nil
-}
-
-// ErrPasswordMismatch 是二次密码验证失败。单独一个哨兵值，
-// handler 才能把它映射成 403 而不是笼统的 400。
-var ErrPasswordMismatch = errors.New("登录密码不正确")
-
-// VerifyPassword 二次验证当前操作者的登录密码，供导出这类高危操作使用。
-// 不签发会话、不改任何状态，只回答「密码对不对」。
-func (s *AuthService) VerifyPassword(ctx context.Context, userID, password string) error {
-	if strings.TrimSpace(password) == "" {
-		return ErrPasswordMismatch
-	}
-	user, err := s.store.GetUserByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
-		return ErrPasswordMismatch
-	}
-	return nil
 }
 
 func (s *AuthService) createSession(ctx context.Context, userID string, active *string) (string, error) {

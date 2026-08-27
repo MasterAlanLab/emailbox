@@ -15,15 +15,15 @@ SELECT * FROM plans ORDER BY created_at;
 INSERT INTO plans (
     id, code, name, is_default,
     max_accounts, max_groups,
-    daily_mail_fetch, daily_token_refresh
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+    daily_mail_fetch
+) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- code is not updatable: it is the stable identifier other systems key off.
 -- name: UpdatePlan :execrows
 UPDATE plans
 SET name = ?, is_default = ?,
     max_accounts = ?, max_groups = ?,
-    daily_mail_fetch = ?, daily_token_refresh = ?,
+    daily_mail_fetch = ?,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = ?;
 

@@ -27,7 +27,6 @@ const FIELDS = [
   { key: "max_accounts", label: "邮箱数上限" },
   { key: "max_groups", label: "分组数上限" },
   { key: "daily_mail_fetch", label: "每日拉信次数" },
-  { key: "daily_token_refresh", label: "每日刷新令牌次数" },
 ] as const;
 
 type FieldKey = (typeof FIELDS)[number]["key"];
@@ -40,7 +39,6 @@ export function QuotaDialog({ target, onClose, onSaved }: QuotaDialogProps) {
     max_accounts: "",
     max_groups: "",
     daily_mail_fetch: "",
-    daily_token_refresh: "",
   });
   const { error, pending, run } = useAsyncAction();
 

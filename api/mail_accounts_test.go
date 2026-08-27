@@ -167,27 +167,17 @@ func itoa(i int) string {
 	return string(digits)
 }
 
-// 导出是全平台风险最高的接口，三件事必须钉死：密码不对时一行都不出去、
-// 导出的文件能被原样重新导入（07 文档 P1 验收的 round-trip 一项）、
-// 成功的导出留痕而失败的不留（审计里混进没发生过的事同样有害）。
-func TestAccountExportVerifiesPasswordAndRoundTrips(t *testing.T) {
+// 导出是全平台风险最高的接口，两件事必须钉死：导出的文件能被原样重新导入
+// （07 文档 P1 验收的 round-trip 一项）、每一次成功的导出都留痕。
+func TestAccountExportRoundTripsAndAudits(t *testing.T) {
 	e, store, _ := newTestServerWithStore(t)
 	token, tenantID := register(t, e, "alice", "alice@example.com")
 	createAccount(t, e, token, tenantID,
 		`{"email":"a@outlook.com","password":"pwd","client_id":"24d9a0ed-1234-4abc-9def-0123456789ab","refresh_token":"M.token"}`)
 	createAccount(t, e, token, tenantID, `{"email":"b@gmail.com","imap_password":"app-pwd"}`)
 
-	status, body := do(t, e, http.MethodPost, mailPath(tenantID, "/accounts/export"), token,
-		`{"scope":"all","password_confirm":"wrong-password"}`)
-	if status != http.StatusForbidden {
-		t.Fatalf("密码不对应 403，实际 %d %s", status, body)
-	}
-	if strings.Contains(body, "M.token") || strings.Contains(body, "app-pwd") {
-		t.Fatalf("验证失败的导出仍回传了凭据:\n%s", body)
-	}
-
 	status, content := do(t, e, http.MethodPost, mailPath(tenantID, "/accounts/export"), token,
-		`{"scope":"all","password_confirm":"secret12"}`)
+		`{"scope":"all"}`)
 	if status != http.StatusOK {
 		t.Fatalf("导出失败: %d %s", status, content)
 	}
@@ -200,7 +190,7 @@ func TestAccountExportVerifiesPasswordAndRoundTrips(t *testing.T) {
 	// 换一个租户把导出的内容原样导回去，账号数必须一致
 	bobToken, bobTenant := register(t, e, "bobby", "bob@example.com")
 	escaped := strings.ReplaceAll(strings.TrimSpace(content), "\n", "\\n")
-	status, body = do(t, e, http.MethodPost, mailPath(bobTenant, "/accounts/import"), bobToken,
+	status, body := do(t, e, http.MethodPost, mailPath(bobTenant, "/accounts/import"), bobToken,
 		`{"format":"auto","content":"`+escaped+`"}`)
 	if status != http.StatusOK {
 		t.Fatalf("重新导入失败: %d %s", status, body)
@@ -217,6 +207,6 @@ func TestAccountExportVerifiesPasswordAndRoundTrips(t *testing.T) {
 		t.Fatal(err)
 	}
 	if total != 1 {
-		t.Errorf("导出的审计记录有 %d 条，期望 1 条（失败的那次不该留痕）", total)
+		t.Errorf("导出的审计记录有 %d 条，期望 1 条", total)
 	}
 }

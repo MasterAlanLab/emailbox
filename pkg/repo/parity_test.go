@@ -537,10 +537,17 @@ func TestAuditLogParity(t *testing.T) {
 
 // 后台用户列表把「个人租户」LEFT JOIN 进来并用相关子查询数邮箱，
 // 两个引擎的 COALESCE 与子查询语义必须一致。
+//
+// max_accounts 取的是「租户覆盖值优先、否则套餐值」：反过来写的话，
+// 管理员调低某个用户的配额将完全不起作用，而列表上还显示着调低后的数字。
+// 超额标记由它推出——调低配额不追溯删除已有数据（08 文档 §4.2），
+// 所以「已经超额」是合法且会长期存在的状态，后台要能一眼看见。
 func TestAdminUsersParity(t *testing.T) {
 	type row struct {
 		email, tenantName string
 		accountCount      int
+		maxAccounts       int
+		overQuota         bool
 	}
 	var want []row
 
@@ -548,6 +555,15 @@ func TestAdminUsersParity(t *testing.T) {
 		ctx := context.Background()
 		tenantID := seed(t, e.store)
 		seedAccounts(t, e.store, tenantID, "u1@example.com", "u2@example.com")
+
+		// 把上限压到 1，低于现有的 2 个账号：这正是「调低配额不追溯」之后的常态。
+		limit := 1
+		updatedBy := "parity-user"
+		if err := e.store.UpdateTenantQuotaOverrides(ctx, tenantID, repo.QuotaOverrides{
+			MaxAccounts: &limit, Note: "parity", UpdatedBy: &updatedBy,
+		}); err != nil {
+			t.Fatalf("%s: 覆盖配额失败: %v", e.name, err)
+		}
 
 		users, total, err := e.store.ListAdminUsers(ctx, model.AdminUserFilter{})
 		if err != nil {
@@ -559,60 +575,14 @@ func TestAdminUsersParity(t *testing.T) {
 
 		got := make([]row, 0, len(users))
 		for _, u := range users {
-			got = append(got, row{u.Email, u.TenantName, u.AccountCount})
+			got = append(got, row{u.Email, u.TenantName, u.AccountCount, u.MaxAccounts, u.OverQuota})
 		}
-		if want == nil {
-			want = got
-			continue
-		}
-		for i := range got {
-			if got[i] != want[i] {
-				t.Errorf("第 %d 行在 %s 上与 sqlite 不一致: sqlite=%+v %s=%+v", i, e.name, want[i], e.name, got[i])
-			}
-		}
-	}
-}
-
-// 租户列表里的 max_accounts 是「覆盖值优先、否则套餐值」，超额标记由它推出。
-// 这一条同时守住 COALESCE 的顺序：反过来写的话，管理员调低配额将完全不起作用。
-func TestAdminTenantsParity(t *testing.T) {
-	type row struct {
-		name         string
-		planCode     string
-		maxAccounts  int
-		accountCount int
-		overQuota    bool
-	}
-	var want []row
-
-	for _, e := range parityEngines(t) {
-		ctx := context.Background()
-		tenantID := seed(t, e.store)
-		seedAccounts(t, e.store, tenantID, "t1@example.com", "t2@example.com", "t3@example.com")
-
-		// 把上限压到 2，低于现有的 3 个账号：这正是「调低配额不追溯」之后的常态。
-		limit := 2
-		updatedBy := "parity-user"
-		if err := e.store.UpdateTenantQuotaOverrides(ctx, tenantID, repo.QuotaOverrides{
-			MaxAccounts: &limit, Note: "parity", UpdatedBy: &updatedBy,
-		}); err != nil {
-			t.Fatalf("%s: 覆盖配额失败: %v", e.name, err)
-		}
-
-		tenants, total, err := e.store.ListAdminTenants(ctx, model.AdminTenantFilter{})
-		if err != nil {
-			t.Fatalf("%s: %v", e.name, err)
-		}
-		if total != 1 {
-			t.Fatalf("%s: 租户总数 %d，期望 1", e.name, total)
-		}
-
-		got := make([]row, 0, len(tenants))
-		for _, x := range tenants {
-			got = append(got, row{x.Name, x.PlanCode, x.MaxAccounts, x.AccountCount, x.OverQuota})
+		if got[0].maxAccounts != limit {
+			t.Errorf("%s: max_accounts = %d，覆盖值 %d 没生效（COALESCE 顺序写反了？）",
+				e.name, got[0].maxAccounts, limit)
 		}
 		if !got[0].overQuota {
-			t.Errorf("%s: 3 个账号 / 上限 2 应当标记超额", e.name)
+			t.Errorf("%s: 2 个账号 / 上限 1 应当标记超额", e.name)
 		}
 		if want == nil {
 			want = got

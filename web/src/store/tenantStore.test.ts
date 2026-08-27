@@ -6,7 +6,6 @@ const user = {
   id: "u1",
   username: "alice",
   email: "a@example.com",
-  avatar_url: "",
   status: "active" as const,
   platform_role: "user" as const,
 };

@@ -14,7 +14,6 @@ type User struct {
 	Username     string     `json:"username"`
 	Email        string     `json:"email"`
 	PasswordHash string     `json:"-"`
-	AvatarURL    string     `json:"avatar_url"`
 	Status       UserStatus `json:"status"`
 	// PlatformRole 与租户角色正交：它决定能否跨租户管理整个系统。
 	PlatformRole PlatformRole `json:"platform_role"`
@@ -26,13 +25,12 @@ type UserResponse struct {
 	ID           string       `json:"id"`
 	Username     string       `json:"username"`
 	Email        string       `json:"email"`
-	AvatarURL    string       `json:"avatar_url"`
 	Status       UserStatus   `json:"status"`
 	PlatformRole PlatformRole `json:"platform_role"`
 }
 
 func (u User) ToResponse() UserResponse {
-	return UserResponse{ID: u.ID, Username: u.Username, Email: u.Email, AvatarURL: u.AvatarURL, Status: u.Status, PlatformRole: u.PlatformRole}
+	return UserResponse{ID: u.ID, Username: u.Username, Email: u.Email, Status: u.Status, PlatformRole: u.PlatformRole}
 }
 
 // IsPlatformAdmin 表示该用户是否为平台管理员。
@@ -54,11 +52,10 @@ type LoginRequest struct {
 }
 type UpdateProfileRequest struct {
 	Username string `json:"username"`
-	// Email 与 AvatarURL 都用指针以区分「字段未提供」（nil，保持原值）
-	// 和「显式清空」（""）。邮箱自 000008 起可选，用户必须能把它删掉——
-	// 用 string 的话空串会被当成「没传」，设过一次就再也清不掉了。
-	Email     *string `json:"email"`
-	AvatarURL *string `json:"avatar_url"`
+	// Email 用指针以区分「字段未提供」（nil，保持原值）和「显式清空」（""）。
+	// 邮箱自 000008 起可选，用户必须能把它删掉——用 string 的话空串会被当成
+	// 「没传」，设过一次就再也清不掉了。
+	Email *string `json:"email"`
 }
 type ChangePasswordRequest struct {
 	OldPassword string `json:"old_password"`

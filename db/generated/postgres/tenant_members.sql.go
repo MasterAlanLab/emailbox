@@ -86,7 +86,7 @@ func (q *Queries) GetTenantMember(ctx context.Context, arg GetTenantMemberParams
 }
 
 const listTenantMembers = `-- name: ListTenantMembers :many
-SELECT tm.id, tm.tenant_id, tm.user_id, tm.role, tm.created_at, tm.updated_at, u.username, u.email, u.avatar_url FROM tenant_members tm JOIN users u ON u.id = tm.user_id WHERE tm.tenant_id = $1 AND u.deleted_at IS NULL ORDER BY tm.created_at ASC
+SELECT tm.id, tm.tenant_id, tm.user_id, tm.role, tm.created_at, tm.updated_at, u.username, u.email FROM tenant_members tm JOIN users u ON u.id = tm.user_id WHERE tm.tenant_id = $1 AND u.deleted_at IS NULL ORDER BY tm.created_at ASC
 `
 
 type ListTenantMembersRow struct {
@@ -98,7 +98,6 @@ type ListTenantMembersRow struct {
 	UpdatedAt time.Time
 	Username  string
 	Email     string
-	AvatarUrl string
 }
 
 func (q *Queries) ListTenantMembers(ctx context.Context, tenantID string) ([]ListTenantMembersRow, error) {
@@ -119,7 +118,6 @@ func (q *Queries) ListTenantMembers(ctx context.Context, tenantID string) ([]Lis
 			&i.UpdatedAt,
 			&i.Username,
 			&i.Email,
-			&i.AvatarUrl,
 		); err != nil {
 			return nil, err
 		}

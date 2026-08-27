@@ -1,5 +1,4 @@
 import { Button } from "@cloudflare/kumo/components/button";
-import { Input } from "@cloudflare/kumo/components/input";
 import { LayerCard } from "@cloudflare/kumo/components/layer-card";
 import { Select } from "@cloudflare/kumo/components/select";
 import { useState } from "react";
@@ -21,7 +20,6 @@ type Scope = "selected" | "group" | "all";
 // 只会让用户不知道自己刚做了什么。
 export function ExportDialog({ tenantID, groupID, selectedIDs, onClose }: ExportDialogProps) {
   const [scope, setScope] = useState<Scope>(selectedIDs.length > 0 ? "selected" : "all");
-  const [password, setPassword] = useState("");
   const { error, pending, run } = useAsyncAction();
 
   const options = [
@@ -39,7 +37,6 @@ export function ExportDialog({ tenantID, groupID, selectedIDs, onClose }: Export
         scope,
         account_ids: scope === "selected" ? selectedIDs : [],
         group_ids: scope === "group" && groupID ? [groupID] : [],
-        password_confirm: password,
       });
       // 没有凭据的账号会被后端跳过，整批都没凭据时导出是空的。
       // 这时候不能照样下载一个空文件——用户会以为导出成功了，
@@ -71,17 +68,6 @@ export function ExportDialog({ tenantID, groupID, selectedIDs, onClose }: Export
               items={options}
               value={scope}
               onValueChange={(value: string | null) => setScope((value ?? "all") as Scope)}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            登录密码
-            <Input
-              type="password"
-              autoComplete="current-password"
-              placeholder="请输入你自己的登录密码"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
             />
           </label>
         </div>

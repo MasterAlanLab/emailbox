@@ -52,10 +52,7 @@ export default function UsagePage() {
     { label: "邮箱账号", used: usage.accounts, limit: limits.max_accounts },
     { label: "分组", used: usage.groups, limit: limits.max_groups },
   ];
-  const daily = [
-    { label: "今日拉取邮件", used: usage.mail_fetch, limit: limits.daily_mail_fetch },
-    { label: "今日刷新令牌", used: usage.token_refresh, limit: limits.daily_token_refresh },
-  ];
+  const daily = [{ label: "今日拉取邮件", used: usage.mail_fetch, limit: limits.daily_mail_fetch }];
   const overQuota = counted.filter((q) => q.limit !== UNLIMITED && q.used > q.limit);
 
   return (
@@ -70,7 +67,17 @@ export default function UsagePage() {
 
       <div className="grid max-w-3xl gap-6 lg:grid-cols-2">
         <QuotaCard title="资源用量" items={counted} />
-        <QuotaCard title={`每日额度（${data.day} 重置）`} items={daily} />
+        <QuotaCard title={`每日额度（${data.day} 重置）`} items={daily}>
+          {/* 令牌刷新没有额度：它是账号能不能用的前提，卡住它等于让账号批量失效。
+              数字仍然显示，那是「是不是有脚本在空转」的唯一线索。 */}
+          <div className="flex items-center justify-between text-sm">
+            <span>今日刷新令牌</span>
+            <span className="flex items-center gap-2 text-kumo-subtle">
+              {usage.token_refresh.toLocaleString()}
+              <Badge variant="neutral">不限</Badge>
+            </span>
+          </div>
+        </QuotaCard>
       </div>
     </PageShell>
   );
@@ -79,9 +86,11 @@ export default function UsagePage() {
 function QuotaCard({
   title,
   items,
+  children,
 }: {
   title: string;
   items: { label: string; used: number; limit: number }[];
+  children?: React.ReactNode;
 }) {
   return (
     <section className="rounded-lg border border-kumo-line bg-kumo-elevated p-5">
@@ -90,6 +99,7 @@ function QuotaCard({
         {items.map((item) => (
           <QuotaMeter key={item.label} {...item} />
         ))}
+        {children}
       </div>
     </section>
   );
