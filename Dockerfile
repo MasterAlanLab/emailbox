@@ -17,7 +17,7 @@ RUN bun run build
 
 # 第二阶段：后端构建阶段
 # 同样固定在宿主架构上运行，通过 GOOS/GOARCH 交叉编译出目标架构的二进制
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS backend-builder
 
 WORKDIR /app
 
