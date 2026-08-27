@@ -252,7 +252,7 @@ POST /mail/accounts/export         权限 account:secret
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | POST | `/mail/accounts/:accountID/token/refresh` | token:refresh | 单个同步刷新，直接返回结果 |
-| POST | `/mail/jobs/token-refresh` | token:refresh | 批量，body `{scope:"all\|failed\|selected", account_ids:[]}` → 返回 `{job_id}` |
+| POST | `/mail/jobs/token-refresh` | token:refresh | 批量，body `{scope:"all\|failed\|selected\|group", account_ids:[], group_ids:[]}` → 返回 `{job_id}`（`selected` 取 `account_ids`，`group` 取 `group_ids`） |
 | GET | `/mail/jobs` | account:read | 任务列表，`type`、`status` 筛选 |
 | GET | `/mail/jobs/:jobID` | account:read | 任务详情 + 计数 |
 | GET | `/mail/jobs/:jobID/items` | account:read | 逐账号结果，`status=failed` 筛选 |

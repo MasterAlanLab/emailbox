@@ -30,6 +30,7 @@ const (
 	RefreshScopeAll      = "all"
 	RefreshScopeFailed   = "failed"
 	RefreshScopeSelected = "selected"
+	RefreshScopeGroup    = "group"
 )
 
 // 刷新来源，写进 mail_refresh_logs.refresh_type。
@@ -167,9 +168,9 @@ func (s *RefreshService) log(ctx context.Context, tenantID, accountID, email, jo
 
 // SubmitBatch 提交一个批量刷新任务。
 func (s *RefreshService) SubmitBatch(
-	ctx context.Context, tenantID, userID, scope string, accountIDs []string,
+	ctx context.Context, tenantID, userID, scope string, accountIDs, groupIDs []string,
 ) (*model.Job, error) {
-	accounts, err := s.selectAccounts(ctx, tenantID, scope, accountIDs)
+	accounts, err := s.selectAccounts(ctx, tenantID, scope, accountIDs, groupIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -182,8 +183,13 @@ func (s *RefreshService) SubmitBatch(
 		return nil, err
 	}
 
+	fields := map[string]any{"scope": scope, "count": len(accounts)}
+	// 记下分组：任务列表里三条 scope=group 的任务，不写这个就分不出刷的是谁。
+	if scope == RefreshScopeGroup {
+		fields["group_ids"] = groupIDs
+	}
 	params := []byte("{}")
-	if encoded, err := json.Marshal(map[string]any{"scope": scope, "count": len(accounts)}); err == nil {
+	if encoded, err := json.Marshal(fields); err == nil {
 		params = encoded
 	}
 	j := model.Job{
@@ -208,11 +214,11 @@ func (s *RefreshService) SubmitBatch(
 
 // selectAccounts 按 scope 选出要刷新的账号。
 //
-// 三种 scope 都会再过一遍「有 refresh_token 且没被停用」：没有令牌的账号
+// 四种 scope 都会再过一遍「有 refresh_token 且没被停用」：没有令牌的账号
 // （IMAP 密码账号）刷新不了，放进任务里只会产出一堆注定失败的记录，
 // 既浪费配额也把失败率搅乱。
 func (s *RefreshService) selectAccounts(
-	ctx context.Context, tenantID, scope string, accountIDs []string,
+	ctx context.Context, tenantID, scope string, accountIDs, groupIDs []string,
 ) ([]model.MailAccount, error) {
 	var (
 		accounts []model.MailAccount
@@ -224,16 +230,13 @@ func (s *RefreshService) selectAccounts(
 			return nil, errors.New("请先选择要刷新的账号")
 		}
 		accounts, err = s.store.ListMailAccountsByIDs(ctx, tenantID, accountIDs)
+	case RefreshScopeGroup:
+		accounts, err = s.accountsInGroups(ctx, tenantID, groupIDs)
 	case RefreshScopeFailed:
-		filter := model.AccountFilter{RefreshStatus: string(model.RefreshFailed)}
-		filter.Limit = maxBatchAccounts
-		filter.Normalize()
-		accounts, err = s.store.ListMailAccountsPage(ctx, tenantID, filter)
+		accounts, err = s.collectAccounts(ctx, tenantID,
+			model.AccountFilter{RefreshStatus: string(model.RefreshFailed)})
 	case RefreshScopeAll, "":
-		filter := model.AccountFilter{}
-		filter.Limit = maxBatchAccounts
-		filter.Normalize()
-		accounts, err = s.store.ListMailAccountsPage(ctx, tenantID, filter)
+		accounts, err = s.collectAccounts(ctx, tenantID, model.AccountFilter{})
 	default:
 		return nil, fmt.Errorf("未知的选取范围 %q", scope)
 	}
@@ -247,6 +250,71 @@ func (s *RefreshService) selectAccounts(
 			continue
 		}
 		out = append(out, account)
+	}
+	return out, nil
+}
+
+// accountsInGroups 取出若干分组下的账号。分组先校验归属，避免用别人的
+// group_id 探测到不属于自己的账号。
+func (s *RefreshService) accountsInGroups(
+	ctx context.Context, tenantID string, groupIDs []string,
+) ([]model.MailAccount, error) {
+	if len(groupIDs) == 0 {
+		return nil, errors.New("请先选择要刷新的分组")
+	}
+	groups, err := s.store.ListMailGroups(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	known := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		known[g.ID] = true
+	}
+
+	// 列表查询一次只认一个分组（筛选 SQL 里没有变长 IN），所以逐个分组取再合并。
+	// 同 AccountService.exportTargets 的做法。
+	out := make([]model.MailAccount, 0)
+	seen := map[string]bool{}
+	for _, gid := range groupIDs {
+		if !known[gid] {
+			return nil, fmt.Errorf("分组 %s 不存在", gid)
+		}
+		if seen[gid] {
+			continue
+		}
+		seen[gid] = true
+		batch, err := s.collectAccounts(ctx, tenantID, model.AccountFilter{GroupIDs: []string{gid}})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, batch...)
+	}
+	return out, nil
+}
+
+// collectAccounts 按筛选条件翻页取全量，最多 maxBatchAccounts 个。
+//
+// 必须翻页：AccountFilter.Normalize 会把 Limit 压到 MaxAccountPageSize(200)，
+// 「填一个大 Limit 一次取完」的写法拿到的永远只有前 200 个。
+func (s *RefreshService) collectAccounts(
+	ctx context.Context, tenantID string, filter model.AccountFilter,
+) ([]model.MailAccount, error) {
+	filter.Limit = model.MaxAccountPageSize
+	filter.Normalize()
+	out := make([]model.MailAccount, 0, filter.Limit)
+	for page := 1; len(out) < maxBatchAccounts; page++ {
+		filter.Page = page
+		batch, err := s.store.ListMailAccountsPage(ctx, tenantID, filter)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, batch...)
+		if len(batch) < filter.Limit {
+			break
+		}
+	}
+	if len(out) > maxBatchAccounts {
+		out = out[:maxBatchAccounts]
 	}
 	return out, nil
 }

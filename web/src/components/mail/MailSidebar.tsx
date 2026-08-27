@@ -1,7 +1,6 @@
 import { Button } from "@cloudflare/kumo/components/button";
-import { ArrowsClockwise, CaretRight, Plus } from "@phosphor-icons/react";
+import { CaretRight, Plus } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   asScope,
   mailApi,
@@ -18,7 +17,7 @@ import { GroupList } from "./GroupList";
 import { SidebarRow } from "./SidebarRow";
 import { StatusDot, type StatusTone } from "./StatusDot";
 
-// 左栏：CTA + 账号状态 + 分组列表。
+// 左栏：账号状态 + 分组列表。
 //
 // 状态和分组是**两个并列的维度**，不是嵌套的：状态段筛的是 refresh_status
 // （登录成功/失败/从未），分组段筛的是用户自己建的分组。
@@ -128,19 +127,6 @@ export function MailSidebar({
     // 背景用 base 而不是 canvas：左边紧挨着的全局导航栏已经是 canvas，
     // 两块同色面板贴在一起会糊成一片，看不出哪里是「导航」哪里是「这个页面的内容」。
     <aside className="hidden w-(--ebx-sidebar-w) shrink-0 flex-col overflow-y-auto border-r border-kumo-line bg-kumo-base xl:flex">
-      {/* 主操作提到最显眼的位置。参照设计这里是「开始收件」，我们没有一键收件，
-          最接近的高频入口是批量刷新令牌——账号能不能用，取决于令牌新不新。
-          按钮写它真正会做的事，不借用一个我们做不到的名字。 */}
-      <div className="p-3">
-        <Link
-          to="/mail/tokens"
-          className="flex items-center justify-center gap-2 rounded-2xl bg-linear-to-br from-ebx-brand-grad-from to-ebx-brand-grad-to px-4 py-3 text-sm font-medium text-white shadow-sm transition hover:opacity-90"
-        >
-          <ArrowsClockwise size={18} weight="bold" />
-          批量刷新令牌
-        </Link>
-      </div>
-
       <Section title="账号状态" open={statusOpen} onToggle={toggleStatus}>
         {STATUS_ITEMS.map((item) => (
           <SidebarRow

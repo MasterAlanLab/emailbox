@@ -107,7 +107,12 @@ interface Page<T> {
 export const jobApi = {
   submitRefresh: async (
     tenant: TenantRef,
-    data: { scope: "all" | "failed" | "selected"; account_ids?: string[] },
+    data: {
+      scope: "all" | "failed" | "selected" | "group";
+      account_ids?: string[];
+      // scope=group 时必填，对应后端 service.RefreshScopeGroup。
+      group_ids?: string[];
+    },
   ) => (await client.post<ApiResponse<Job>>(`${mailBase(tenant)}/jobs/token-refresh`, data)).data,
 
   refreshOne: async (tenant: TenantRef, accountID: string) =>

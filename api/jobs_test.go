@@ -424,6 +424,61 @@ func TestSingleAccountRefresh(t *testing.T) {
 	}
 }
 
+// 按分组刷新只覆盖该分组下的账号——令牌页上「刷新指定分组」这条路的全部意义
+// 就在于不去动其它批次的账号（每个账号都是一次上游调用）。
+func TestBatchRefreshByGroup(t *testing.T) {
+	e := newTestServer(t)
+	token, tenantID := register(t, e, "alice", "alice@example.com")
+
+	groupID := createGroup(t, e, token, tenantID, `{"name":"批次A"}`)
+	for i := range 2 {
+		createAccount(t, e, token, tenantID, fmt.Sprintf(
+			`{"email":"in%02d@outlook.com","password":"pw","refresh_token":"M.token","group_id":"%s"}`,
+			i, groupID))
+	}
+	// 落在默认分组里的账号，不该被这次任务带上。
+	seedRefreshableAccounts(t, e, token, tenantID, "out", "out")
+
+	status, resp := do(t, e, http.MethodPost, mailPath(tenantID, "/jobs/token-refresh"),
+		token, fmt.Sprintf(`{"scope":"group","group_ids":["%s"]}`, groupID))
+	if status != http.StatusOK {
+		t.Fatalf("提交分组刷新拿到 %d，期望 200（%s）", status, resp)
+	}
+	var payload struct {
+		Data struct {
+			ID         string `json:"id"`
+			TotalCount int    `json:"total_count"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(resp), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Data.TotalCount != 2 {
+		t.Fatalf("任务包含 %d 个账号，期望 2 个（只有分组内的）", payload.Data.TotalCount)
+	}
+
+	job := waitForJob(t, e, token, tenantID, payload.Data.ID)
+	if got := job["success_count"].(float64); got != 2 {
+		t.Errorf("成功 %v 个，期望 2 个", got)
+	}
+}
+
+// 别人的（或者根本不存在的）分组 ID 不能用来提交任务：否则它就成了一个
+// 「这个 ID 下有没有账号」的探测口。
+func TestBatchRefreshRejectsForeignGroup(t *testing.T) {
+	e := newTestServer(t)
+	token, tenantID := register(t, e, "alice", "alice@example.com")
+	otherToken, otherTenantID := register(t, e, "bob", "bob@example.com")
+	seedRefreshableAccounts(t, e, token, tenantID, "ok")
+
+	foreign := createGroup(t, e, otherToken, otherTenantID, `{"name":"别人的分组"}`)
+	status, body := do(t, e, http.MethodPost, mailPath(tenantID, "/jobs/token-refresh"),
+		token, fmt.Sprintf(`{"scope":"group","group_ids":["%s"]}`, foreign))
+	if status == http.StatusOK {
+		t.Fatalf("用别的租户的分组提交不该成功: %s", body)
+	}
+}
+
 func fetchJob(t *testing.T, e *echo.Echo, token, tenantID, jobID string) map[string]any {
 	t.Helper()
 	status, body := do(t, e, http.MethodGet, mailPath(tenantID, "/jobs/"+jobID), token, "")

@@ -1,11 +1,13 @@
 import { Button } from "@cloudflare/kumo/components/button";
 import { LayerCard } from "@cloudflare/kumo/components/layer-card";
 import { Meter } from "@cloudflare/kumo/components/meter";
+import { Select } from "@cloudflare/kumo/components/select";
 import { ArrowsClockwise, Stop } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { isTerminal, jobApi, type RefreshStats } from "@/api/jobs";
-import type { MailScope, TenantRef } from "@/api/mail";
+import { mailApi, type MailGroupNode, type MailScope, type TenantRef } from "@/api/mail";
 import { PageShell } from "@/components/layout/PageShell";
+import { groupSelectItems } from "@/components/mail/groupOptions";
 import { useAsyncAction } from "@/lib/useAsyncAction";
 import { useJobStore } from "@/store/jobStore";
 import { useTenantStore } from "@/store/tenantStore";
@@ -33,6 +35,10 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
   const tenantKey = scope ? scope.tenantID : activeTenantID;
 
   const [stats, setStats] = useState<RefreshStats | null>(null);
+  const [groups, setGroups] = useState<MailGroupNode[]>([]);
+  // null 而不是空串：Kumo/Base UI 的 Select 靠 value == null 才显示 placeholder，
+  // 空串会被当成「选中了一个不存在的项」，触发器上什么都不显示。
+  const [groupID, setGroupID] = useState<string | null>(null);
   const [loadError, setLoadError] = useState("");
   const { error, pending, run } = useAsyncAction();
 
@@ -69,9 +75,32 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantKey, job.status]);
 
-  const submit = (scopeName: "all" | "failed") =>
+  // 分组单独取一次，不挂在上面那个 effect 上：那个 effect 每次任务状态变化都会重跑，
+  // 而分组在一次刷新任务里不会变。
+  useEffect(() => {
+    if (!tenantKey) return undefined;
+    let ignore = false;
+    void mailApi
+      .groups(tenant)
+      .then((resp) => {
+        if (!ignore) setGroups(resp.data);
+      })
+      // 取不到分组只是少一个「按分组刷新」的入口，不该让整页报错——
+      // 「刷新全部 / 只刷失败的」两条路都还在。
+      .catch(() => {});
+    return () => {
+      ignore = true;
+    };
+    // 依赖同上：tenant 是每次渲染新建的对象，用 tenantKey 代表它。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantKey]);
+
+  const submit = (scopeName: "all" | "failed" | "group") =>
     void run(async () => {
-      const resp = await jobApi.submitRefresh(tenant, { scope: scopeName });
+      const resp = await jobApi.submitRefresh(tenant, {
+        scope: scopeName,
+        group_ids: scopeName === "group" && groupID ? [groupID] : undefined,
+      });
       useJobStore.getState().watch(tenant, resp.data.id);
     });
 
@@ -104,7 +133,7 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
 
       <LayerCard className="mb-6 flex flex-wrap items-center gap-3 p-4">
         <Button
-          variant="primary"
+          variant="secondary"
           icon={ArrowsClockwise}
           disabled={pending || running}
           onClick={() => submit("all")}
@@ -118,8 +147,35 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
         >
           只刷新失败的{stats?.failed ? `（${stats.failed}）` : ""}
         </Button>
+
+        {/* 按分组刷新：账号多起来之后「全部」要跑十几分钟，而用户通常只关心
+            刚导入的那一批——分组就是他们区分批次的方式。
+            选择器和按钮绑在一起，选完仍需明确点一下才提交：下拉一变就发任务，
+            误触的代价是几千次上游调用。 */}
+        {groups.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="mx-1 h-5 w-px shrink-0 bg-kumo-line" aria-hidden />
+            <Select
+              className="w-44"
+              aria-label="要刷新的分组"
+              placeholder="选择分组…"
+              items={groupSelectItems(groups, { counts: true })}
+              value={groupID}
+              onValueChange={(value: string | null) => setGroupID(value)}
+            />
+            <Button
+              variant="secondary"
+              icon={ArrowsClockwise}
+              disabled={pending || running || !groupID}
+              onClick={() => submit("group")}
+            >
+              刷新该分组
+            </Button>
+          </div>
+        )}
+
         {running && (
-          <Button variant="destructive" icon={Stop} disabled={pending} onClick={stop}>
+          <Button variant="secondary-destructive" icon={Stop} disabled={pending} onClick={stop}>
             停止
           </Button>
         )}

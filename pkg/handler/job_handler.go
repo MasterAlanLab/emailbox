@@ -202,6 +202,8 @@ func (h *RefreshHandler) RefreshOne(c *echo.Context) error {
 type submitRefreshRequest struct {
 	Scope      string   `json:"scope"`
 	AccountIDs []string `json:"account_ids"`
+	// scope=group 时生效：只刷这些分组下的账号。
+	GroupIDs []string `json:"group_ids"`
 }
 
 func (h *RefreshHandler) SubmitBatch(c *echo.Context) error {
@@ -210,7 +212,7 @@ func (h *RefreshHandler) SubmitBatch(c *echo.Context) error {
 		return failure(c, http.StatusBadRequest, err)
 	}
 	job, err := h.service.SubmitBatch(c.Request().Context(),
-		c.Param("tenantID"), middleware.UserID(c), req.Scope, req.AccountIDs)
+		c.Param("tenantID"), middleware.UserID(c), req.Scope, req.AccountIDs, req.GroupIDs)
 	if err != nil {
 		return mailError(c, err)
 	}
