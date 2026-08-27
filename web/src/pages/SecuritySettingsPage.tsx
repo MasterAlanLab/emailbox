@@ -45,7 +45,7 @@ export default function SecuritySettingsPage() {
           {error && <p className="text-sm text-kumo-danger">{error}</p>}
         </div>
         <div className="mt-6 border-t border-kumo-line pt-5">
-          <Button type="submit" variant="primary" disabled={pending}>
+          <Button type="submit" variant="secondary" disabled={pending}>
             {pending ? "更新中…" : "更新密码"}
           </Button>
         </div>

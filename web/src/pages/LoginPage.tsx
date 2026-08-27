@@ -75,7 +75,7 @@ export function SubmitButton({
     <div className="mt-1 flex justify-center">
       {/* px-10 而不是固定宽度：中文按钮文案长短差得多（「登录」两字 vs
           「创建账号」四字），钉死宽度会让短的那个显得空。 */}
-      <Button type="submit" variant="primary" size="lg" className="px-10" disabled={pending}>
+      <Button type="submit" variant="secondary" size="lg" className="px-10" disabled={pending}>
         {pending ? pendingLabel : label}
       </Button>
     </div>

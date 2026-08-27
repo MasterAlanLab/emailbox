@@ -53,7 +53,7 @@ export function MessageBatchBar({
       </Button>
       <Button
         size="sm"
-        variant="destructive"
+        variant="secondary-destructive"
         icon={Trash}
         disabled={pending}
         onClick={() =>

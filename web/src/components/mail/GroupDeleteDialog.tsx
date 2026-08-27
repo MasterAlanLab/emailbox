@@ -44,7 +44,7 @@ export function GroupDeleteDialog({ tenantID, group, onClose, onDeleted }: Group
           </Button>
           <Button
             type="button"
-            variant="destructive"
+            variant="secondary-destructive"
             disabled={pending}
             onClick={() =>
               void run(async () => {

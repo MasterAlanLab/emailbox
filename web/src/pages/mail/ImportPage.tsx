@@ -85,7 +85,7 @@ export default function ImportPage() {
             required
           />
           {error && <p className="text-sm text-kumo-danger">{error}</p>}
-          <Button type="submit" variant="primary" size="lg" disabled={pending || !content.trim()}>
+          <Button type="submit" variant="secondary" size="lg" disabled={pending || !content.trim()}>
             {pending ? "导入中…" : `导入 ${lineCount} 行`}
           </Button>
         </div>

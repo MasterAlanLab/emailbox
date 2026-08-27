@@ -100,7 +100,7 @@ export function AppSidebar() {
         {items.map((item, index) => (
           <div key={item.to} className="contents">
             {/* 主导航和次级入口之间留一条空隙，不画分隔线——
-                Linear 靠间距分组，多一条线就多一分噪音。 */}
+                靠间距分组，多一条线就多一分噪音。 */}
             {index === PRIMARY.length && <div className="h-3" aria-hidden />}
             <SidebarLink item={item} collapsed={collapsed} labelClass={labelClass} />
           </div>
@@ -137,7 +137,10 @@ export function AppSidebar() {
               }`
             }
           >
-            <span className="grid size-6 shrink-0 place-items-center rounded-full bg-kumo-brand text-[11px] font-semibold text-white uppercase">
+            {/* 头像用中性底色：界面上没有第二处实心色块，单给它填一块
+                会显得像个可点的动作。11px 白字压在品牌蓝上对比度也只有 4.2:1，
+                达不到 AA。 */}
+            <span className="grid size-6 shrink-0 place-items-center rounded-full bg-kumo-fill text-[11px] font-semibold text-kumo-strong uppercase">
               {initial(user)}
             </span>
             <span className={`${labelClass} min-w-0 flex-1 truncate`}>{user?.username}</span>

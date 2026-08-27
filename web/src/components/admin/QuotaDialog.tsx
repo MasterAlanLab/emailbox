@@ -127,7 +127,7 @@ export function QuotaDialog({ target, onClose, onSaved }: QuotaDialogProps) {
           <Button type="button" variant="secondary" onClick={onClose}>
             取消
           </Button>
-          <Button type="submit" variant="primary" disabled={pending}>
+          <Button type="submit" variant="secondary" disabled={pending}>
             {pending ? "保存中…" : "保存"}
           </Button>
         </div>

@@ -91,7 +91,7 @@ export function GroupFormDialog({ tenantID, group, onClose, onSaved }: GroupForm
           <Button type="button" variant="secondary" onClick={onClose}>
             取消
           </Button>
-          <Button type="submit" variant="primary" disabled={pending || !name.trim()}>
+          <Button type="submit" variant="secondary" disabled={pending || !name.trim()}>
             {pending ? "保存中…" : editing ? "保存" : "创建"}
           </Button>
         </div>

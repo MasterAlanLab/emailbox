@@ -74,7 +74,7 @@ export default function AdminPlansPage() {
           onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
           required
         />
-        <Button type="submit" variant="primary" disabled={pending}>
+        <Button type="submit" variant="secondary" disabled={pending}>
           新建套餐
         </Button>
         <span className="self-center text-xs text-kumo-subtle">

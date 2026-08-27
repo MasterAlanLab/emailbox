@@ -46,7 +46,7 @@ export default function TenantSettingsPage() {
             {error && <p className="mt-3 text-sm text-kumo-danger">{error}</p>}
           </div>
           <div className="mt-6 border-t border-kumo-line pt-5">
-            <Button type="submit" variant="primary" disabled={pending}>
+            <Button type="submit" variant="secondary" disabled={pending}>
               {pending ? "创建中…" : "创建工作区"}
             </Button>
           </div>
@@ -89,7 +89,7 @@ function CurrentTenantForm({ tenant, reload }: { tenant: Tenant; reload: () => P
         {error && <p className="text-sm text-kumo-danger">{error}</p>}
       </div>
       <div className="mt-6 border-t border-kumo-line pt-5">
-        <Button type="submit" variant="primary" disabled={pending}>
+        <Button type="submit" variant="secondary" disabled={pending}>
           {pending ? "保存中…" : "保存更改"}
         </Button>
       </div>

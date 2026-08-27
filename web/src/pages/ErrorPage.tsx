@@ -1,3 +1,4 @@
+import { Button, LinkButton } from "@cloudflare/kumo/components/button";
 import { Envelope } from "@phosphor-icons/react";
 import { Link, isRouteErrorResponse, useRouteError } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
@@ -44,21 +45,14 @@ export default function ErrorPage() {
         )}
 
         <div className="mt-7 flex items-center justify-center gap-3">
-          <Link
-            to={home}
-            className="rounded-lg bg-kumo-brand px-4 py-2 text-sm font-medium text-white hover:bg-kumo-brand-hover"
-          >
+          <LinkButton href={home} variant="secondary">
             {authed ? "回到邮箱" : "返回首页"}
-          </Link>
+          </LinkButton>
           {/* 404 重新加载还是 404，这个按钮只对渲染错误有意义。 */}
           {!notFound && (
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="rounded-lg border border-kumo-line px-4 py-2 text-sm text-kumo-default hover:bg-kumo-tint hover:text-kumo-strong"
-            >
+            <Button variant="secondary" onClick={() => window.location.reload()}>
               重新加载
-            </button>
+            </Button>
           )}
         </div>
       </div>

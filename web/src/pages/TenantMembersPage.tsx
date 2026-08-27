@@ -84,7 +84,7 @@ export default function TenantMembersPage() {
             {/* 只有 owner 能授予 owner：后端也会拒，这里不显示是为了别给出做不到的选项 */}
             {membership?.role === "owner" && <Select.Option value="owner">Owner</Select.Option>}
           </Select>
-          <Button type="submit" variant="primary" disabled={pending}>
+          <Button type="submit" variant="secondary" disabled={pending}>
             {pending ? "处理中…" : "添加成员"}
           </Button>
         </LayerCard>

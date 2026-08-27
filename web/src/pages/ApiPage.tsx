@@ -124,7 +124,12 @@ export default function ApiPage() {
             {confirming ? (
               <>
                 <span className="text-sm">确认重置？旧 Key 立即失效。</span>
-                <Button size="sm" variant="destructive" disabled={pending} onClick={reset}>
+                <Button
+                  size="sm"
+                  variant="secondary-destructive"
+                  disabled={pending}
+                  onClick={reset}
+                >
                   {pending ? "重置中…" : "确认重置"}
                 </Button>
                 <Button size="sm" variant="secondary" onClick={() => setConfirming(false)}>
@@ -137,7 +142,7 @@ export default function ApiPage() {
               </Button>
             ) : (
               !loading && (
-                <Button size="sm" variant="primary" disabled={pending} onClick={reset}>
+                <Button size="sm" variant="secondary" disabled={pending} onClick={reset}>
                   {pending ? "生成中…" : "生成 API Key"}
                 </Button>
               )

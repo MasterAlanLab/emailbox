@@ -123,7 +123,7 @@ export function AccountDrawer({ tenantID, account, groups, onClose, onSaved }: A
         </fieldset>
 
         {error && <p className="text-sm text-kumo-danger">{error}</p>}
-        <Button type="submit" variant="primary" className="w-full" disabled={pending}>
+        <Button type="submit" variant="secondary" className="w-full" disabled={pending}>
           {pending ? "保存中…" : "保存"}
         </Button>
       </form>

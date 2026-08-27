@@ -49,7 +49,7 @@ export default function ProfileSettingsPage() {
           {error && <p className="text-sm text-kumo-danger">{error}</p>}
         </div>
         <div className="mt-6 flex items-center gap-3 border-t border-kumo-line pt-5">
-          <Button type="submit" variant="primary" disabled={pending}>
+          <Button type="submit" variant="secondary" disabled={pending}>
             {pending ? "保存中…" : "保存更改"}
           </Button>
           {saved && <span className="text-sm text-kumo-subtle">已保存</span>}

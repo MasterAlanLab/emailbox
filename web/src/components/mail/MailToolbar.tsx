@@ -46,7 +46,7 @@ export function MailToolbar({ tenantID, onReload, onExport }: MailToolbarProps) 
 
   return (
     <div className="flex h-(--ebx-toolbar-h) shrink-0 items-center gap-2 overflow-x-auto border-b border-kumo-line px-4">
-      <LinkButton href="/mail/import" variant="primary" icon={Upload}>
+      <LinkButton href="/mail/import" variant="secondary" icon={Upload}>
         导入邮箱
       </LinkButton>
       <Button variant="secondary" icon={Download} onClick={onExport}>

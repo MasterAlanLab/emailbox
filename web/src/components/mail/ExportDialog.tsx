@@ -74,12 +74,14 @@ export function ExportDialog({ tenantID, groupID, selectedIDs, onClose }: Export
 
         {error && <p className="mt-3 text-sm text-kumo-danger">{error}</p>}
 
+        {/* 「导出」在左、「取消」在右。两个按钮现在长得一样（全站只有一种按钮，
+            见 AGENTS.md §6.2），位置就是唯一的区分：先读到的那个是要做的事。 */}
         <div className="mt-5 flex justify-end gap-2">
+          <Button type="submit" variant="secondary" disabled={pending}>
+            {pending ? "导出中…" : "导出"}
+          </Button>
           <Button type="button" variant="secondary" onClick={onClose}>
             取消
-          </Button>
-          <Button type="submit" variant="primary" disabled={pending}>
-            {pending ? "导出中…" : "导出"}
           </Button>
         </div>
       </LayerCard>
