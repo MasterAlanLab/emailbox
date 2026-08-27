@@ -194,12 +194,14 @@ export default function MailPage({ scope }: MailPageProps = {}) {
     >
       {/* 左栏只在 ≥1280 时并列显示，再窄就折进筛选栏的下拉里（06 文档 §5.1）。 */}
       <MailSidebar
+        tenantID={tenantID}
         groups={groups}
         groupID={groupID}
         onGroupChange={changeGroup}
         refreshStatus={refreshStatus}
         onRefreshStatusChange={changeRefreshStatus}
         stats={stats}
+        onGroupsChanged={reload}
       />
 
       <section className={`${paneClass("accounts")} min-h-0 min-w-0 flex-1 flex-col`}>

@@ -12,7 +12,6 @@ import PrivacyPage from "@/pages/PrivacyPage";
 import TermsPage from "@/pages/TermsPage";
 import ErrorPage from "@/pages/ErrorPage";
 import MailPage from "@/pages/mail/MailPage";
-import GroupsPage from "@/pages/mail/GroupsPage";
 import ImportPage from "@/pages/mail/ImportPage";
 import TokensPage from "@/pages/mail/TokensPage";
 import UsagePage from "@/pages/UsagePage";
@@ -62,7 +61,6 @@ export const router = createBrowserRouter([
       // 两个邮箱工作台再带 shell——内容区自身不滚动。
       { path: "mail", element: protect(<MailPage />), handle: shellRoute },
       { path: "mail/import", element: protect(<ImportPage />), handle: appRoute },
-      { path: "mail/groups", element: protect(<GroupsPage />), handle: appRoute },
       { path: "mail/tokens", element: protect(<TokensPage />), handle: appRoute },
       { path: "settings/profile", element: protect(<ProfileSettingsPage />), handle: appRoute },
       { path: "settings/security", element: protect(<SecuritySettingsPage />), handle: appRoute },

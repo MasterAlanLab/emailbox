@@ -3,7 +3,6 @@ import {
   CaretRight,
   Code,
   Envelope,
-  FolderOpen,
   Gauge,
   Key,
   Moon,
@@ -33,9 +32,11 @@ interface NavItem {
   adminOnly?: boolean;
 }
 
+// 这里只放**并列的工作区**。分组曾经也在这一层，但它下面只有「管理分组」
+// 一件事，撑不起一个和「邮箱」平级的入口；现在它回到邮箱工作台的左栏里，
+// 就摆在分组列表上（见 MailSidebar）。
 const PRIMARY: NavItem[] = [
   { to: "/mail", label: "邮箱", icon: Envelope, end: true },
-  { to: "/mail/groups", label: "分组", icon: FolderOpen },
   { to: "/mail/tokens", label: "令牌", icon: Key },
 ];
 
