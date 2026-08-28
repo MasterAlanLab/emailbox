@@ -31,9 +31,10 @@ const (
 
 	AuditAPIKeyReset = "api_key.reset"
 
-	AuditTokenRefresh = "token.refresh"
-	AuditJobSubmit    = "job.submit"
-	AuditJobStop      = "job.stop"
+	AuditTokenRefresh     = "token.refresh"
+	AuditTokenReauthorize = "token.reauthorize"
+	AuditJobSubmit        = "job.submit"
+	AuditJobStop          = "job.stop"
 
 	AuditUserUpdate        = "user.update"
 	AuditUserDelete        = "user.delete"

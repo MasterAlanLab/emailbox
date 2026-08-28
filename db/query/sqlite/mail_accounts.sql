@@ -235,6 +235,20 @@ UPDATE mail_accounts
 SET last_refresh_at = CURRENT_TIMESTAMP,
     last_refresh_status = ?,
     last_refresh_error = ?,
+    last_refresh_error_kind = ?,
+    updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL;
+
+-- Reauthorization changes credentials only after the new token is verified.
+-- It must not overwrite group, proxy, remark, or concurrent account edits.
+-- name: UpdateMailAccountAuthorization :execrows
+UPDATE mail_accounts
+SET client_id = ?, refresh_token_enc = ?, auth_channel = ?,
+    refresh_token_updated_at = CURRENT_TIMESTAMP,
+    last_refresh_at = CURRENT_TIMESTAMP,
+    last_refresh_status = 'success',
+    last_refresh_error = '',
+    last_refresh_error_kind = '',
     updated_at = CURRENT_TIMESTAMP
 WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL;
 

@@ -258,6 +258,7 @@ func mapSQLiteAccount(a sqlitedb.MailAccount) *model.MailAccount {
 		ProxyURL: a.ProxyUrl, FallbackProxyURL1: a.FallbackProxyUrl1, FallbackProxyURL2: a.FallbackProxyUrl2,
 		LastRefreshAt:     timePtr(a.LastRefreshAt),
 		LastRefreshStatus: model.RefreshStatus(a.LastRefreshStatus), LastRefreshError: a.LastRefreshError,
+		LastRefreshErrorKind:  a.LastRefreshErrorKind,
 		RefreshTokenUpdatedAt: timePtr(a.RefreshTokenUpdatedAt),
 		CreatedAt:             a.CreatedAt, UpdatedAt: a.UpdatedAt, DeletedAt: timePtr(a.DeletedAt),
 	}
@@ -274,6 +275,7 @@ func mapPostgresAccount(a postgresdb.MailAccount) *model.MailAccount {
 		ProxyURL: a.ProxyUrl, FallbackProxyURL1: a.FallbackProxyUrl1, FallbackProxyURL2: a.FallbackProxyUrl2,
 		LastRefreshAt:     timePtr(a.LastRefreshAt),
 		LastRefreshStatus: model.RefreshStatus(a.LastRefreshStatus), LastRefreshError: a.LastRefreshError,
+		LastRefreshErrorKind:  a.LastRefreshErrorKind,
 		RefreshTokenUpdatedAt: timePtr(a.RefreshTokenUpdatedAt),
 		CreatedAt:             a.CreatedAt, UpdatedAt: a.UpdatedAt, DeletedAt: timePtr(a.DeletedAt),
 	}
@@ -316,16 +318,35 @@ func (s *Store) UpdateMailAccountRefreshToken(ctx context.Context, tenantID, id,
 }
 
 // UpdateMailAccountRefreshResult 记录最近一次访问的成败，供 Token 管理页聚合。
-func (s *Store) UpdateMailAccountRefreshResult(ctx context.Context, tenantID, id, status, errMessage string) error {
+func (s *Store) UpdateMailAccountRefreshResult(ctx context.Context, tenantID, id, status, errMessage, errorKind string) error {
 	var n int64
 	var e error
 	if s.driver == "sqlite" {
 		n, e = s.sqlite.UpdateMailAccountRefreshResult(ctx, sqlitedb.UpdateMailAccountRefreshResultParams{
-			LastRefreshStatus: status, LastRefreshError: errMessage, TenantID: tenantID, ID: id,
+			LastRefreshStatus: status, LastRefreshError: errMessage, LastRefreshErrorKind: errorKind,
+			TenantID: tenantID, ID: id,
 		})
 	} else {
 		n, e = s.postgres.UpdateMailAccountRefreshResult(ctx, postgresdb.UpdateMailAccountRefreshResultParams{
-			LastRefreshStatus: status, LastRefreshError: errMessage, TenantID: tenantID, ID: id,
+			LastRefreshStatus: status, LastRefreshError: errMessage, LastRefreshErrorKind: errorKind,
+			TenantID: tenantID, ID: id,
+		})
+	}
+	return rowsAffected(n, e)
+}
+
+// UpdateMailAccountAuthorization 只替换已经验证通过的 OAuth 凭据和刷新状态。
+// 账号的分组、备注、代理可能正在被用户编辑，重新授权绝不能整行覆盖。
+func (s *Store) UpdateMailAccountAuthorization(ctx context.Context, tenantID, id, clientID, tokenEnc, channel string) error {
+	var n int64
+	var e error
+	if s.driver == "sqlite" {
+		n, e = s.sqlite.UpdateMailAccountAuthorization(ctx, sqlitedb.UpdateMailAccountAuthorizationParams{
+			ClientID: clientID, RefreshTokenEnc: tokenEnc, AuthChannel: channel, TenantID: tenantID, ID: id,
+		})
+	} else {
+		n, e = s.postgres.UpdateMailAccountAuthorization(ctx, postgresdb.UpdateMailAccountAuthorizationParams{
+			ClientID: clientID, RefreshTokenEnc: tokenEnc, AuthChannel: channel, TenantID: tenantID, ID: id,
 		})
 	}
 	return rowsAffected(n, e)

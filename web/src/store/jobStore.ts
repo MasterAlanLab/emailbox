@@ -16,6 +16,7 @@ import type { TenantRef } from "@/api/mail";
 const MAX_RECENT = 50;
 
 export interface RecentItem {
+  accountID: string;
   email: string;
   status: ItemPayload["status"];
   errorKind: string;
@@ -122,6 +123,7 @@ export const useJobStore = create<JobState>((set, get) => ({
         set((state) => ({
           recent: [
             {
+              accountID: payload.account_id,
               email: payload.email,
               status: payload.status,
               errorKind: payload.error_kind,

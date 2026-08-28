@@ -57,6 +57,7 @@ type Handlers struct {
 	Admin   *handler.AdminHandler
 	Job     *handler.JobHandler
 	Refresh *handler.RefreshHandler
+	OAuth   *handler.OAuthHandler
 	Audit   *service.AuditService
 }
 
@@ -83,6 +84,7 @@ func SetupRoutes(
 	})
 	v1.POST("/auth/register", h.Auth.Register, authLimiter)
 	v1.POST("/auth/login", h.Auth.Login, authLimiter)
+	v1.GET("/oauth/microsoft/callback", h.OAuth.Callback)
 	protected := v1.Group("", auth.Require)
 	protected.POST("/auth/logout", h.Auth.Logout)
 	protected.GET("/auth/session", h.Auth.Session)
@@ -203,6 +205,12 @@ func mountMailRoutes(m *echo.Group, h Handlers, exportLimiter echo.MiddlewareFun
 	m.POST("/accounts/:accountID/token/refresh", h.Refresh.RefreshOne,
 		middleware.Require(model.PermissionTokenRefresh),
 		audit(model.AuditTokenRefresh, "account", "accountID"))
+	m.POST("/accounts/:accountID/oauth/start", h.OAuth.Start,
+		middleware.Require(model.PermissionAccountWrite),
+		audit(model.AuditTokenReauthorize, "account", "accountID"))
+	m.POST("/accounts/:accountID/oauth/complete", h.OAuth.Complete,
+		middleware.Require(model.PermissionAccountWrite),
+		audit(model.AuditTokenReauthorize, "account", "accountID"))
 	m.POST("/jobs/token-refresh", h.Refresh.SubmitBatch,
 		middleware.Require(model.PermissionTokenRefresh), BulkBody(),
 		audit(model.AuditJobSubmit, "job", ""))

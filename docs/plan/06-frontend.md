@@ -285,7 +285,7 @@ VirtualList.tsx      SplitPane.tsx         EmptyState.tsx
 ### 5.2 `/mail/tokens` Token 刷新
 
 **刷新令牌只在这一页做**（邮箱页上不放第二个入口，否则用户会以为是两件事）。
-从上到下四块：
+从上到下五块：
 
 - 统计：总账号 / 正常 / 失败 / 从未刷新，四个数字方块
 - 动作条（`LayerCard`）：**刷新全部**、**只刷新失败的（n）**、
@@ -293,6 +293,9 @@ VirtualList.tsx      SplitPane.tsx         EmptyState.tsx
   分组下拉选完还要再点一次按钮才提交——下拉一变就发任务，误触的代价是几千次上游调用
 - 任务面板：`Meter` 进度 + 成功/失败计数 + 逐条结果（邮箱 → 成功/已跳过/失败原因）。
   进度靠 SSE 推送，关掉页面再回来会自动接上仍在跑的那个任务（§7 的 `jobStore`）
+- 需要重新授权的账号：筛出 `auth_failed` / `consent_required` 的 Outlook 账号，逐行提供
+  「重新授权」。弹窗先创建一次性 PKCE 流程，再打开 Microsoft；参考应用的回调仍是
+  localhost 时，用户粘贴地址栏的最终地址，换成平台自己的回调域名后则自动完成
 - 最近 7 天的失败原因分布：banned / auth_failed / proxy_failed… 各自的处置完全不同，
   这也是把它们分开统计的全部意义
 

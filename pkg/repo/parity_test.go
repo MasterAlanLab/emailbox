@@ -355,6 +355,62 @@ func TestAccountAliasesParity(t *testing.T) {
 	}
 }
 
+// OAuth 流程和最终凭据写回由两套独立 SQL 实现。这里同时钉住一次性状态迁移、
+// tenant_id 隔离和账号窄更新，避免只在某一个引擎上留下可重复使用的流程。
+func TestOAuthAuthorizationParity(t *testing.T) {
+	type outcome struct {
+		flowStatus, clientID, token, channel, remark, errorKind string
+	}
+	results := map[string]outcome{}
+	for _, e := range parityEngines(t) {
+		ctx := context.Background()
+		tenantID := seed(t, e.store)
+		accountID := seedAccounts(t, e.store, tenantID, "oauth@outlook.com")[0]
+		account, err := e.store.GetMailAccount(ctx, tenantID, accountID)
+		if err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		account.Remark = "keep"
+		if err := e.store.UpdateMailAccount(ctx, account); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+
+		flow := repo.OAuthAuthorization{ID: "flow-1", TenantID: tenantID, AccountID: accountID,
+			ActorUserID: "parity-user", StateHash: "state-hash", CodeVerifierEnc: "verifier",
+			ExpiresAt: time.Now().UTC().Add(time.Hour)}
+		if err := e.store.CreateOAuthAuthorization(ctx, flow); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if _, err := e.store.GetOAuthAuthorizationByState(ctx, "other-tenant", flow.ID, flow.StateHash); !errors.Is(err, repo.ErrNotFound) {
+			t.Fatalf("%s: 跨租户流程应为 not found: %v", e.name, err)
+		}
+		if err := e.store.MarkOAuthAuthorizationExchanged(ctx, tenantID, flow.ID, "token-cipher", "oauth@outlook.com"); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if err := e.store.WithTx(ctx, func(tx *repo.Store) error {
+			if err := tx.UpdateMailAccountAuthorization(ctx, tenantID, accountID, "new-client", "rotated", "graph"); err != nil {
+				return err
+			}
+			return tx.ConsumeOAuthAuthorization(ctx, tenantID, flow.ID)
+		}); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if err := e.store.ConsumeOAuthAuthorization(ctx, tenantID, flow.ID); !errors.Is(err, repo.ErrNotFound) {
+			t.Fatalf("%s: 流程应只能消费一次: %v", e.name, err)
+		}
+		storedFlow, _ := e.store.GetOAuthAuthorization(ctx, tenantID, flow.ID)
+		storedAccount, _ := e.store.GetMailAccount(ctx, tenantID, accountID)
+		results[e.name] = outcome{storedFlow.Status, storedAccount.ClientID, storedAccount.RefreshTokenEnc,
+			storedAccount.AuthChannel, storedAccount.Remark, storedAccount.LastRefreshErrorKind}
+	}
+	want := results["sqlite"]
+	for name, got := range results {
+		if got != want {
+			t.Errorf("OAuth 结果在 %s 上与 sqlite 不一致: %+v vs %+v", name, got, want)
+		}
+	}
+}
+
 // compareParity 断言各引擎在每个用例上返回了完全相同的 ID 序列。
 func compareParity(t *testing.T, results map[string][][]string, cases [][]string) {
 	t.Helper()

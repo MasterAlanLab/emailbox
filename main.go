@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -58,7 +59,14 @@ func main() {
 	groupService := service.NewGroupService(store, cipher, quotaService)
 	accountService := service.NewAccountService(store, cipher, quotaService)
 	quotaUsageService := service.NewQuotaService(store, quotaService)
-	messageService := service.NewMessageService(store, cipher, quotaService, service.ChainOptions{})
+	messageService := service.NewMessageService(store, cipher, quotaService, service.ChainOptions{
+		OAuthClientID: configs.AppConfig.OAuth.ClientID, OAuthClientSecret: configs.AppConfig.OAuth.ClientSecret,
+	})
+	oauthService := service.NewOAuthService(store, cipher, quotaService, messageService, service.OAuthOptions{
+		Enabled: configs.AppConfig.OAuth.Enabled, ClientID: configs.AppConfig.OAuth.ClientID,
+		ClientSecret: configs.AppConfig.OAuth.ClientSecret, Tenant: configs.AppConfig.OAuth.Tenant,
+		RedirectURI: configs.AppConfig.OAuth.RedirectURI,
+	})
 	auditService := service.NewAuditService(store)
 	apiKeyService := service.NewAPIKeyService(store, cipher)
 
@@ -80,7 +88,7 @@ func main() {
 		slog.Warn("已回收上次运行遗留的中断任务", "count", n)
 	}
 	adminService := service.NewAdminService(store, platformService, quotaService)
-	handlers := api.Handlers{Auth: handler.NewAuthHandler(authService), APIKey: handler.NewAPIKeyHandler(apiKeyService), User: handler.NewUserHandler(userService), Tenant: handler.NewTenantHandler(tenantService), Member: handler.NewMemberHandler(memberService), Group: handler.NewGroupHandler(groupService), Account: handler.NewAccountHandler(accountService), Quota: handler.NewQuotaHandler(quotaUsageService), Message: handler.NewMessageHandler(messageService), Admin: handler.NewAdminHandler(adminService, auditService, quotaUsageService), Job: handler.NewJobHandler(jobService, refreshService), Refresh: handler.NewRefreshHandler(refreshService), Audit: auditService}
+	handlers := api.Handlers{Auth: handler.NewAuthHandler(authService), APIKey: handler.NewAPIKeyHandler(apiKeyService), User: handler.NewUserHandler(userService), Tenant: handler.NewTenantHandler(tenantService), Member: handler.NewMemberHandler(memberService), Group: handler.NewGroupHandler(groupService), Account: handler.NewAccountHandler(accountService), Quota: handler.NewQuotaHandler(quotaUsageService), Message: handler.NewMessageHandler(messageService), Admin: handler.NewAdminHandler(adminService, auditService, quotaUsageService), Job: handler.NewJobHandler(jobService, refreshService), Refresh: handler.NewRefreshHandler(refreshService), OAuth: handler.NewOAuthHandler(oauthService, configs.AppConfig.OAuth.ReturnURL), Audit: auditService}
 	authMiddleware := middleware2.NewAuthMiddleware(authService, apiKeyService)
 	tenantMiddleware := middleware2.NewTenantMiddleware(store)
 	platformMiddleware := middleware2.NewPlatformMiddleware(store)
@@ -96,7 +104,7 @@ func main() {
 	// RequestID 让访问日志和处理器里的错误日志能通过同一个 id 关联起来。
 	e.Use(middleware.RequestID())
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{LogStatus: true, LogURI: true, LogMethod: true, LogLatency: true, LogRequestID: true, HandleError: true, LogValuesFunc: func(_ *echo.Context, v middleware.RequestLoggerValues) error {
-		slog.Info("request", "method", v.Method, "uri", v.URI, "status", v.Status, "latency_ms", v.Latency.Milliseconds(), "request_id", v.RequestID)
+		slog.Info("request", "method", v.Method, "uri", sanitizedLogURI(v.URI), "status", v.Status, "latency_ms", v.Latency.Milliseconds(), "request_id", v.RequestID)
 		return nil
 	}}))
 	e.Use(middleware.Recover())
@@ -135,6 +143,16 @@ func main() {
 	if err != nil {
 		fatal("服务器异常退出", err)
 	}
+}
+
+// sanitizedLogURI 避免把 Microsoft 回调里的短期授权码与 OAuth state 写进访问日志。
+// 其它 URI 保留查询参数，便于排查筛选与分页问题；这里只收窄含凭据的那个入口。
+func sanitizedLogURI(uri string) string {
+	const callback = "/api/v1/oauth/microsoft/callback"
+	if strings.HasPrefix(uri, callback+"?") {
+		return callback
+	}
+	return uri
 }
 
 // fatal 记录错误后退出。不用 log.Fatal 是为了统一走 slog，

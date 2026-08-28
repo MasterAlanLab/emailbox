@@ -91,6 +91,7 @@ type MailAccount struct {
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
 	DeletedAt             sql.NullTime
+	LastRefreshErrorKind  string
 }
 
 type MailAccountAlias struct {
@@ -128,6 +129,23 @@ type MailRefreshLog struct {
 	ErrorKind    string
 	ErrorMessage string
 	CreatedAt    time.Time
+}
+
+type OauthAuthorization struct {
+	ID              string
+	TenantID        string
+	AccountID       string
+	ActorUserID     string
+	StateHash       string
+	CodeVerifierEnc string
+	RefreshTokenEnc string
+	ProviderEmail   string
+	Status          string
+	ErrorMessage    string
+	ExpiresAt       time.Time
+	UsedAt          sql.NullTime
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type Plan struct {

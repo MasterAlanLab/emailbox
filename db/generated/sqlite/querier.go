@@ -20,6 +20,7 @@ type Querier interface {
 	BumpJobCounts(ctx context.Context, arg BumpJobCountsParams) error
 	ClearDefaultPlanExcept(ctx context.Context, id string) error
 	ClearSessionsActiveTenant(ctx context.Context, activeTenantID sql.NullString) error
+	ConsumeOAuthAuthorization(ctx context.Context, arg ConsumeOAuthAuthorizationParams) (int64, error)
 	ConsumeUsage(ctx context.Context, arg ConsumeUsageParams) (int64, error)
 	CountAccountsPerGroup(ctx context.Context, tenantID string) ([]CountAccountsPerGroupRow, error)
 	CountAdminUsers(ctx context.Context, arg CountAdminUsersParams) (int64, error)
@@ -70,6 +71,7 @@ type Querier interface {
 	// .sql file contains multi-byte characters and silently truncates the SQL.
 	// Explanations live in pkg/repo/groups.go instead.
 	CreateMailGroup(ctx context.Context, arg CreateMailGroupParams) error
+	CreateOAuthAuthorization(ctx context.Context, arg CreateOAuthAuthorizationParams) error
 	CreatePlan(ctx context.Context, arg CreatePlanParams) error
 	// NOTE: keep this file ASCII-only. sqlc miscomputes query boundaries when a
 	// .sql file contains multi-byte characters and silently truncates the SQL.
@@ -83,6 +85,7 @@ type Querier interface {
 	// Explanations live in pkg/repo/quotas.go instead.
 	CreateTenantQuota(ctx context.Context, arg CreateTenantQuotaParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
+	DeleteExpiredOAuthAuthorizations(ctx context.Context, tenantID string) (int64, error)
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteJobEventsBefore(ctx context.Context, createdAt time.Time) error
 	DeleteMailAliasesByAccount(ctx context.Context, arg DeleteMailAliasesByAccountParams) error
@@ -108,6 +111,8 @@ type Querier interface {
 	GetMailAccount(ctx context.Context, arg GetMailAccountParams) (MailAccount, error)
 	GetMailAccountByEmail(ctx context.Context, arg GetMailAccountByEmailParams) (MailAccount, error)
 	GetMailGroup(ctx context.Context, arg GetMailGroupParams) (MailGroup, error)
+	GetOAuthAuthorization(ctx context.Context, arg GetOAuthAuthorizationParams) (OauthAuthorization, error)
+	GetOAuthAuthorizationByState(ctx context.Context, arg GetOAuthAuthorizationByStateParams) (OauthAuthorization, error)
 	GetPersonalTenantByOwner(ctx context.Context, createdBy string) (Tenant, error)
 	GetPlanByCode(ctx context.Context, code string) (Plan, error)
 	// NOTE: keep this file ASCII-only. sqlc miscomputes query boundaries when a
@@ -169,6 +174,8 @@ type Querier interface {
 	ListTenantMembers(ctx context.Context, tenantID string) ([]ListTenantMembersRow, error)
 	ListTenantsByUserID(ctx context.Context, userID string) ([]Tenant, error)
 	MarkJobInterrupted(ctx context.Context, arg MarkJobInterruptedParams) error
+	MarkOAuthAuthorizationExchanged(ctx context.Context, arg MarkOAuthAuthorizationExchangedParams) (int64, error)
+	MarkOAuthAuthorizationFailed(ctx context.Context, arg MarkOAuthAuthorizationFailedParams) (int64, error)
 	MaxJobEventSeq(ctx context.Context, jobID string) (interface{}, error)
 	MoveAccountsToGroup(ctx context.Context, arg MoveAccountsToGroupParams) error
 	// Only a job that has not finished yet can be asked to stop.
@@ -189,6 +196,9 @@ type Querier interface {
 	// Hot path: clicking a group in the left pane. Skips every optional clause so
 	// idx_mail_accounts_group applies cleanly.
 	UpdateMailAccountAuthChannel(ctx context.Context, arg UpdateMailAccountAuthChannelParams) (int64, error)
+	// Reauthorization changes credentials only after the new token is verified.
+	// It must not overwrite group, proxy, remark, or concurrent account edits.
+	UpdateMailAccountAuthorization(ctx context.Context, arg UpdateMailAccountAuthorizationParams) (int64, error)
 	UpdateMailAccountRefreshResult(ctx context.Context, arg UpdateMailAccountRefreshResultParams) (int64, error)
 	// Microsoft rotates refresh tokens. Missing a rotation breaks the account on
 	// the next refresh, so this must be its own statement that cannot be skipped.

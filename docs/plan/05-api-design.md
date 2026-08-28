@@ -291,23 +291,27 @@ GET /mail/refresh/logs         → 分页，支持 status / account_id / 时间�
 - **`/mail/settings`（租户级键值设置）**。它承载的全部是转发与本地保留的配置项，
   随那两个功能一起删掉（见 [README「明确不做的事」](README.md)）；`tenant_settings` 表也不再需要。
 
-## 8. OAuth 助手（**未实现**）
-
-下面三个端点是设计里有、**代码里没有**的，别照着它们写调用方：
+## 8. Microsoft OAuth 重新授权
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/mail/oauth/authorize-url` | 生成微软授权链接，`type=graph\|imap` 决定 scope |
-| POST | `/mail/oauth/exchange` | body `{redirected_url}`，从中提取 code 并换 refresh_token |
-| POST | `/mail/accounts/:accountID/reauthorize` | 用新 token 覆盖账号凭据 |
+| POST | `/mail/accounts/:accountID/oauth/start` | 创建一次性授权流程，返回微软授权链接 |
+| GET | `/oauth/microsoft/callback` | 微软公开回调；校验 state、换取令牌后只保存密文 |
+| POST | `/mail/accounts/:accountID/oauth/complete` | 完成授权；也可提交 `{flow_id, redirected_url}` 兼容本地回调地址 |
 
-现状是**用户自带 `refresh_token`**：导入格式里那一段就是它（04 文档 §7），
-换凭据走 `PATCH /mail/accounts/:accountID`。平台自己发起授权要先注册并托管一个
-微软应用（client_id / 回调域名 / 应用审核），而用户导入的账号各自属于不同的应用——
-这件事没有想清楚之前不做，比做一个只对某一类账号有效的授权入口好。
+流程使用授权码 + PKCE。`state` 随机且一次性，流程 10 分钟过期；授权码、访问令牌与
+refresh token 都不会出现在业务接口响应里。换到令牌后先调用 Microsoft Graph `/me`
+核对邮箱身份，再验证 refresh token；全部成功后才以窄 UPDATE 替换账号的
+`client_id` / `refresh_token` / `auth_channel` 与最近刷新状态，失败时保留旧凭据。
 
-真要做的话只做标准授权码流程，**不移植**老项目里那种模拟登录页抓 token 的做法：
-它依赖微软登录页当下的表单结构与风控判定，对方改一次版就整条链路失效。
+默认先沿用参考项目的 Microsoft 应用及其 `http://localhost:8080` 回调地址。因此前端同时
+提供“粘贴最终跳转地址”入口：浏览器即使打不开本地回调，地址栏仍含有授权结果，服务端会
+校验同一份 state 后完成交换。部署方注册自己的 HTTPS 回调后，配置
+`MICROSOFT_OAUTH_REDIRECT_URI` 指向 `/api/v1/oauth/microsoft/callback`，即可自动返回 Token 页。
+
+重新授权只适用于 Outlook OAuth 账号，并要求 `account:write`。流程记录始终带
+`tenant_id`、账号和发起用户，跨租户账号 ID 与流程 ID 均返回 404；公开回调也通过 state
+内的租户和流程标识执行带 `tenant_id` 的查询。审计动作记为 `token.reauthorize`。
 
 ## 9. 限流
 

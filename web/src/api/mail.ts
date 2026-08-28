@@ -43,6 +43,7 @@ export interface MailAccount {
   last_refresh_at: string | null;
   last_refresh_status: RefreshStatus;
   last_refresh_error: string;
+  last_refresh_error_kind: string;
   created_at: string;
   updated_at: string;
   has_password: boolean;
@@ -101,6 +102,18 @@ export interface BatchResult {
   succeeded: number;
   failed: number;
   errors: { account_id: string; reason: string }[];
+}
+
+export interface OAuthStartResult {
+  flow_id: string;
+  authorization_url: string;
+  expires_at: string;
+}
+
+export interface OAuthCompleteResult {
+  account_id: string;
+  email: string;
+  status: "success";
 }
 
 export interface Limits {
@@ -243,6 +256,24 @@ export const mailApi = {
       .data,
   deleteAccount: async (tenantID: TenantRef, accountID: string) =>
     (await client.delete<ApiResponse<null>>(`${base(tenantID)}/accounts/${accountID}`)).data,
+  startReauthorization: async (tenantID: TenantRef, accountID: string) =>
+    (
+      await client.post<ApiResponse<OAuthStartResult>>(
+        `${base(tenantID)}/accounts/${accountID}/oauth/start`,
+      )
+    ).data,
+  completeReauthorization: async (
+    tenantID: TenantRef,
+    accountID: string,
+    data: { flow_id: string; redirected_url?: string },
+  ) =>
+    (
+      await client.post<ApiResponse<OAuthCompleteResult>>(
+        `${base(tenantID)}/accounts/${accountID}/oauth/complete`,
+        data,
+        { timeout: MESSAGE_TIMEOUT },
+      )
+    ).data,
   importAccounts: async (tenantID: TenantRef, data: Record<string, unknown>) =>
     (await client.post<ApiResponse<ImportResult>>(`${base(tenantID)}/accounts/import`, data)).data,
   // 导出返回的是 text/plain 文件本身，不是 {code,data,message} 结构。

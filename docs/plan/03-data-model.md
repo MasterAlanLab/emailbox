@@ -43,6 +43,7 @@ P0–P4 的表到 `000005` 就齐了。转发、分享链接、本地邮件保�
 | `000012_tenant_api_keys` | 对外取件 API Key，一租户一把 | 2026-08-27 |
 | `000013_drop_token_refresh_quota` | 取消「每日刷新令牌」额度，删掉 `plans` / `tenant_quotas` 的 `daily_token_refresh` | 2026-08-27 |
 | `000014_drop_avatar_url` | 删掉 `users.avatar_url`：个人资料页有输入框，但界面上没有一处显示头像 | 2026-08-27 |
+| `000015_oauth_reauthorization` | Microsoft 重新授权的一次性流程表；账号刷新结果补 `error_kind` | 2026-08-28 |
 
 每个迁移 sqlite / postgres 各一份 `.up.sql` / `.down.sql`。
 `000002_saas` 的表定义见 [08 文档 §2、§4](08-saas-admin.md)，不在本文重复。
@@ -107,6 +108,7 @@ CREATE TABLE mail_accounts (
     last_refresh_at          DATETIME,
     last_refresh_status      TEXT NOT NULL DEFAULT 'never' CHECK (last_refresh_status IN ('never','success','failed')),
     last_refresh_error       TEXT NOT NULL DEFAULT '',
+    last_refresh_error_kind  TEXT NOT NULL DEFAULT '',
     refresh_token_updated_at DATETIME,
     created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -158,6 +160,17 @@ CREATE INDEX idx_mail_aliases_account ON mail_account_aliases(account_id);
 > 这件事，且它有完整的树结构与配额，没有必要再留一套只写不读的平行机制。
 >
 > 颜色令牌本身**保留**：分组的 `color` 列用的就是同一套取值（见 §3.1）。
+
+### 3.4 `oauth_authorizations` — 一次性重新授权流程
+
+每行绑定 `tenant_id`、`account_id` 与发起用户，10 分钟过期。`state_hash` 只存 SHA-256，
+PKCE verifier 和交换后的 refresh token 用与邮箱凭据相同的 AES-256-GCM 加密；流程消费后
+立即清空这两个密文字段。状态只允许 `started → exchanged → consumed`，任一步失败进入
+`failed`，不能复用授权码或 state。账号删除与租户删除都会级联清掉流程。
+
+公开 Microsoft 回调也不做无租户查询：state 中带流程 ID 与租户 ID，服务端解析后仍用
+`WHERE tenant_id = ? AND id = ? AND state_hash = ?` 查找。新建流程时顺手按同一 tenant
+清理过期记录，避免为了后台清理引入一条漏 `tenant_id` 的全表业务 SQL。
 
 ## 4. 运维表
 

@@ -111,6 +111,9 @@ func (c *Client) fetchAccessToken(
 	if scope != "" {
 		form.Set("scope", scope)
 	}
+	if cred.ClientSecret != "" {
+		form.Set("client_secret", cred.ClientSecret)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {

@@ -81,6 +81,7 @@ type MailAccount struct {
 	LastRefreshAt         *time.Time    `json:"last_refresh_at"`
 	LastRefreshStatus     RefreshStatus `json:"last_refresh_status"`
 	LastRefreshError      string        `json:"last_refresh_error"`
+	LastRefreshErrorKind  string        `json:"last_refresh_error_kind"`
 	RefreshTokenUpdatedAt *time.Time    `json:"refresh_token_updated_at"`
 
 	CreatedAt time.Time  `json:"created_at"`

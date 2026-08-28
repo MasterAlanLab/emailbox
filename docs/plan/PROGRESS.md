@@ -571,7 +571,7 @@ Key 因此**读不到也重置不了自己**（那两个端点要 `tenant:update
 
 | 位置 | 问题 |
 |---|---|
-| `05 §8 OAuth 助手` | 三个端点（`authorize-url` / `exchange` / `reauthorize`）**从未实现**，文档写得像已有。现状是用户自带 `refresh_token`。已标注为未实现并写清为什么不做 |
+| `05 §8 OAuth 助手` | 当时三个端点确实从未实现，曾先把文档纠正成“未实现”；2026-08-28 已以一次性 state + PKCE 的新端点闭环，见本文末尾进度 |
 | `05 §10.4` | `GET /admin/jobs` 同样不存在。任务是按租户跑的，管理员从 `/admin/tenants/:id/mail/jobs` 进去即可 |
 | `06 §4 状态管理` | 列了 7 个 store，实际只建了 4 个。`mailGroupStore` 等 5 个从来没建——数据只有一个页面用，放全局只是多一份要手动失效的副本 |
 | `AGENTS §5.1` / `05 §1.2` / `response.go` | 都写着「1001 的 `data` 带 `{metric, limit, used}`」，而 `mailError` 实际回的是 `data: null`，上限与用量在 `message` 里。三处一起改成现状 |
@@ -760,3 +760,18 @@ Key 因此**读不到也重置不了自己**（那两个端点要 `tenant:update
 推广关系在页面顶部统一说明，同时在具体资源上逐项标记；外链使用新标签页并带
 `rel="sponsored nofollow"`。README 的推广披露也从末尾免责声明移动到资源列表之前，
 让说明与链接同时出现，而不是让读者点完链接后才在页面底部看到。
+
+### Microsoft OAuth 重新授权闭环（2026-08-28）
+
+Token 页现在会列出 `auth_failed` / `consent_required` 的 Outlook 账号，并可逐个重新授权。
+后端用授权码 + PKCE、随机一次性 state 和 10 分钟流程表完成交换；refresh token 只以密文
+存在服务端，先用 Graph `/me` 核对主邮箱或别名，再实际刷新一次，全部成功后才用窄 UPDATE
+替换 `client_id` / `refresh_token` / `auth_channel`。因此授权页面选错账号、权限不足或网络失败
+都不会破坏账号原有凭据。
+
+默认暂用参考项目的 Microsoft client ID 与 localhost 回调，同时保留粘贴最终跳转地址的
+兼容流程；配置自己的 HTTPS callback 后会自动回到 Token 页完成。两个端点复用用户侧与
+管理员侧同一路由表，要求 `account:write`，API Key 与只读成员进不去；公开 callback 仍以
+state 中的 tenant ID 做带租户条件的查询。`TestOAuthReauthorizationOnlyReplacesVerifiedCredentials`、
+`TestOAuthIdentityMismatchKeepsOldCredential`、跨租户 API 用例和双引擎 parity 用例守住这些边界。
+访问日志对公开 callback 单独去掉查询串，避免把短期授权码和 state 写进日志。

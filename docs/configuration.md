@@ -134,6 +134,33 @@ TRUST_PROXY=false
 否则所有请求的来源 IP 都是代理地址，会被算作同一个客户端——
 一个人触发限流就会导致所有用户都无法登录。
 
+## Microsoft OAuth 重新授权
+
+```env
+MICROSOFT_OAUTH_ENABLED=true
+MICROSOFT_OAUTH_CLIENT_ID=9e5f94bc-e8a4-4e73-b8be-63364c29d753
+MICROSOFT_OAUTH_TENANT=common
+MICROSOFT_OAUTH_REDIRECT_URI=http://localhost:8080
+MICROSOFT_OAUTH_RETURN_URL=http://localhost:5173/mail/tokens
+# 机密客户端才填写；公共客户端依靠 PKCE
+# MICROSOFT_OAUTH_CLIENT_SECRET=
+```
+
+默认 client ID 与 `http://localhost:8080` 沿用参考项目。该回调适合先把功能跑通：授权后
+本地页面即使没有监听，复制浏览器地址栏里的完整 URL 到 Token 页也能完成交换；服务端会
+重新校验一次性 state，refresh token 不经过浏览器业务接口。
+
+正式部署建议在自己的 Microsoft 应用里注册：
+
+```text
+https://YOUR_DOMAIN/api/v1/oauth/microsoft/callback
+```
+
+然后把它原样填入 `MICROSOFT_OAUTH_REDIRECT_URI`，并把 `MICROSOFT_OAUTH_RETURN_URL` 设成
+前端 Token 页的公开地址。两边必须与 Microsoft 应用注册值逐字一致。授权申请
+`offline_access`、`Mail.Read`、`Mail.ReadWrite`、`User.Read`；交换后先用 Graph `/me`
+核对账号主邮箱或已登记别名，验证新 refresh token 成功后才替换旧凭据。
+
 ## 批量任务
 
 ```env

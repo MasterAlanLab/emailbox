@@ -100,7 +100,7 @@ func (c *Client) fetchToken(ctx context.Context, hc *http.Client, cred mailer.Cr
 
 	var lastErr error
 	for _, scope := range scopeCandidates() {
-		status, body, err := c.postToken(ctx, hc, clientID, cred.RefreshToken, scope)
+		status, body, err := c.postToken(ctx, hc, clientID, cred.ClientSecret, cred.RefreshToken, scope)
 		if err != nil {
 			return "", err
 		}
@@ -148,7 +148,7 @@ func (c *Client) acceptToken(cred mailer.Credential, status int, body []byte) (s
 // postToken 打一次 token 端点，返回状态码与响应体。
 // 响应体读成 []byte 一次给两处用：JSON 解析与小写子串匹配。
 func (c *Client) postToken(
-	ctx context.Context, hc *http.Client, clientID, refreshToken, scope string,
+	ctx context.Context, hc *http.Client, clientID, clientSecret, refreshToken, scope string,
 ) (int, []byte, error) {
 	form := url.Values{
 		"client_id":     {clientID},
@@ -157,6 +157,9 @@ func (c *Client) postToken(
 	}
 	if scope != "" {
 		form.Set("scope", scope)
+	}
+	if clientSecret != "" {
+		form.Set("client_secret", clientSecret)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.TokenURL,
 		strings.NewReader(form.Encode()))

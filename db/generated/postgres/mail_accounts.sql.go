@@ -223,7 +223,7 @@ func (q *Queries) CreateMailAccount(ctx context.Context, arg CreateMailAccountPa
 }
 
 const getMailAccount = `-- name: GetMailAccount :one
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
 WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL LIMIT 1
 `
 
@@ -263,12 +263,13 @@ func (q *Queries) GetMailAccount(ctx context.Context, arg GetMailAccountParams) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.LastRefreshErrorKind,
 	)
 	return i, err
 }
 
 const getMailAccountByEmail = `-- name: GetMailAccountByEmail :one
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
 WHERE tenant_id = $1 AND email_normalized = $2 AND deleted_at IS NULL LIMIT 1
 `
 
@@ -308,12 +309,13 @@ func (q *Queries) GetMailAccountByEmail(ctx context.Context, arg GetMailAccountB
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.LastRefreshErrorKind,
 	)
 	return i, err
 }
 
 const listMailAccountsByIDs = `-- name: ListMailAccountsByIDs :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
 WHERE tenant_id = $1 AND deleted_at IS NULL
   AND id = ANY($2::text[])
 ORDER BY sort_order, created_at DESC
@@ -361,6 +363,7 @@ func (q *Queries) ListMailAccountsByIDs(ctx context.Context, arg ListMailAccount
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.LastRefreshErrorKind,
 		); err != nil {
 			return nil, err
 		}
@@ -376,7 +379,7 @@ func (q *Queries) ListMailAccountsByIDs(ctx context.Context, arg ListMailAccount
 }
 
 const listMailAccountsPageByCreatedAtAsc = `-- name: ListMailAccountsPageByCreatedAtAsc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
@@ -447,6 +450,7 @@ func (q *Queries) ListMailAccountsPageByCreatedAtAsc(ctx context.Context, arg Li
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.LastRefreshErrorKind,
 		); err != nil {
 			return nil, err
 		}
@@ -462,7 +466,7 @@ func (q *Queries) ListMailAccountsPageByCreatedAtAsc(ctx context.Context, arg Li
 }
 
 const listMailAccountsPageByCreatedAtDesc = `-- name: ListMailAccountsPageByCreatedAtDesc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
@@ -533,6 +537,7 @@ func (q *Queries) ListMailAccountsPageByCreatedAtDesc(ctx context.Context, arg L
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.LastRefreshErrorKind,
 		); err != nil {
 			return nil, err
 		}
@@ -548,7 +553,7 @@ func (q *Queries) ListMailAccountsPageByCreatedAtDesc(ctx context.Context, arg L
 }
 
 const listMailAccountsPageByEmailAsc = `-- name: ListMailAccountsPageByEmailAsc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
@@ -619,6 +624,7 @@ func (q *Queries) ListMailAccountsPageByEmailAsc(ctx context.Context, arg ListMa
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.LastRefreshErrorKind,
 		); err != nil {
 			return nil, err
 		}
@@ -634,7 +640,7 @@ func (q *Queries) ListMailAccountsPageByEmailAsc(ctx context.Context, arg ListMa
 }
 
 const listMailAccountsPageByEmailDesc = `-- name: ListMailAccountsPageByEmailDesc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
@@ -705,6 +711,7 @@ func (q *Queries) ListMailAccountsPageByEmailDesc(ctx context.Context, arg ListM
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.LastRefreshErrorKind,
 		); err != nil {
 			return nil, err
 		}
@@ -720,7 +727,7 @@ func (q *Queries) ListMailAccountsPageByEmailDesc(ctx context.Context, arg ListM
 }
 
 const listMailAccountsPageByLastRefreshAtAsc = `-- name: ListMailAccountsPageByLastRefreshAtAsc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
@@ -791,6 +798,7 @@ func (q *Queries) ListMailAccountsPageByLastRefreshAtAsc(ctx context.Context, ar
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.LastRefreshErrorKind,
 		); err != nil {
 			return nil, err
 		}
@@ -806,7 +814,7 @@ func (q *Queries) ListMailAccountsPageByLastRefreshAtAsc(ctx context.Context, ar
 }
 
 const listMailAccountsPageByLastRefreshAtDesc = `-- name: ListMailAccountsPageByLastRefreshAtDesc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
@@ -877,6 +885,7 @@ func (q *Queries) ListMailAccountsPageByLastRefreshAtDesc(ctx context.Context, a
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.LastRefreshErrorKind,
 		); err != nil {
 			return nil, err
 		}
@@ -892,7 +901,7 @@ func (q *Queries) ListMailAccountsPageByLastRefreshAtDesc(ctx context.Context, a
 }
 
 const listMailAccountsPageBySortOrderAsc = `-- name: ListMailAccountsPageBySortOrderAsc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
@@ -963,6 +972,7 @@ func (q *Queries) ListMailAccountsPageBySortOrderAsc(ctx context.Context, arg Li
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.LastRefreshErrorKind,
 		); err != nil {
 			return nil, err
 		}
@@ -978,7 +988,7 @@ func (q *Queries) ListMailAccountsPageBySortOrderAsc(ctx context.Context, arg Li
 }
 
 const listMailAccountsPageBySortOrderDesc = `-- name: ListMailAccountsPageBySortOrderDesc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
@@ -1049,6 +1059,7 @@ func (q *Queries) ListMailAccountsPageBySortOrderDesc(ctx context.Context, arg L
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.LastRefreshErrorKind,
 		); err != nil {
 			return nil, err
 		}
@@ -1189,26 +1200,65 @@ func (q *Queries) UpdateMailAccountAuthChannel(ctx context.Context, arg UpdateMa
 	return result.RowsAffected()
 }
 
+const updateMailAccountAuthorization = `-- name: UpdateMailAccountAuthorization :execrows
+UPDATE mail_accounts
+SET client_id = $1, refresh_token_enc = $2, auth_channel = $3,
+    refresh_token_updated_at = CURRENT_TIMESTAMP,
+    last_refresh_at = CURRENT_TIMESTAMP,
+    last_refresh_status = 'success',
+    last_refresh_error = '',
+    last_refresh_error_kind = '',
+    updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = $4 AND id = $5 AND deleted_at IS NULL
+`
+
+type UpdateMailAccountAuthorizationParams struct {
+	ClientID        string
+	RefreshTokenEnc string
+	AuthChannel     string
+	TenantID        string
+	ID              string
+}
+
+// Reauthorization changes credentials only after the new token is verified.
+// It must not overwrite group, proxy, remark, or concurrent account edits.
+func (q *Queries) UpdateMailAccountAuthorization(ctx context.Context, arg UpdateMailAccountAuthorizationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateMailAccountAuthorization,
+		arg.ClientID,
+		arg.RefreshTokenEnc,
+		arg.AuthChannel,
+		arg.TenantID,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateMailAccountRefreshResult = `-- name: UpdateMailAccountRefreshResult :execrows
 UPDATE mail_accounts
 SET last_refresh_at = CURRENT_TIMESTAMP,
     last_refresh_status = $1,
     last_refresh_error = $2,
+    last_refresh_error_kind = $3,
     updated_at = CURRENT_TIMESTAMP
-WHERE tenant_id = $3 AND id = $4 AND deleted_at IS NULL
+WHERE tenant_id = $4 AND id = $5 AND deleted_at IS NULL
 `
 
 type UpdateMailAccountRefreshResultParams struct {
-	LastRefreshStatus string
-	LastRefreshError  string
-	TenantID          string
-	ID                string
+	LastRefreshStatus    string
+	LastRefreshError     string
+	LastRefreshErrorKind string
+	TenantID             string
+	ID                   string
 }
 
 func (q *Queries) UpdateMailAccountRefreshResult(ctx context.Context, arg UpdateMailAccountRefreshResultParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateMailAccountRefreshResult,
 		arg.LastRefreshStatus,
 		arg.LastRefreshError,
+		arg.LastRefreshErrorKind,
 		arg.TenantID,
 		arg.ID,
 	)

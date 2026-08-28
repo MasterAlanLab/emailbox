@@ -34,9 +34,11 @@ const maxTop = 50
 //
 // mailer 包不碰数据库，这一层就是它与业务之间唯一的接缝。
 type MessageService struct {
-	store  *repo.Store
-	cipher crypto.Cipher
-	quota  *quota.Service
+	store             *repo.Store
+	cipher            crypto.Cipher
+	quota             *quota.Service
+	oauthClientID     string
+	oauthClientSecret string
 	// chainFor 按账号构造回退链。做成字段是为了让测试注入假通道——
 	// 真实实现要连微软，单测里跑不了。
 	chainFor func(account *model.MailAccount) mailer.Client
@@ -45,7 +47,8 @@ type MessageService struct {
 func NewMessageService(
 	store *repo.Store, cipher crypto.Cipher, q *quota.Service, opt ChainOptions,
 ) *MessageService {
-	s := &MessageService{store: store, cipher: cipher, quota: q}
+	s := &MessageService{store: store, cipher: cipher, quota: q,
+		oauthClientID: opt.OAuthClientID, oauthClientSecret: opt.OAuthClientSecret}
 	s.chainFor = defaultChainFactory(s, opt)
 	return s
 }
@@ -268,6 +271,9 @@ func (s *MessageService) credential(
 		IMAPPort:    account.IMAPPort,
 		AuthChannel: account.AuthChannel,
 	}
+	if s.oauthClientSecret != "" && account.ClientID == s.oauthClientID {
+		cred.ClientSecret = s.oauthClientSecret
+	}
 	for _, field := range []struct {
 		enc string
 		dst *string
@@ -363,12 +369,13 @@ func (s *MessageService) clientFor(
 func (s *MessageService) recordResult(
 	ctx context.Context, tenantID string, account *model.MailAccount, callErr error,
 ) {
-	status, message := string(model.RefreshSuccess), ""
+	status, message, errorKind := string(model.RefreshSuccess), "", ""
 	if callErr != nil {
 		status = string(model.RefreshFailed)
 		message = truncateError(callErr.Error())
+		errorKind = string(mailer.KindOf(callErr))
 	}
-	if err := s.store.UpdateMailAccountRefreshResult(ctx, tenantID, account.ID, status, message); err != nil {
+	if err := s.store.UpdateMailAccountRefreshResult(ctx, tenantID, account.ID, status, message, errorKind); err != nil {
 		slog.Warn("写回账号访问结果失败", "account_id", account.ID, "error", err)
 	}
 

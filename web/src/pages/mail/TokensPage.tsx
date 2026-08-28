@@ -8,6 +8,7 @@ import { isTerminal, jobApi, type RefreshStats } from "@/api/jobs";
 import { mailApi, type MailGroupNode, type MailScope, type TenantRef } from "@/api/mail";
 import { PageShell } from "@/components/layout/PageShell";
 import { groupSelectItems } from "@/components/mail/groupOptions";
+import { ReauthorizationPanel } from "@/components/mail/ReauthorizationPanel";
 import { useAsyncAction } from "@/lib/useAsyncAction";
 import { useJobStore } from "@/store/jobStore";
 import { useTenantStore } from "@/store/tenantStore";
@@ -221,6 +222,12 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
           )}
         </LayerCard>
       )}
+
+      <ReauthorizationPanel
+        tenant={tenant}
+        tenantKey={tenantKey}
+        refreshKey={`${job.jobID ?? ""}:${job.status ?? ""}`}
+      />
 
       {stats && Object.keys(stats.by_error_kind).length > 0 && (
         <LayerCard className="p-4">

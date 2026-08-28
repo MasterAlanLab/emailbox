@@ -52,6 +52,7 @@ type Credential struct {
 	Provider     string
 	AccountType  AccountType
 	ClientID     string
+	ClientSecret string
 	RefreshToken string
 	Password     string
 	IMAPHost     string

@@ -119,6 +119,10 @@ func newTestServerWithStore(t *testing.T) (*echo.Echo, *repo.Store, *sql.DB) {
 	})
 	handlers.Job = handler.NewJobHandler(service.NewJobService(store, jobManager), refreshService)
 	handlers.Refresh = handler.NewRefreshHandler(refreshService)
+	oauthService := service.NewOAuthService(store, testCipher(t), quota.NewService(store), messageService, service.OAuthOptions{
+		Enabled: true, ClientID: "test-client", RedirectURI: "http://localhost:8080",
+	})
+	handlers.OAuth = handler.NewOAuthHandler(oauthService, "http://localhost:5173/mail/tokens")
 	handlers.Admin = handler.NewAdminHandler(
 		service.NewAdminService(store, platformService, quota.NewService(store)),
 		auditService,
@@ -260,6 +264,30 @@ func TestNonMemberCannotReachTenantEndpoints(t *testing.T) {
 		if status, body := do(t, e, tc.method, tc.path, outsider, ""); status != http.StatusForbidden {
 			t.Errorf("%s %s 非成员应返回 403，实际 %d %s", tc.method, tc.path, status, body)
 		}
+	}
+}
+
+func TestOAuthStartDoesNotRevealCrossTenantAccount(t *testing.T) {
+	e := newTestServer(t)
+	aliceToken, aliceTenant := register(t, e, "oauthalice", "oauthalice@example.com")
+	bobToken, bobTenant := register(t, e, "oauthbobby", "oauthbobby@example.com")
+	status, body := do(t, e, http.MethodPost, "/api/v1/tenants/"+bobTenant+"/mail/accounts", bobToken,
+		`{"email":"bob@outlook.com","refresh_token":"old"}`)
+	if status != http.StatusOK {
+		t.Fatalf("创建账号失败: %d %s", status, body)
+	}
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &created); err != nil {
+		t.Fatal(err)
+	}
+	status, _ = do(t, e, http.MethodPost,
+		"/api/v1/tenants/"+aliceTenant+"/mail/accounts/"+created.Data.ID+"/oauth/start", aliceToken, `{}`)
+	if status != http.StatusNotFound {
+		t.Fatalf("跨租户账号 ID 应返回 404，实际 %d", status)
 	}
 }
 

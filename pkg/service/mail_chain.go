@@ -18,7 +18,9 @@ const defaultChainTimeout = 60 * time.Second
 
 // ChainOptions 是回退链的构造参数。
 type ChainOptions struct {
-	Timeout time.Duration
+	Timeout           time.Duration
+	OAuthClientID     string
+	OAuthClientSecret string
 }
 
 // defaultChainFactory 返回「按账号构造回退链」的函数。
