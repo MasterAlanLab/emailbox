@@ -8,6 +8,7 @@ import {
   Moon,
   ShieldCheck,
   SignOut,
+  Storefront,
   Sun,
   type Icon,
 } from "@phosphor-icons/react";
@@ -43,6 +44,7 @@ const PRIMARY: NavItem[] = [
 const SECONDARY: NavItem[] = [
   { to: "/settings/usage", label: "用量", icon: Gauge },
   { to: "/settings/api", label: "API", icon: Code },
+  { to: "/resources", label: "资源", icon: Storefront },
   { to: "/admin", label: "后台", icon: ShieldCheck, adminOnly: true },
 ];
 

@@ -144,6 +144,7 @@ Kumo 提供约 30 个组件。下表是本项目每个界面元素的落位，**
 /settings/security        （保留）
 /settings/usage           配额与用量（Meter）
 /settings/api             对外取件 API：Key + 接口清单 + llms.txt 入口
+/resources                登录后可见的资源推荐
 /admin                    ★管理员总览（仅 platform_role=admin 可见）
 /admin/users              用户管理
 /admin/tenants/:id/mail   以管理员身份查看/操作某租户的邮箱（复用 /mail 的组件）
@@ -331,6 +332,12 @@ VirtualList.tsx      SplitPane.tsx         EmptyState.tsx
 两个判断：① 明文默认不摆在屏幕上，但打码要留出足够特征，否则用户无法确认
 「页面上这把」和「脚本里配的那把」是不是同一把；② 重置用同一行的两个按钮做二次确认，
 不用弹窗——这一步要防的是手滑，不是让人重新读一遍说明。
+
+### 5.7 `/resources` 资源推荐
+
+登录后从左侧次级导航进入，按网络与部署、批量业务工具、其他服务分组展示外部资源。
+推广链接逐项标记，页面顶部说明返佣关系；外链在新标签页打开并带 `rel="sponsored nofollow"`。
+它不进入邮箱、令牌等核心操作流，避免把推荐内容伪装成完成任务所必需的步骤。
 
 ## 6. 安全
 

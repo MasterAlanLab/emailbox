@@ -16,6 +16,7 @@ import ImportPage from "@/pages/mail/ImportPage";
 import TokensPage from "@/pages/mail/TokensPage";
 import UsagePage from "@/pages/UsagePage";
 import ApiPage from "@/pages/ApiPage";
+import ResourcesPage from "@/pages/ResourcesPage";
 import AdminOverviewPage from "@/pages/admin/AdminOverviewPage";
 import AdminUsersPage from "@/pages/admin/AdminUsersPage";
 import AdminPlansPage from "@/pages/admin/AdminPlansPage";
@@ -66,6 +67,7 @@ export const router = createBrowserRouter([
       { path: "settings/security", element: protect(<SecuritySettingsPage />), handle: appRoute },
       { path: "settings/usage", element: protect(<UsagePage />), handle: appRoute },
       { path: "settings/api", element: protect(<ApiPage />), handle: appRoute },
+      { path: "resources", element: protect(<ResourcesPage />), handle: appRoute },
       { path: "admin", element: admin(<AdminOverviewPage />), handle: appRoute },
       { path: "admin/users", element: admin(<AdminUsersPage />), handle: appRoute },
       {

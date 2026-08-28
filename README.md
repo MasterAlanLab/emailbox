@@ -81,7 +81,8 @@ docker compose up -d --build   # http://localhost:1323
 
 ## 资源推荐
 
-做批量账号相关的事情，下面这些是我自己在用的：
+以下列表中部分链接为推广 / 推荐（affiliate）链接，通过它们注册或购买可能为作者带来少量返佣，
+**不会额外增加你的花费**。
 
 - **代理**：[Free Proxy](https://github.com/MasterAlanLab/free-proxy) — 我的另一个开源项目，在自己的 VPS 上跑一个免费代理池，正好接到本项目的分组代理里
 - **海外账号、电话卡**：[点这里](https://cutt.ly/dywt86NC) — TG、TikTok 等海外平台账号
@@ -92,15 +93,6 @@ docker compose up -d --build   # http://localhost:1323
 - **Telegram 资源搜索机器人**：[点这里](https://cutt.ly/2yeh3GOE) — TG 最强搜索引擎，试试看
 - **GPT 中转站**：[满血 CC / GPT 中转](https://cutt.ly/JywJG3G5) — 确认不掺水，缺点是价格偏高
 - **订阅合租拼车**：[点这里](https://cutt.ly/5ywt8vb4) — 影视会员、AI 订阅都能合租
-
-### 🚀 艾伦の代充
-
-[ai.corouter.cc](https://ai.corouter.cc) — 用卡密自动完成 ChatGPT 等 AI 订阅代充，客户无需注册登录。
-
-也可以作为合伙人自己开展业务：邀请制注册后获得独立工作空间，充值业务积分、配置支付资源，
-自主生成和分发卡密，既能直接卖卡密也能通过 API 接进自己的站点，
-每位合伙人的卡片、订单、积分和 API Token 相互隔离。
-[查看合伙人机制与参与指南](https://ai.corouter.cc/partner-guide)
 
 ---
 
@@ -117,9 +109,7 @@ docker compose up -d --build   # http://localhost:1323
 
 - 本项目仅供学习交流与**合法用途**，请遵守你所在地区的法律法规。你必须对托管的每个邮箱账号拥有合法授权。
 - 本项目保管的是**第三方邮箱凭据**，敏感度高于自用工具：请自行设置强密码、开启 HTTPS，并妥善备份加密密钥。
-- 上面「资源推荐」里的 VPS、虚拟信用卡、打码平台等为推广 / 推荐（affiliate）链接，通过它们下单可能为作者带来少量返佣，**不会额外增加你的花费**，感谢支持 ❤️
 
 ## 🙏 致谢
 
-本项目的功能设计与邮件协议链路，参考了开源项目 **outlookEmail**（Python / Flask）在实战中验证过的
-回退策略与数据模型，在此特别致谢 🙏
+[outlookEmail](https://github.com/assast/outlookEmail)
