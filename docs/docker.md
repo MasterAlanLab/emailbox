@@ -33,6 +33,32 @@ make docker              # 等价于 docker build -t emailbox .
 不需要先跑 `make build`：Dockerfile 自带完整构建阶段，而 `.dockerignore`
 会把本地的 `web/dist`、`static`、`server` 排除在构建上下文之外。
 
+## 发布到 GitHub Container Registry
+
+推送 `v*` 版本 tag 后，`.github/workflows/build.yml` 与
+`.github/workflows/release.yml` 会并行构建镜像和创建 Release。
+镜像工作流会构建
+`linux/amd64` 与 `linux/arm64` 镜像并推送到：
+
+```text
+ghcr.io/masteralanlab/emailbox:<版本 tag>
+```
+
+每个版本只推送对应的版本 tag。两个工作流都使用仓库内置的 `GITHUB_TOKEN`，GHCR 推送无需
+Docker Hub 凭据或 classic PAT。
+
+例如发布 `v1.0.0`：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+
+docker pull ghcr.io/masteralanlab/emailbox:v1.0.0
+```
+
+GHCR 首次创建的软件包默认为私有。如需让未登录用户直接拉取，在 GitHub 的软件包页面进入
+`Package settings`，将可见性设为 `Public`；这个变更不可逆。
+
 ## 部署到生产环境
 
 `docker-compose.yml` 里的配置面向本地开发，直接用于生产至少需要调整这几处：

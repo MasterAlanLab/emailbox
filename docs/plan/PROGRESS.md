@@ -775,3 +775,14 @@ Token 页现在会列出 `auth_failed` / `consent_required` 的 Outlook 账号�
 state 中的 tenant ID 做带租户条件的查询。`TestOAuthReauthorizationOnlyReplacesVerifiedCredentials`、
 `TestOAuthIdentityMismatchKeepsOldCredential`、跨租户 API 用例和双引擎 parity 用例守住这些边界。
 访问日志对公开 callback 单独去掉查询串，避免把短期授权码和 state 写进日志。
+
+### 镜像发布迁移到 GHCR（2026-08-28）
+
+`.github/workflows/build.yml` 从 Docker Hub 改为 GitHub Container Registry：工作流增加
+`packages: write`，用仓库内置的 `GITHUB_TOKEN` 登录 `ghcr.io`，不再保存长期 Docker Hub
+凭据。镜像名从 `$GITHUB_REPOSITORY` 生成并显式转成小写，避免带大写字母的 GitHub owner
+生成 Docker 不接受的镜像引用。
+
+构建监听 `v*` tag push，与 `release.yml` 并行执行：一个创建 Release，一个构建并推送镜像，
+不依赖 Release 事件的二次触发，因此两个工作流都使用仓库内置的 `GITHUB_TOKEN`，省去
+`PAT_TOKEN`。每个版本只推对应的版本号 tag。

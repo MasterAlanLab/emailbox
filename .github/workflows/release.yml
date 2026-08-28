@@ -69,6 +69,5 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') }}
           generate_release_notes: false
         env:
-          # 用 PAT 创建的 Release 才能触发 build.yml（内置 GITHUB_TOKEN 创建的不会触发其他工作流）。
-          # 未配置 PAT_TOKEN 时回退到内置 token：Release 仍会创建，只是镜像需手动触发构建。
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          # Release 与镜像构建都由同一个 tag push 并行触发，使用仓库内置 token 即可。
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
