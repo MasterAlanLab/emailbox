@@ -106,7 +106,7 @@ Microsoft OAuth 默认使用参考项目的应用配置。重新授权时，如�
 ## 联系我
 
 - Telegram 频道：<https://t.me/MasterAlanLab>
-- 商务合作：<mailto:masteralanlab@gmail.com>
+- 商务合作：<masteralanlab@gmail.com>
 
 如果 Emailbox 对你有用，欢迎点个 ⭐。反馈和 issue 也很有帮助。
 
