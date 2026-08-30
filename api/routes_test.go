@@ -58,6 +58,11 @@ func newTestServer(t *testing.T) *echo.Echo {
 // newTestServerWithStore 额外把 store 与底层连接交出来，供需要直接断言库里状态的用例
 // （例如「删除用户后凭据密文列是否真的被清空了」——那些行已经软删，走 repo 查不到）。
 func newTestServerWithStore(t *testing.T) (*echo.Echo, *repo.Store, *sql.DB) {
+	return newTestServerWithMailOptions(t, service.ChainOptions{})
+}
+
+// 指定本地 TokenURL 时使用真实刷新链，以便覆盖协议交换到任务状态落库的完整路径。
+func newTestServerWithMailOptions(t *testing.T, mailOptions service.ChainOptions) (*echo.Echo, *repo.Store, *sql.DB) {
 	t.Helper()
 	configs.AppConfig = &configs.Config{Session: configs.SessionConfig{ExpireHour: 24}}
 	// 连接参数与生产完全一致（见 configs.sqliteDSN 与 pkg/database）：
@@ -103,14 +108,16 @@ func newTestServerWithStore(t *testing.T) (*echo.Echo, *repo.Store, *sql.DB) {
 
 	// 任务系统。心跳与僵尸判定压到秒级，用例才不用等两分钟；
 	// 刷新器换成假的，否则每个用例都会去打微软的令牌端点。
-	messageService := service.NewMessageService(store, testCipher(t), quota.NewService(store), service.ChainOptions{}).
+	messageService := service.NewMessageService(store, testCipher(t), quota.NewService(store), mailOptions).
 		WithChainFactory(testMailClient)
 	jobManager := job.New(store, job.Config{
 		Workers: 4, Heartbeat: 200 * time.Millisecond, StaleAfter: time.Second,
 		ProgressEvery: time.Millisecond,
 	})
-	refreshService := service.NewRefreshService(store, messageService, quota.NewService(store), jobManager).
-		WithRefresherFactory(newStubRefresher)
+	refreshService := service.NewRefreshService(store, messageService, quota.NewService(store), jobManager)
+	if mailOptions.TokenURL == "" {
+		refreshService.WithRefresherFactory(newStubRefresher)
+	}
 	jobManager.Register(refreshService)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

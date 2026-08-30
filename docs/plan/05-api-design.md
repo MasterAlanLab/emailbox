@@ -160,7 +160,8 @@ page=1&limit=50                       limit 上限 200
   "has_password": true, "has_refresh_token": true, "client_id": "24d9a0ed-...",
   "proxy_url_masked": "socks5h://outlook.{mail}:****@127.0.0.1:2260",
   "aliases": ["a@x.com"], "tags": [{"id":"..","name":"..","color":".."}],
-  "last_refresh_status": "failed", "last_refresh_error": "refresh_token 已失效",
+  "last_refresh_status": "failed",
+  "last_refresh_error": "[auth_failed] refresh_token 因长期未使用而过期，请重新授权（AADSTS700082）",
   "auth_channel": "graph"
 }
 ```
@@ -248,6 +249,13 @@ POST /mail/accounts/export         权限 account:secret
 `subject_contains`、`from_contains`、`keyword`（在正文里搜，会触发详情补齐，代价高，需限流）。
 
 ## 6. Token 刷新与任务
+
+单个与批量刷新共用收信的 OAuth 通道顺序：优先上次成功通道，Graph 或 IMAP 的 OAuth
+令牌端点认证或权限失败时继续尝试其它 OAuth 通道。任一通道令牌交换成功，
+账号最近状态、任务明细与刷新日志均记成功；响应中非空且与当前值不同的
+refresh token 加密落库。刷新只请求令牌端点，不取件、不消费每日取件额度。
+失败仍使用现有 `error_kind`，但 `message` 区分过期、撤销、权限、客户端配置等原因，
+未确认原因的 `invalid_grant` 不再显示为已过期。封禁、取消等停止边界保持不变。
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|

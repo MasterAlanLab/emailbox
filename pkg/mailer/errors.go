@@ -10,7 +10,7 @@ import (
 
 // ErrKind 是结构化的失败原因。它直接落到 job_items.error_kind 与
 // mail_refresh_logs.error_kind，前端据此做筛选与聚合统计
-// （「本次刷新失败 312 个，其中被封 47 个、令牌失效 210 个、代理故障 55 个」）——
+// （「本次刷新失败 312 个，其中被封 47 个、认证失败 210 个、代理故障 55 个」）——
 // 这是只有自由文本 error_message 时做不到的。
 type ErrKind string
 
@@ -97,11 +97,10 @@ func KindOf(err error) ErrKind {
 // 不该继续回退的情形会白白浪费三倍时间，并放大对上游的请求量、加剧风控：
 //   - banned：账号已被封，换通道也是封的，而且每试一次都在加重风控
 //   - auth_failed：该通道的授权已经不成立，重试同一条通道没有意义
-//   - consent_required 由 Graph 内部的 scope 降级处理，到这一层说明降级也失败了
+//   - consent_required：当前通道的权限不足，重复请求同一权限没有意义
 //   - canceled：调用方主动取消或整体超时，继续试只会拖长响应
 //
-// 回退链请改用 RetriableFrom：Graph 的 auth_failed 是唯一一种「换条通道就可能好」
-// 的授权失败，原因见那里。
+// 回退链请用 RetriableFrom：Graph 的授权与权限错误仍可能在 IMAP 通道成功。
 func Retriable(err error) bool {
 	switch KindOf(err) {
 	case ErrKindBanned, ErrKindAuthFailed, ErrKindConsentRequired, ErrKindCanceled:
@@ -113,26 +112,18 @@ func Retriable(err error) bool {
 
 // RetriableFrom 判断**某条通道上**的失败是否值得换下一条通道重试。
 //
-// 与 Retriable 只差一种情形：Graph 的 auth_failed 要继续回退。
-//
-// 这里曾经的推断是「三条通道用的是同一个 refresh_token，一条认证失败则三条都会失败」。
-// token 确实是同一个，但**申请的 scope 不是**：
-//
-//	Graph → https://graph.microsoft.com/...
-//	IMAP  → https://outlook.office.com/IMAP.AccessAsUser.All（见 provider.go 的 ScopeIMAP）
-//
-// 微软完全可能拒掉其中一套而照常签发另一套——管理员回收了 Graph 权限、
-// 应用注册变更、或该账号本就只被授予过 IMAP scope，都会打到这个组合上。
-// 按旧逻辑，这类账号在 Graph 一步就被判死，尽管两条 IMAP 通道拿同一个 token 拉信完全正常。
-// 实测确认过：mailprobe 逐通道试时 Graph 报 auth_failed 而 IMAP 两条都成功拉到邮件。
-//
-// 放宽只针对 Graph，风控代价可控：
-//   - banned 仍然立即停手，这才是会被越试越严的那一类
-//   - IMAP 侧的 auth_failed（授权码错误、未开启 IMAP 服务）仍然立即停手，
-//     那是账号自身的配置问题，换一条 IMAP 通道结果一样
+// Graph 与 IMAP 使用不同的 token 端点和权限请求，新版 IMAP 申请 IMAP scope，
+// 旧版 login.live.com 请求省略 scope。某个 OAuth 端点拒绝当前通道，不代表其余通道都失效。
+// Error.StatusCode > 0 表示错误来自 HTTP token/API 响应；IMAP XOAUTH2 登录失败没有 HTTP 状态码。
+// 因此只放宽前者，密码/令牌缺失与 IMAP 登录失败仍立即停手。banned 与 canceled 永不放宽。
 func RetriableFrom(channel string, err error) bool {
-	if channel == ChannelGraph && KindOf(err) == ErrKindAuthFailed {
-		return true
+	kind := KindOf(err)
+	if kind == ErrKindAuthFailed || kind == ErrKindConsentRequired {
+		var upstream *Error
+		switch channel {
+		case ChannelGraph, ChannelIMAPNew, ChannelIMAPOld:
+			return errors.As(err, &upstream) && upstream.StatusCode > 0
+		}
 	}
 	return Retriable(err)
 }
@@ -153,38 +144,6 @@ func RetriableWithAnotherProxy(err error) bool {
 // abuseMarker 是微软在账号被封时返回的特征串。
 // 来源：outlookEmail `outlook_mail_reader.py:124`。
 const abuseMarker = "service abuse mode"
-
-// ClassifyOAuthError 从 token 端点的响应体判断失败原因。
-//
-// 这些判据全部来自 outlookEmail 的实战积累，凭常识猜几乎一定会错：
-// 微软对「账号被封」和「令牌失效」返回的都是 400，只能靠响应体里的特征串区分，
-// 而这两者的正确处置完全相反——前者要立刻停手并标记账号，后者要提示用户重新授权。
-func ClassifyOAuthError(statusCode int, body string) (ErrKind, string) {
-	lower := strings.ToLower(body)
-
-	switch {
-	case strings.Contains(lower, abuseMarker):
-		return ErrKindBanned, "账号已被服务商封禁"
-	case strings.Contains(lower, "invalid_grant"):
-		return ErrKindAuthFailed, "refresh_token 已失效，需要重新授权"
-	case strings.Contains(lower, "invalid_client"):
-		return ErrKindAuthFailed, "client_id 无效"
-	// AADSTS65001/AADSTS90008 等是「用户或管理员未同意」，属于 scope 问题，
-	// 换更低的 scope 重试可能成功，因此单独归类。
-	case strings.Contains(lower, "aadsts65001"), strings.Contains(lower, "aadsts90008"),
-		strings.Contains(lower, "consent_required"), strings.Contains(lower, "interaction_required"):
-		return ErrKindConsentRequired, "应用权限不足，需要重新授权"
-	case strings.Contains(lower, "aadsts"):
-		// 其它 AADSTS 多与 scope/租户配置有关，值得降级重试。
-		return ErrKindConsentRequired, "Azure 拒绝了本次请求，可能是权限范围不匹配"
-	case statusCode == 429:
-		return ErrKindRateLimited, "请求过于频繁，已被限流"
-	case statusCode >= 500:
-		return ErrKindProviderError, "服务商暂时不可用"
-	default:
-		return ErrKindProviderError, fmt.Sprintf("令牌请求失败（HTTP %d）", statusCode)
-	}
-}
 
 // ClassifyIMAPAuthError 把各家 IMAP 服务器五花八门的鉴权错误翻译成可操作的中文文案。
 // 来源：outlookEmail 的 normalize_imap_auth_error。

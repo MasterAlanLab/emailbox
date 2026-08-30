@@ -1,7 +1,6 @@
 package graph
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -16,7 +15,7 @@ import (
 //
 // 同一个 client_id 下，不同账号实际同意过的权限并不一样：有人只点了只读，
 // 有人是被管理员统一授权的。拿一套写死的 scope 去换 token，那些账号会直接失败，
-// 而报错（AADSTS90023 之类）看上去像是配置错误，很难联想到「换个 scope 就好了」。
+// 只有明确的权限错误才适合降级；登录验证、客户端配置错误需要各自的处置。
 // 来源：outlookEmail `03_mail_helpers.py:355-444`。
 func scopeCandidates() []string {
 	configured := append([]string{"offline_access"}, mailer.OAuthGraphScopes...)
@@ -46,21 +45,6 @@ func scopeCandidates() []string {
 	return out
 }
 
-// scopeDegradeMarkers 是「这次失败是 scope 问题、值得换更低的 scope 再试」的判据。
-// 全部来自实战积累，凭常识猜几乎一定会漏。
-var scopeDegradeMarkers = []string{
-	"invalid_scope",
-	"invalid scope",
-	"consent_required",
-	"interaction_required",
-	"consent",
-	"aadsts90023",
-	"aadsts70000",
-	"aadsts70011",
-	"no applicable permissions",
-	"requested are unauthorized or expired",
-}
-
 // shouldDegradeScope 判断是否换下一个 scope 重试。
 //
 // 只有 400/401/403 才考虑降级：5xx 是服务商侧问题，换 scope 无意义，
@@ -71,13 +55,8 @@ func shouldDegradeScope(status int, body []byte) bool {
 	default:
 		return false
 	}
-	lower := bytes.ToLower(body)
-	for _, marker := range scopeDegradeMarkers {
-		if bytes.Contains(lower, []byte(marker)) {
-			return true
-		}
-	}
-	return false
+	kind, _ := mailer.ClassifyOAuthError(status, string(body))
+	return kind == mailer.ErrKindConsentRequired
 }
 
 // tokenResponse 是 token 端点的成功响应。
@@ -109,10 +88,7 @@ func (c *Client) fetchToken(ctx context.Context, hc *http.Client, cred mailer.Cr
 		}
 
 		kind, message := mailer.ClassifyOAuthError(status, string(body))
-		// 被封与令牌失效换 scope 也是同样的结果，立刻停手。
-		if kind == mailer.ErrKindBanned || kind == mailer.ErrKindAuthFailed {
-			return "", newError(kind, message, status, nil)
-		}
+		// 过期、撤销、登录验证和客户端配置错误都不是降低权限能解决的。
 		if !shouldDegradeScope(status, body) {
 			return "", newError(kind, message, status, nil)
 		}
@@ -134,10 +110,10 @@ func (c *Client) acceptToken(cred mailer.Credential, status int, body []byte) (s
 		return "", newError(mailer.ErrKindProviderError, "解析令牌响应失败", status, err)
 	}
 	if parsed.AccessToken == "" {
-		return "", newError(mailer.ErrKindAuthFailed, "令牌响应里没有 access_token", status, nil)
+		return "", newError(mailer.ErrKindProviderError, "令牌响应缺少 access_token，请稍后重试", status, nil)
 	}
-	// 微软会轮换 refresh_token。不落库的话下次刷新就失效了，
-	// 而且要等到下一轮任务才会暴露。
+	// 持久化最新 refresh_token，后续续期不再依赖旧值的剩余寿命。
+	// 轮换本身不代表旧值立即失效，也不保证此次返回了不同的新值。
 	rotated := parsed.RefreshToken != "" && parsed.RefreshToken != cred.RefreshToken
 	if rotated && c.cfg.OnTokenRefresh != nil {
 		c.cfg.OnTokenRefresh(cred.Email, parsed.RefreshToken)
@@ -173,6 +149,10 @@ func (c *Client) postToken(
 		if ctx.Err() != nil {
 			return 0, nil, newError(mailer.ErrKindCanceled, "请求已取消", 0, err)
 		}
+		if mailer.IsProxyAuthenticationError(err) {
+			return 0, nil, newError(mailer.ErrKindProxyFailed,
+				"代理认证失败，请检查代理账号和密码", 0, err)
+		}
 		return 0, nil, newError(mailer.ErrKindNetwork, "请求令牌端点失败", 0, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -181,6 +161,9 @@ func (c *Client) postToken(
 	// 不设上限会让一次批量刷新把内存吃光。
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
+		if ctx.Err() != nil {
+			return 0, nil, newError(mailer.ErrKindCanceled, "请求已取消", resp.StatusCode, err)
+		}
 		return 0, nil, newError(mailer.ErrKindNetwork, "读取令牌响应失败", resp.StatusCode, err)
 	}
 	return resp.StatusCode, body, nil
@@ -190,8 +173,8 @@ func (c *Client) postToken(
 //
 // 批量「刷新 Token」要的就是这件事：确认 refresh_token 还能换出 access_token，
 // 并在微软轮换了 refresh_token 时通过 OnTokenRefresh 把新值交出去。
-// 走的是与拉信完全相同的代理候选与 scope 降级逻辑（withSession + fetchToken），
-// 所以刷新成功而拉信失败这类不一致不会因为两套实现而出现。
+// 与 Graph 拉信复用代理候选与 scope 降级逻辑（withSession + fetchToken），
+// 但交换成功只证明 token 端点接受了请求，不保证邮件业务端点也成功。
 func (c *Client) RefreshToken(ctx context.Context, cred mailer.Credential) error {
 	_, err := withSession(ctx, c, cred, func(context.Context, *session) (struct{}, error) {
 		// withSession 在调用这里之前已经成功取到了 token，

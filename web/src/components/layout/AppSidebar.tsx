@@ -99,13 +99,8 @@ export function AppSidebar() {
       </Link>
 
       <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-2">
-        {items.map((item, index) => (
-          <div key={item.to} className="contents">
-            {/* 主导航和次级入口之间留一条空隙，不画分隔线——
-                靠间距分组，多一条线就多一分噪音。 */}
-            {index === PRIMARY.length && <div className="h-3" aria-hidden />}
-            <SidebarLink item={item} collapsed={collapsed} labelClass={labelClass} />
-          </div>
+        {items.map((item) => (
+          <SidebarLink key={item.to} item={item} collapsed={collapsed} labelClass={labelClass} />
         ))}
       </div>
 

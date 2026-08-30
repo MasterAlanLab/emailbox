@@ -9,12 +9,25 @@ import (
 
 // fakeClient 是一个可编程的通道实现：每次调用返回预设结果，并记录被调过。
 type fakeClient struct {
-	channel string
-	err     error
-	calls   int
+	channel      string
+	err          error
+	calls        int
+	refreshCalls int
 }
 
 func (f *fakeClient) Channel() string { return f.channel }
+
+func (f *fakeClient) RefreshToken(context.Context, Credential) error {
+	f.calls++
+	f.refreshCalls++
+	return f.err
+}
+
+func remoteOAuthError(kind ErrKind, channel, message string) *Error {
+	err := newError(kind, channel, message, nil)
+	err.StatusCode = 400
+	return err
+}
 
 func (f *fakeClient) List(context.Context, Credential, ListOptions) ([]Message, error) {
 	f.calls++
@@ -143,8 +156,8 @@ func TestChainFallsBackAndReportsAttempts(t *testing.T) {
 // 不可回退的错误必须当场停手：换通道用的是同一个 token / 同一个被封账号，
 // 继续试只会拖长响应并加重上游风控。
 func TestChainStopsOnNonRetriableError(t *testing.T) {
-	// auth_failed 不在此列：Graph 的授权失败要继续回退，见 TestChainFallsBackOnGraphAuthFailure。
-	for _, kind := range []ErrKind{ErrKindBanned, ErrKindConsentRequired} {
+	// Graph 的认证和权限失败都允许换到 IMAP，封禁与取消仍应停止。
+	for _, kind := range []ErrKind{ErrKindBanned, ErrKindCanceled} {
 		graph := &fakeClient{channel: ChannelGraph, err: newError(kind, ChannelGraph, "拒绝", nil)}
 		imapNew := &fakeClient{channel: ChannelIMAPNew}
 		chain := NewChain(map[string]Client{ChannelGraph: graph, ChannelIMAPNew: imapNew})
@@ -173,20 +186,24 @@ func TestChainStopsOnNonRetriableError(t *testing.T) {
 // 因此 Graph 的 auth_failed 必须继续回退——否则「Graph 无权、IMAP 可用」的账号
 // 会在第一步就被判死，尽管它的信完全拉得到。
 func TestChainFallsBackOnGraphAuthFailure(t *testing.T) {
-	graph := &fakeClient{channel: ChannelGraph, err: newError(ErrKindAuthFailed, ChannelGraph, "令牌失效", nil)}
-	imapNew := &fakeClient{channel: ChannelIMAPNew}
-	chain := NewChain(map[string]Client{ChannelGraph: graph, ChannelIMAPNew: imapNew})
+	for _, kind := range []ErrKind{ErrKindAuthFailed, ErrKindConsentRequired} {
+		t.Run(string(kind), func(t *testing.T) {
+			graph := &fakeClient{channel: ChannelGraph, err: remoteOAuthError(kind, ChannelGraph, "当前通道授权失败")}
+			imapNew := &fakeClient{channel: ChannelIMAPNew}
+			chain := NewChain(map[string]Client{ChannelGraph: graph, ChannelIMAPNew: imapNew})
 
-	if _, err := chain.List(context.Background(), outlookCred(""), ListOptions{}); err != nil {
-		t.Fatalf("Graph 授权失败后应回退到 IMAP，实际 %v", err)
-	}
-	if imapNew.calls != 1 {
-		t.Errorf("IMAP 通道调用次数 = %d，期望 1", imapNew.calls)
+			if _, err := chain.List(context.Background(), outlookCred(""), ListOptions{}); err != nil {
+				t.Fatalf("Graph 授权失败后应回退到 IMAP，实际 %v", err)
+			}
+			if imapNew.calls != 1 {
+				t.Errorf("IMAP 通道调用次数 = %d，期望 1", imapNew.calls)
+			}
+		})
 	}
 }
 
-// 放宽只针对 Graph：IMAP 侧的 auth_failed 是账号自身没开 IMAP 或授权码写错，
-// 换另一条 IMAP 通道结果一样，继续试只是白白多打一次上游。
+// IMAP 登录阶段的 auth_failed 没有 HTTP 状态码，说明已经拿到 token 但邮箱服务拒绝登录；
+// 这类失败换另一条 IMAP 主机结果一样，继续试只是白白多打一次上游。
 func TestChainStopsOnIMAPAuthFailure(t *testing.T) {
 	imapNew := &fakeClient{channel: ChannelIMAPNew, err: newError(ErrKindAuthFailed, ChannelIMAPNew, "未开启 IMAP", nil)}
 	imapOld := &fakeClient{channel: ChannelIMAPOld}
@@ -260,6 +277,7 @@ func TestChainFallbackAppliesToEveryMethod(t *testing.T) {
 		}},
 		{"MarkRead", func(c *Chain) error { _, err := c.MarkRead(context.Background(), cred, nil); return err }},
 		{"Delete", func(c *Chain) error { _, err := c.Delete(context.Background(), cred, nil); return err }},
+		{"RefreshToken", func(c *Chain) error { return c.RefreshToken(context.Background(), cred) }},
 	}
 	for _, c := range cases {
 		graph := &fakeClient{channel: ChannelGraph, err: newError(ErrKindNetwork, ChannelGraph, "连接超时", nil)}
@@ -271,6 +289,51 @@ func TestChainFallbackAppliesToEveryMethod(t *testing.T) {
 		if imapNew.calls != 1 {
 			t.Errorf("%s: 第二条通道被调用 %d 次，期望 1 次", c.name, imapNew.calls)
 		}
+	}
+}
+
+// 刷新必须遵循已成功的 OAuth 通道，且只做令牌交换，不借取邮件判断成败。
+func TestTokenRefreshUsesPreferredChannelWithoutMailCalls(t *testing.T) {
+	for _, channel := range []string{ChannelIMAPNew, ChannelIMAPOld} {
+		t.Run(channel, func(t *testing.T) {
+			graph := &fakeClient{channel: ChannelGraph}
+			imap := &fakeClient{channel: channel}
+			chain := NewChain(map[string]Client{ChannelGraph: graph, channel: imap})
+			var success ChannelSuccess
+			chain.OnSuccess = func(_ Credential, result ChannelSuccess) { success = result }
+			if err := chain.RefreshToken(context.Background(), outlookCred(channel)); err != nil {
+				t.Fatal(err)
+			}
+			if graph.calls != 0 || imap.refreshCalls != 1 || imap.calls != imap.refreshCalls || success.Channel != channel {
+				t.Fatalf("刷新未直接走首选 OAuth 通道：Graph=%d IMAP=%d 令牌交换=%d 成功通道=%s",
+					graph.calls, imap.calls, imap.refreshCalls, success.Channel)
+			}
+		})
+	}
+}
+
+// 刷新只在 OAuth 端点间回退：Graph 与新版 IMAP 都可能拒绝自己的资源/scope，
+// 旧版 login.live.com 仍可能接受同一个账号，不能在第二步提前判整份凭据失败。
+func TestTokenRefreshFallsBackAcrossAllOAuthEndpoints(t *testing.T) {
+	graph := &fakeClient{channel: ChannelGraph,
+		err: remoteOAuthError(ErrKindConsentRequired, ChannelGraph, "Graph 权限不足")}
+	imapNew := &fakeClient{channel: ChannelIMAPNew,
+		err: remoteOAuthError(ErrKindAuthFailed, ChannelIMAPNew, "新版端点拒绝令牌")}
+	imapOld := &fakeClient{channel: ChannelIMAPOld}
+	chain := NewChain(map[string]Client{
+		ChannelGraph: graph, ChannelIMAPNew: imapNew, ChannelIMAPOld: imapOld,
+	})
+	var success ChannelSuccess
+	chain.OnSuccess = func(_ Credential, result ChannelSuccess) { success = result }
+	if err := chain.RefreshToken(context.Background(), outlookCred("")); err != nil {
+		t.Fatalf("旧版 OAuth 端点本可成功，刷新却提前失败：%v", err)
+	}
+	if graph.refreshCalls != 1 || imapNew.refreshCalls != 1 || imapOld.refreshCalls != 1 {
+		t.Fatalf("三条 OAuth 通道调用次数 = %d/%d/%d，期望各 1",
+			graph.refreshCalls, imapNew.refreshCalls, imapOld.refreshCalls)
+	}
+	if success.Channel != ChannelIMAPOld || len(success.Attempts) != 2 {
+		t.Fatalf("成功回执 = %+v，期望旧版通道及两条脱敏失败记录", success)
 	}
 }
 

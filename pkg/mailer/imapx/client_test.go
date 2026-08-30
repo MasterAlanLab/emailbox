@@ -2,10 +2,14 @@ package imapx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -576,6 +580,252 @@ func TestTokenEndpointPerChannel(t *testing.T) {
 	}
 	if scope != mailer.ScopeIMAP {
 		t.Errorf("新版通道 scope = %q", scope)
+	}
+}
+
+func TestRefreshTokenExchangesOAuthWithoutIMAP(t *testing.T) {
+	for _, channel := range []string{mailer.ChannelIMAPNew, mailer.ChannelIMAPOld} {
+		t.Run(channel, func(t *testing.T) {
+			var requests atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				request := requests.Add(1)
+				if err := r.ParseForm(); err != nil {
+					t.Error(err)
+				}
+				if r.Method != http.MethodPost || r.Form.Get("grant_type") != "refresh_token" ||
+					r.Form.Get("client_id") != "client" || r.Form.Get("client_secret") != "secret" ||
+					r.Form.Get("refresh_token") != "old-token" {
+					t.Errorf("令牌请求参数错误：%s %v", r.Method, r.Form)
+				}
+				if channel == mailer.ChannelIMAPOld && r.Form.Has("scope") {
+					t.Error("旧版 IMAP 的令牌请求携带了 scope")
+				}
+				if channel == mailer.ChannelIMAPNew && r.Form.Get("scope") != mailer.ScopeIMAP {
+					t.Errorf("新版 IMAP 的 scope = %q", r.Form.Get("scope"))
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if request == 1 {
+					fmt.Fprint(w, `{"access_token":"access","refresh_token":"new-token"}`)
+					return
+				}
+				// 交换成功也可能没有轮换值，成功状态不应依赖 token 字符串发生变化。
+				fmt.Fprint(w, `{"access_token":"access"}`)
+			}))
+			defer srv.Close()
+			var dials, rotations int
+			c := New(Config{
+				Channel: channel, TokenURL: srv.URL, Timeout: time.Second,
+				DialFunc: func(context.Context, string, int, string) (net.Conn, error) {
+					dials++
+					return nil, errors.New("纯令牌刷新调用了 IMAP 拨号")
+				},
+				OnTokenRefresh: func(email, token string) {
+					rotations++
+					if email != testEmail || token != "new-token" {
+						t.Errorf("轮换回调 = %q %q", email, token)
+					}
+				},
+			})
+			cred := mailer.Credential{
+				Email: testEmail, ClientID: "client", ClientSecret: "secret", RefreshToken: "old-token",
+			}
+			for range 2 {
+				if err := c.RefreshToken(context.Background(), cred); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if requests.Load() != 2 || rotations != 1 || dials != 0 {
+				t.Fatalf("令牌请求/轮换/IMAP拨号 = %d/%d/%d", requests.Load(), rotations, dials)
+			}
+		})
+	}
+}
+
+func TestRefreshTokenRejectsPasswordChannel(t *testing.T) {
+	c := New(Config{Channel: mailer.ChannelIMAP})
+	err := c.RefreshToken(context.Background(), testCred())
+	if mailer.KindOf(err) != mailer.ErrKindProviderError || !strings.Contains(err.Error(), "不支持令牌刷新") {
+		t.Fatalf("密码通道应明确说明刷新不适用，实际 %v", err)
+	}
+}
+
+func TestRefreshTokenProxyFailures(t *testing.T) {
+	for _, mode := range []string{"config", "network", "auth", "proxy_auth", "timeout"} {
+		t.Run(mode, func(t *testing.T) {
+			var directCalls, proxyCalls atomic.Int32
+			tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				directCalls.Add(1)
+				fmt.Fprint(w, `{"access_token":"access"}`)
+			}))
+			defer tokenServer.Close()
+			proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				proxyCalls.Add(1)
+				io.Copy(io.Discard, r.Body)
+				if mode == "timeout" {
+					<-r.Context().Done()
+					return
+				}
+				if mode == "proxy_auth" {
+					w.WriteHeader(http.StatusProxyAuthRequired)
+					return
+				}
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprint(w, `{"error":"invalid_grant"}`)
+			}))
+			defer proxy.Close()
+			proxyURL := strings.Replace(proxy.URL, "http://", "http://user:proxy-password@", 1)
+			if mode == "config" {
+				proxyURL = "ftp://user:proxy-password@127.0.0.1:21"
+			}
+			if mode == "network" {
+				proxy.Close()
+			}
+			tokenURL := tokenServer.URL
+			if mode == "proxy_auth" {
+				// 生产 token 端点是 HTTPS，407 发生在 CONNECT 阶段并经 Do 的 error 返回。
+				tokenURL = strings.Replace(tokenURL, "http://", "https://", 1)
+			}
+			c := New(Config{Channel: mailer.ChannelIMAPNew, TokenURL: tokenURL, Timeout: 100 * time.Millisecond})
+			cred := mailer.Credential{Email: testEmail, RefreshToken: "token", Proxy: mailer.ProxyConfig{URL: proxyURL}}
+			err := c.RefreshToken(context.Background(), cred)
+			if mode == "network" || mode == "timeout" {
+				if err != nil || directCalls.Load() != 1 {
+					t.Fatalf("连接失败应切到直连：err=%v，直连次数=%d", err, directCalls.Load())
+				}
+				return
+			}
+			wantKind, wantProxyCalls := mailer.ErrKindProxyFailed, int32(0)
+			switch mode {
+			case "auth":
+				wantKind, wantProxyCalls = mailer.ErrKindAuthFailed, 1
+			case "proxy_auth":
+				wantKind, wantProxyCalls = mailer.ErrKindProxyFailed, 1
+			}
+			var e *mailer.Error
+			if !errors.As(err, &e) || e.Kind != wantKind || len(e.Attempts) != 1 {
+				t.Fatalf("错误分类/尝试记录错误：%+v", err)
+			}
+			if directCalls.Load() != 0 || proxyCalls.Load() != wantProxyCalls {
+				t.Errorf("配置/认证错误发生后继续了代理候选：直连=%d，代理=%d", directCalls.Load(), proxyCalls.Load())
+			}
+			if strings.Contains(fmt.Sprint(e, e.Attempts), "proxy-password") {
+				t.Error("失败记录泄露了代理口令")
+			}
+		})
+	}
+}
+
+type proxyAuthDialer struct{}
+
+func (proxyAuthDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	return nil, errors.New("username/password authentication failed")
+}
+
+func TestIMAPProxyAuthenticationFailureDoesNotFallBackToDirect(t *testing.T) {
+	c := New(Config{Channel: mailer.ChannelIMAPNew})
+	cred := mailer.Credential{
+		Email: testEmail,
+		Proxy: mailer.ProxyConfig{URL: "socks5://user:bad-password@proxy.invalid:1080"},
+	}
+	var calls int
+	_, err := withProxy(context.Background(), c, cred, func(string) (struct{}, error) {
+		calls++
+		_, err := mailer.DialTLS(context.Background(), proxyAuthDialer{}, "imap.example.com", 993)
+		return struct{}{}, err
+	})
+	var upstream *mailer.Error
+	if !errors.As(err, &upstream) || upstream.Kind != mailer.ErrKindProxyFailed ||
+		len(upstream.Attempts) != 1 || calls != 1 {
+		t.Fatalf("SOCKS 认证失败后不应继续备用或直连：calls=%d err=%+v", calls, err)
+	}
+	if strings.Contains(fmt.Sprint(upstream, upstream.Attempts), "bad-password") {
+		t.Fatal("错误信息泄露了代理口令")
+	}
+}
+
+func TestRefreshTokenCancellationStopsProxyFallback(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var directCalls atomic.Int32
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		directCalls.Add(1)
+		fmt.Fprint(w, `{"access_token":"access"}`)
+	}))
+	defer tokenServer.Close()
+	proxy := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		cancel()
+		<-r.Context().Done()
+	}))
+	defer proxy.Close()
+	c := New(Config{Channel: mailer.ChannelIMAPNew, TokenURL: tokenServer.URL, Timeout: time.Second})
+	cred := mailer.Credential{Email: testEmail, RefreshToken: "token", Proxy: mailer.ProxyConfig{URL: proxy.URL}}
+	err := c.RefreshToken(ctx, cred)
+	if mailer.KindOf(err) != mailer.ErrKindCanceled || !errors.Is(err, context.Canceled) {
+		t.Fatalf("调用方取消应保留 canceled 和原始 cause，实际 %v", err)
+	}
+	if directCalls.Load() != 0 {
+		t.Error("调用方取消后仍尝试了直连")
+	}
+}
+
+func TestTokenCancellationWhileReadingResponse(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		fmt.Fprint(w, "{")
+		http.NewResponseController(w).Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	transport := &http.Transport{}
+	defer transport.CloseIdleConnections()
+	hc := &http.Client{Transport: cancelOnReadTransport{RoundTripper: transport, cancel: cancel}, Timeout: time.Second}
+	c := New(Config{Channel: mailer.ChannelIMAPNew, TokenURL: srv.URL})
+	_, err := c.fetchAccessToken(ctx, hc, mailer.Credential{Email: testEmail, RefreshToken: "token"})
+	if mailer.KindOf(err) != mailer.ErrKindCanceled || !errors.Is(err, context.Canceled) {
+		t.Fatalf("读响应期间取消应保留 canceled，而不是 network：%v", err)
+	}
+}
+
+// 在响应头已返回、开始读正文时取消，避免依赖 sleep 猜测当前请求阶段。
+type cancelOnReadTransport struct {
+	http.RoundTripper
+	cancel context.CancelFunc
+}
+
+func (t cancelOnReadTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.RoundTripper.RoundTrip(req)
+	if err == nil {
+		resp.Body = cancelOnReadBody{ReadCloser: resp.Body, cancel: t.cancel}
+	}
+	return resp, err
+}
+
+type cancelOnReadBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b cancelOnReadBody) Read(p []byte) (int, error) {
+	b.cancel()
+	return b.ReadCloser.Read(p)
+}
+
+func TestRefreshTokenRejectsMalformedSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"refresh_token":"new-token"}`)
+	}))
+	defer srv.Close()
+	var rotated bool
+	c := New(Config{
+		Channel: mailer.ChannelIMAPNew, TokenURL: srv.URL, Timeout: time.Second,
+		OnTokenRefresh: func(string, string) { rotated = true },
+	})
+	err := c.RefreshToken(context.Background(), mailer.Credential{Email: testEmail, RefreshToken: "old-token"})
+	if mailer.KindOf(err) != mailer.ErrKindProviderError || rotated {
+		t.Fatalf("缺少 access_token 应报上游响应错误且不轮换，实际 err=%v，轮换=%v", err, rotated)
 	}
 }
 

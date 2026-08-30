@@ -22,8 +22,8 @@ export const CODE_UPSTREAM_MAIL_ERR = 1005;
 //
 // 401 只应该有一个来源：本人会话过期 → 清会话、回登录页。
 //
-// 曾经不是这样：后端把托管邮箱的上游认证失败（refresh_token 失效）也映射成 401，
-// 于是用户导入的一批账号里只要有一个 token 过期，点开它就会把**用户自己**踢出登录。
+// 曾经不是这样：后端把托管邮箱的上游认证失败也映射成 401，
+// 于是用户导入的一批账号里只要有一个上游认证失败，点开它就会把**用户自己**踢出登录。
 // 根因已在服务端修掉——那类错误现在回 502 + 业务码 1005
 // （pkg/handler/group_handler.go 的 upstreamFailure，由
 // api/mail_messages_test.go 的 TestUpstreamAuthFailureIsNotUnauthorized 钉住）。

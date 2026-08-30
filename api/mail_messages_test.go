@@ -71,7 +71,8 @@ type failingMailClient struct{ kind mailer.ErrKind }
 const upstreamFailEmailMarker = "upstream-fail"
 
 func (c failingMailClient) fail() error {
-	return &mailer.Error{Kind: c.kind, Channel: mailer.ChannelGraph, Message: "refresh_token 已失效，需要重新授权"}
+	return &mailer.Error{Kind: c.kind, Channel: mailer.ChannelGraph,
+		Message: "当前通道的认证未通过，请查看具体原因"}
 }
 
 func (failingMailClient) Channel() string { return mailer.ChannelGraph }

@@ -161,6 +161,19 @@ func (c *Chain) Delete(ctx context.Context, cred Credential, items []MessageRef)
 	})
 }
 
+// RefreshToken 与收信共用通道顺序和成功回执，但只调用令牌端点。
+// 用 List 代替会额外建立邮箱连接，让取信故障被误报成令牌刷新失败。
+func (c *Chain) RefreshToken(ctx context.Context, cred Credential) error {
+	_, err := runChain(ctx, c, cred, func(client Client) (struct{}, error) {
+		refresher, ok := client.(TokenRefresher)
+		if !ok {
+			return struct{}{}, newError(ErrKindProviderError, client.Channel(), "当前通道不支持 OAuth 令牌刷新", nil)
+		}
+		return struct{}{}, refresher.RefreshToken(ctx, cred)
+	})
+	return err
+}
+
 // MaskEmail 把邮箱打码后写日志：u***@outlook.com。
 // 协议层的日志字段里绝不出现完整邮箱、令牌或代理口令。
 func MaskEmail(email string) string {

@@ -142,6 +142,10 @@ func (c *Client) postToken(
 		if ctx.Err() != nil {
 			return 0, nil, newError(c.cfg.Channel, mailer.ErrKindCanceled, "请求已取消", err)
 		}
+		if mailer.IsProxyAuthenticationError(err) {
+			return 0, nil, newError(c.cfg.Channel, mailer.ErrKindProxyFailed,
+				"代理认证失败，请检查代理账号和密码", err)
+		}
 		return 0, nil, newError(c.cfg.Channel, mailer.ErrKindNetwork, "请求令牌端点失败", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -150,6 +154,9 @@ func (c *Client) postToken(
 	// 一次批量刷新就能把内存吃光。
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
+		if ctx.Err() != nil {
+			return 0, nil, newError(c.cfg.Channel, mailer.ErrKindCanceled, "请求已取消", err)
+		}
 		return 0, nil, newError(c.cfg.Channel, mailer.ErrKindNetwork, "读取令牌响应失败", err)
 	}
 	return resp.StatusCode, body, nil
@@ -161,9 +168,9 @@ func (c *Client) acceptToken(cred mailer.Credential, body []byte) (string, error
 		return "", newError(c.cfg.Channel, mailer.ErrKindProviderError, "解析令牌响应失败", err)
 	}
 	if parsed.AccessToken == "" {
-		return "", newError(c.cfg.Channel, mailer.ErrKindAuthFailed, "令牌响应里没有 access_token", nil)
+		return "", newError(c.cfg.Channel, mailer.ErrKindProviderError, "令牌响应缺少 access_token，请稍后重试", nil)
 	}
-	// 微软会轮换 refresh_token，漏存下次就失效了。
+	// 及时保存轮换值，避免长期继续使用逐渐过期的旧令牌；轮换本身不代表旧值立即失效。
 	rotated := parsed.RefreshToken != "" && parsed.RefreshToken != cred.RefreshToken
 	if rotated && c.cfg.OnTokenRefresh != nil {
 		c.cfg.OnTokenRefresh(cred.Email, parsed.RefreshToken)

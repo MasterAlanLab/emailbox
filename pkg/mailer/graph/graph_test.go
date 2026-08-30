@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -112,31 +114,38 @@ func jsonHeader() http.Header {
 // scope 三级降级：同一个 client_id 下不同账号实际同意过的权限不一样，
 // 拿一套写死的 scope 去换 token，只授权了只读的账号会直接失败。
 func TestTokenScopeDegradation(t *testing.T) {
-	s := newStub(t)
-	s.tokenHandler = func(scope string) (int, string) {
-		if strings.Contains(scope, "Mail.ReadWrite") {
-			return 400, `{"error":"invalid_scope","error_description":"AADSTS70011: scope is not valid"}`
-		}
-		return 200, `{"access_token":"at","expires_in":3600}`
-	}
-	s.apiHandler = func(string, string) (int, http.Header, string) {
-		return 200, jsonHeader(), `{"value":[]}`
-	}
+	for _, body := range []string{
+		`{"error":"invalid_scope","error_description":"AADSTS70011: scope is not valid"}`,
+		`{"error":"invalid_grant","error_codes":[65001]}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			s := newStub(t)
+			s.tokenHandler = func(scope string) (int, string) {
+				if strings.Contains(scope, "Mail.ReadWrite") {
+					return 400, body
+				}
+				return 200, `{"access_token":"at","expires_in":3600}`
+			}
+			s.apiHandler = func(string, string) (int, http.Header, string) {
+				return 200, jsonHeader(), `{"value":[]}`
+			}
 
-	c := s.client(Config{})
-	if _, err := c.List(context.Background(), testCred(), mailer.ListOptions{Folder: mailer.FolderInbox}); err != nil {
-		t.Fatalf("降级后应当成功：%v", err)
-	}
+			c := s.client(Config{})
+			if _, err := c.List(context.Background(), testCred(), mailer.ListOptions{Folder: mailer.FolderInbox}); err != nil {
+				t.Fatalf("降级后应当成功：%v", err)
+			}
 
-	scopes := s.scopes()
-	if len(scopes) != 2 {
-		t.Fatalf("打了 %d 次 token 端点，期望 2 次（configured → read）：%v", len(scopes), scopes)
-	}
-	if !strings.Contains(scopes[0], "Mail.ReadWrite") {
-		t.Errorf("第一个候选应当包含 Mail.ReadWrite，实际 %q", scopes[0])
-	}
-	if strings.Contains(scopes[1], "Mail.ReadWrite") {
-		t.Errorf("第二个候选应当去掉 Mail.ReadWrite，实际 %q", scopes[1])
+			scopes := s.scopes()
+			if len(scopes) != 2 {
+				t.Fatalf("打了 %d 次 token 端点，期望 2 次（configured → read）：%v", len(scopes), scopes)
+			}
+			if !strings.Contains(scopes[0], "Mail.ReadWrite") {
+				t.Errorf("第一个候选应当包含 Mail.ReadWrite，实际 %q", scopes[0])
+			}
+			if strings.Contains(scopes[1], "Mail.ReadWrite") {
+				t.Errorf("第二个候选应当去掉 Mail.ReadWrite，实际 %q", scopes[1])
+			}
+		})
 	}
 }
 
@@ -172,8 +181,23 @@ func TestTokenStopsOnTerminalErrors(t *testing.T) {
 			want: mailer.ErrKindBanned,
 		},
 		{
-			name: "refresh_token 失效",
-			body: `{"error":"invalid_grant","error_description":"token expired"}`,
+			name: "refresh_token 明确过期",
+			body: `{"error":"invalid_grant","error_codes":[700082]}`,
+			want: mailer.ErrKindAuthFailed,
+		},
+		{
+			name: "未知 invalid_grant",
+			body: `{"error":"invalid_grant"}`,
+			want: mailer.ErrKindAuthFailed,
+		},
+		{
+			name: "条件访问不因描述含 consent 而降级",
+			body: `{"error":"invalid_grant","error_codes":[53003],"error_description":"consent PRIVATE-CREDENTIAL-MARKER"}`,
+			want: mailer.ErrKindAuthFailed,
+		},
+		{
+			name: "交互式登录",
+			body: `{"error":"interaction_required"}`,
 			want: mailer.ErrKindAuthFailed,
 		},
 	}
@@ -192,11 +216,13 @@ func TestTokenStopsOnTerminalErrors(t *testing.T) {
 		if mailer.Retriable(err) {
 			t.Errorf("%s: 这类错误不该允许换通道重试", c.name)
 		}
+		if err != nil && strings.Contains(err.Error(), "PRIVATE-CREDENTIAL-MARKER") {
+			t.Errorf("%s: Graph 错误包含上游凭据", c.name)
+		}
 	}
 }
 
-// 微软会轮换 refresh_token。不落库的话下次刷新就失效，
-// 表现是「昨天还好好的账号今天全部 auth_failed」。
+// 新值出现时通知持久化层，后续续期使用最新值，而不是依赖旧值的剩余寿命。
 func TestTokenRotationIsReported(t *testing.T) {
 	s := newStub(t)
 	s.tokenHandler = func(string) (int, string) {
@@ -625,6 +651,32 @@ func TestContextCancellation(t *testing.T) {
 	}
 }
 
+// 响应头已经到达后取消 context，错误也应归到 canceled；若把 body 读取错误记成
+// network，任务页会误导用户检查网络，并且与 IMAP 令牌端点的分类不一致。
+func TestTokenResponseReadCancellation(t *testing.T) {
+	headersSent := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		close(headersSent)
+		<-r.Context().Done()
+	}))
+	t.Cleanup(server.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-headersSent
+		cancel()
+	}()
+	err := New(Config{TokenURL: server.URL, Timeout: 2 * time.Second}).RefreshToken(ctx, testCred())
+	if mailer.KindOf(err) != mailer.ErrKindCanceled {
+		t.Fatalf("分类 = %q，期望 canceled（%v）", mailer.KindOf(err), err)
+	}
+}
+
 // 代理配置错误要归到 proxy_failed 并带上打码后的代理地址，
 // 否则用户只看到「请求失败」，根本不知道是代理的问题。
 func TestProxyFailureIsAttributedAndMasked(t *testing.T) {
@@ -638,6 +690,87 @@ func TestProxyFailureIsAttributedAndMasked(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "secret") {
 		t.Fatalf("错误信息里泄露了代理口令：%v", err)
+	}
+}
+
+func TestProxyAuthenticationFailureDoesNotFallBackToDirect(t *testing.T) {
+	var directCalls, proxyCalls atomic.Int32
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		directCalls.Add(1)
+		fmt.Fprint(w, `{"access_token":"access"}`)
+	}))
+	t.Cleanup(tokenServer.Close)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxyCalls.Add(1)
+		conn, rw, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		// reason phrase 故意不是标准文本；分类必须读状态码而不是匹配英文字符串。
+		_, _ = fmt.Fprint(rw, "HTTP/1.1 407 Authentication Needed\r\nContent-Length: 0\r\n\r\n")
+		_ = rw.Flush()
+	}))
+	t.Cleanup(proxy.Close)
+
+	cred := testCred()
+	cred.Proxy = mailer.ProxyConfig{URL: strings.Replace(proxy.URL, "http://", "http://user:bad-password@", 1)}
+	// HTTPS 会让 net/http 先向代理发送 CONNECT；407 此时经 Do 的 error 返回，
+	// 而不是一份可交给 OAuth 分类器的普通 HTTP Response。
+	tokenURL := strings.Replace(tokenServer.URL, "http://", "https://", 1)
+	err := New(Config{TokenURL: tokenURL, Timeout: time.Second}).RefreshToken(context.Background(), cred)
+	if mailer.KindOf(err) != mailer.ErrKindProxyFailed {
+		t.Fatalf("分类 = %q，期望 proxy_failed（%v）", mailer.KindOf(err), err)
+	}
+	var upstream *mailer.Error
+	if !errors.As(err, &upstream) || len(upstream.Attempts) != 1 {
+		t.Fatalf("CONNECT 407 后不应继续备用或直连：%+v", err)
+	}
+	if proxyCalls.Load() != 1 || directCalls.Load() != 0 {
+		t.Fatalf("代理认证失败后仍切换了候选：代理=%d，直连=%d", proxyCalls.Load(), directCalls.Load())
+	}
+	if strings.Contains(err.Error(), "bad-password") {
+		t.Fatal("错误信息泄露了代理口令")
+	}
+}
+
+func TestGraphAPIProxyAuthenticationFailureDoesNotFallBackToDirect(t *testing.T) {
+	var directTokenCalls, proxyCalls atomic.Int32
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		directTokenCalls.Add(1)
+		fmt.Fprint(w, `{"access_token":"direct-access"}`)
+	}))
+	t.Cleanup(tokenServer.Close)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyCalls.Add(1)
+		if r.Method == http.MethodConnect {
+			w.WriteHeader(http.StatusProxyAuthRequired)
+			return
+		}
+		// 第一个 HTTP token 请求由代理直接桩成功；随后的 HTTPS Graph 请求走 CONNECT。
+		fmt.Fprint(w, `{"access_token":"proxy-access"}`)
+	}))
+	t.Cleanup(proxy.Close)
+
+	cred := testCred()
+	cred.Proxy = mailer.ProxyConfig{URL: strings.Replace(proxy.URL, "http://", "http://user:bad-password@", 1)}
+	c := New(Config{
+		TokenURL: tokenServer.URL,
+		BaseURL:  "https://graph.invalid/v1.0",
+		Timeout:  time.Second,
+	})
+	_, err := c.List(context.Background(), cred, mailer.ListOptions{Folder: mailer.FolderInbox})
+	var upstream *mailer.Error
+	if !errors.As(err, &upstream) || upstream.Kind != mailer.ErrKindProxyFailed || len(upstream.Attempts) != 1 {
+		t.Fatalf("Graph CONNECT 407 后不应继续备用或直连：%+v", err)
+	}
+	if proxyCalls.Load() != 2 || directTokenCalls.Load() != 0 {
+		t.Fatalf("Graph 代理认证失败后仍切换了候选：代理=%d，直连令牌=%d",
+			proxyCalls.Load(), directTokenCalls.Load())
+	}
+	if strings.Contains(err.Error(), "bad-password") {
+		t.Fatal("错误信息泄露了代理口令")
 	}
 }
 
@@ -684,12 +817,18 @@ func TestShouldDegradeScope(t *testing.T) {
 		body   string
 		want   bool
 	}{
-		{"AADSTS90023", 400, "AADSTS90023: invalid request", true},
+		{"一般请求错误不降级", 400, "AADSTS90023: invalid request", false},
+		{"一般授权错误不降级", 400, "AADSTS70000: invalid grant", false},
 		{"AADSTS70011", 400, "aadsts70011", true},
 		{"invalid_scope", 400, `{"error":"invalid_scope"}`, true},
 		{"no applicable permissions", 403, "No applicable permissions found", true},
+		{"结构化 no applicable permissions", 403, `{"error":"invalid_grant","error_description":"No applicable permissions found"}`, true},
 		{"unauthorized or expired", 401, "the permissions requested are unauthorized or expired", true},
+		{"结构化 unauthorized or expired", 401, `{"error":"invalid_grant","error_description":"The permissions requested are unauthorized or expired"}`, true},
 		{"invalid_grant 不是 scope 问题", 400, `{"error":"invalid_grant"}`, false},
+		{"明确权限诊断才降级", 400, `{"error":"invalid_grant","error_codes":[65001]}`, true},
+		{"交互登录不降级", 400, `{"error":"interaction_required"}`, false},
+		{"客户端配置错误不降级", 400, `{"error":"invalid_client","error_description":"consent invalid scope"}`, false},
 		{"5xx 不降级", 500, "invalid_scope", false},
 		{"429 不降级", 429, "consent", false},
 	}

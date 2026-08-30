@@ -12,6 +12,18 @@ interface ReauthorizationPanelProps {
   refreshKey: string;
 }
 
+const FAILURE_KIND_LABEL: Record<string, string> = {
+  banned: "账号被封禁",
+  auth_failed: "认证失败",
+  consent_required: "权限不足",
+  proxy_failed: "代理不可用",
+  network: "网络不可达",
+  rate_limited: "请求被限流",
+  folder_unavailable: "邮箱文件夹不可用",
+  provider_error: "服务商或应用配置错误",
+  canceled: "刷新已取消",
+};
+
 export function ReauthorizationPanel({ tenant, tenantKey, refreshKey }: ReauthorizationPanelProps) {
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
   const [selected, setSelected] = useState<MailAccount | null>(null);
@@ -22,10 +34,9 @@ export function ReauthorizationPanel({ tenant, tenantKey, refreshKey }: Reauthor
 
   useEffect(() => {
     let ignore = false;
-    void mailApi
-      .accounts(tenant, { refresh_status: "failed", limit: 200 })
+    void loadFailedOAuthAccounts(tenant)
       .then((response) => {
-        if (!ignore) setAccounts(response.data.items.filter(needsReauthorization));
+        if (!ignore) setAccounts(response);
       })
       .catch((error: unknown) => {
         if (!ignore) setMessage(error instanceof Error ? error.message : "加载失败账号失败");
@@ -68,21 +79,36 @@ export function ReauthorizationPanel({ tenant, tenantKey, refreshKey }: Reauthor
   return (
     <>
       <LayerCard className="mb-6 p-4">
-        <h2 className="mb-1 text-sm font-medium text-kumo-strong">需要重新授权的账号</h2>
+        <h2 className="mb-1 text-sm font-medium text-kumo-strong">刷新失败的账号</h2>
         <p className="mb-3 text-xs text-kumo-subtle">
-          显示当前页最多 200 个令牌失效或缺少权限的 Outlook 账号。
+          显示最多 200 个刷新失败的 Outlook OAuth 账号。请先查看具体原因；
+          认证或权限问题可在这里重新授权，代理与应用配置问题请按提示处理。
         </p>
         {displayMessage && <p className="mb-3 text-sm text-kumo-danger">{displayMessage}</p>}
         <div className="divide-y divide-kumo-hairline">
           {accounts.map((account) => (
-            <div key={account.id} className="flex items-center gap-3 py-2 text-sm">
-              <span className="min-w-0 flex-1 truncate">{account.email}</span>
-              <span className="hidden text-kumo-subtle sm:inline">
-                {account.last_refresh_error_kind === "consent_required" ? "权限不足" : "令牌失效"}
-              </span>
-              <Button variant="secondary" size="sm" icon={Key} onClick={() => setSelected(account)}>
-                重新授权
-              </Button>
+            <div key={account.id} className="flex items-start gap-3 py-2 text-sm">
+              <div className="min-w-0 flex-1">
+                <p className="truncate">{account.email}</p>
+                <p className="mt-1 text-xs text-kumo-subtle">
+                  {FAILURE_KIND_LABEL[account.last_refresh_error_kind] ?? "刷新失败"}
+                </p>
+                {account.last_refresh_error && (
+                  <p className="mt-1 text-xs break-words text-kumo-danger">
+                    {account.last_refresh_error}
+                  </p>
+                )}
+              </div>
+              {canReauthorize(account) && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={Key}
+                  onClick={() => setSelected(account)}
+                >
+                  重新授权
+                </Button>
+              )}
             </div>
           ))}
         </div>
@@ -104,11 +130,29 @@ export function ReauthorizationPanel({ tenant, tenantKey, refreshKey }: Reauthor
   );
 }
 
-function needsReauthorization(account: MailAccount): boolean {
+function isOAuthFailure(account: MailAccount): boolean {
+  return account.account_type === "outlook";
+}
+
+async function loadFailedOAuthAccounts(tenant: TenantRef): Promise<MailAccount[]> {
+  const accounts: MailAccount[] = [];
+  for (let page = 1; accounts.length < 200; page += 1) {
+    const response = await mailApi.accounts(tenant, {
+      refresh_status: "failed",
+      page,
+      limit: 200,
+    });
+    accounts.push(...response.data.items.filter(isOAuthFailure));
+    if (page >= response.data.pagination.pages || response.data.items.length === 0) break;
+  }
+  return accounts.slice(0, 200);
+}
+
+function canReauthorize(account: MailAccount): boolean {
   return (
-    account.account_type === "outlook" &&
-    (account.last_refresh_error_kind === "auth_failed" ||
-      account.last_refresh_error_kind === "consent_required" ||
+    account.last_refresh_error_kind === "auth_failed" ||
+    account.last_refresh_error_kind === "consent_required" ||
+    (!account.last_refresh_error_kind &&
       /重新授权|refresh_token|令牌失效/i.test(account.last_refresh_error))
   );
 }

@@ -13,16 +13,17 @@ import { useAsyncAction } from "@/lib/useAsyncAction";
 import { useJobStore } from "@/store/jobStore";
 import { useTenantStore } from "@/store/tenantStore";
 
-// 失败原因的中文说明。三类的处置完全不同，这也是把它们分开统计的全部意义：
-// banned 要换账号、auth_failed 要重新授权、proxy_failed 要查代理配置。
+// 分类用于汇总，具体处置看逐账号原因：同为 auth_failed，
+// 可能是令牌过期，也可能是重新登录要求，分类本身不等于已确认过期。
 const ERROR_KIND_LABEL: Record<string, string> = {
   banned: "账号被封禁",
-  auth_failed: "令牌失效，需重新授权",
-  consent_required: "权限不足，需重新授权",
+  auth_failed: "认证失败",
+  consent_required: "权限不足",
   proxy_failed: "代理不可用",
   network: "网络不可达",
   rate_limited: "被限流",
-  provider_error: "服务商返回错误",
+  folder_unavailable: "邮箱文件夹不可用",
+  provider_error: "服务商或应用配置错误",
   canceled: "已取消",
 };
 
@@ -117,7 +118,7 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
   return (
     <PageShell
       title="Token 刷新"
-      description="批量确认 OAuth 账号的 refresh_token 是否仍然有效，并在服务商轮换令牌时写回新值。"
+      description="批量确认至少一个 OAuth 通道能否完成令牌交换，并在服务商轮换令牌时写回新值。"
     >
       {(error || loadError) && (
         <p className="mb-4 text-sm text-kumo-danger">{error || loadError}</p>
@@ -206,13 +207,22 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
               {job.recent.map((item, index) => (
                 <div
                   key={`${item.email}-${index}`}
-                  className="flex items-center gap-3 border-b border-kumo-hairline px-3 py-1.5 text-sm last:border-b-0"
+                  className="flex items-start gap-3 border-b border-kumo-hairline px-3 py-1.5 text-sm last:border-b-0"
                 >
-                  <span className="min-w-0 flex-1 truncate">{item.email}</span>
-                  {item.status === "success" && <span className="text-kumo-success">成功</span>}
-                  {item.status === "skipped" && <span className="text-kumo-subtle">已跳过</span>}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate">{item.email}</p>
+                    {item.status === "failed" && item.error && (
+                      <p className="mt-1 text-xs break-words text-kumo-danger">{item.error}</p>
+                    )}
+                  </div>
+                  {item.status === "success" && (
+                    <span className="shrink-0 text-kumo-success">成功</span>
+                  )}
+                  {item.status === "skipped" && (
+                    <span className="shrink-0 text-kumo-subtle">已跳过</span>
+                  )}
                   {item.status === "failed" && (
-                    <span className="text-kumo-danger" title={item.error}>
+                    <span className="shrink-0 text-kumo-danger">
                       {ERROR_KIND_LABEL[item.errorKind] ?? (item.errorKind || "失败")}
                     </span>
                   )}
@@ -224,6 +234,7 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
       )}
 
       <ReauthorizationPanel
+        key={tenantKey}
         tenant={tenant}
         tenantKey={tenantKey}
         refreshKey={`${job.jobID ?? ""}:${job.status ?? ""}`}

@@ -11,7 +11,6 @@ import (
 
 	"emailbox/pkg/job"
 	"emailbox/pkg/mailer"
-	"emailbox/pkg/mailer/graph"
 	"emailbox/pkg/model"
 	"emailbox/pkg/quota"
 	"emailbox/pkg/repo"
@@ -19,11 +18,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// TokenRefresher 只做一件事：确认 refresh_token 还能换出 access_token。
-// 抽成接口是为了让测试不必真的打微软。
-type TokenRefresher interface {
-	RefreshToken(ctx context.Context, cred mailer.Credential) error
-}
+// TokenRefresher 与协议层共用契约，保留 service 的测试注入入口。
+type TokenRefresher = mailer.TokenRefresher
 
 // 批量刷新的选取范围。
 const (
@@ -62,7 +58,7 @@ type RefreshService struct {
 	quota    *quota.Service
 	jobs     *job.Manager
 
-	// refresherFor 按账号构造刷新器。默认走 Graph（只有 OAuth 账号需要刷新令牌）。
+	// refresherFor 与收信共用 OAuth 通道链，优先上次成功的通道。
 	refresherFor func(*model.MailAccount) TokenRefresher
 }
 
@@ -80,18 +76,9 @@ func (s *RefreshService) WithRefresherFactory(f func(*model.MailAccount) TokenRe
 	return s
 }
 
-// defaultRefresher 构造一个只做令牌交换的 Graph 客户端。
-//
-// 轮换回调脱离请求 context：令牌在上游已经换掉了，这时因为请求取消而不落库，
-// 账号下次刷新必然失败——而且要等到下一轮任务才暴露。
+// defaultRefresher 复用收信的通道配置、轮换和成功通道写回，只执行令牌交换。
 func (s *RefreshService) defaultRefresher(account *model.MailAccount) TokenRefresher {
-	return graph.New(graph.Config{
-		OnTokenRefresh: func(_, refreshToken string) {
-			s.messages.OnTokenRotated(
-				context.WithoutCancel(context.Background()),
-				account.TenantID, account.ID, refreshToken)
-		},
-	})
+	return newMailChain(s.messages, account, s.messages.chainOptions)
 }
 
 // Type 实现 job.Runner。
@@ -214,8 +201,8 @@ func (s *RefreshService) SubmitBatch(
 
 // selectAccounts 按 scope 选出要刷新的账号。
 //
-// 四种 scope 都会再过一遍「有 refresh_token 且没被停用」：没有令牌的账号
-// （IMAP 密码账号）刷新不了，放进任务里只会产出一堆注定失败的记录，
+// 四种 scope 都会再过一遍「Outlook OAuth、有 refresh_token 且没被停用」：
+// IMAP 密码账号没有 OAuth 令牌可换，放进任务只会产出一堆注定失败的记录，
 // 既浪费配额也把失败率搅乱。
 func (s *RefreshService) selectAccounts(
 	ctx context.Context, tenantID, scope string, accountIDs, groupIDs []string,
@@ -246,7 +233,7 @@ func (s *RefreshService) selectAccounts(
 
 	out := make([]model.MailAccount, 0, len(accounts))
 	for _, account := range accounts {
-		if account.RefreshTokenEnc == "" || account.Status != model.AccountStatusActive {
+		if account.AccountType != string(mailer.AccountTypeOutlook) || account.RefreshTokenEnc == "" || account.Status != model.AccountStatusActive {
 			continue
 		}
 		out = append(out, account)

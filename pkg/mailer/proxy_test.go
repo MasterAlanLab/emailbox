@@ -2,11 +2,45 @@ package mailer
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestProxyAuthenticationErrorsAreRecognized(t *testing.T) {
+	for _, err := range []error{
+		fmt.Errorf("transport: %w", errProxyAuthentication),
+		errors.New("Proxy Authentication Required"),
+		fmt.Errorf("proxyconnect tcp: %w", errors.New("username/password authentication failed")),
+		errors.New("socks connect: no acceptable authentication methods"),
+	} {
+		if !IsProxyAuthenticationError(err) {
+			t.Errorf("未识别代理认证错误：%v", err)
+		}
+	}
+	if IsProxyAuthenticationError(errors.New("connection refused")) {
+		t.Error("普通网络故障被误判为代理认证失败")
+	}
+}
+
+type failingDialer struct{ err error }
+
+func (d failingDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	return nil, d.err
+}
+
+func TestDialTLSKeepsProxyAuthenticationFailure(t *testing.T) {
+	_, err := DialTLS(context.Background(), failingDialer{
+		err: errors.New("username/password authentication failed"),
+	}, "imap.example.com", 993)
+	if KindOf(err) != ErrKindProxyFailed {
+		t.Fatalf("分类 = %q，期望 proxy_failed（%v）", KindOf(err), err)
+	}
+}
 
 // 代理配置必须整组一起取：账号填了主代理就连它自己的两个备用一起用。
 // 混搭（主用账号的、备用用分组的）会让 failover 跑到一个完全无关的出口上，

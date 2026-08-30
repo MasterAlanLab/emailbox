@@ -44,6 +44,9 @@ describe("Layout 的三种形态", () => {
 
     expect(root.className).toContain("h-dvh");
     expect(screen.getByRole("navigation", { name: "主导航" })).toBeTruthy();
+    // 所有入口共用一份间距，令牌和用量之间也没有额外的分组占位。
+    const tokens = screen.getByRole("link", { name: "令牌" });
+    expect(tokens.nextElementSibling).toBe(screen.getByRole("link", { name: "用量" }));
     // 顶栏的两个标志物都不该出现——所有全局入口都在侧边栏里。
     expect(screen.queryByText("隐私政策")).toBeNull();
     expect(screen.queryByRole("link", { name: "注册" })).toBeNull();

@@ -81,44 +81,9 @@ func withSession[T any](
 	ctx context.Context, c *Client, cred mailer.Credential,
 	fn func(context.Context, *session) (T, error),
 ) (T, error) {
-	var zero T
-	candidates := mailer.ProxyCandidates(cred.Proxy, cred.Email)
-	attempts := make([]mailer.Attempt, 0, len(candidates))
-	var lastErr error
-
-	for _, proxyURL := range candidates {
-		if err := ctx.Err(); err != nil {
-			return zero, newError(c.cfg.Channel, mailer.ErrKindCanceled, "请求已取消", err)
-		}
-
-		result, err := runOnProxy(ctx, c, cred, proxyURL, fn)
-		if err == nil {
-			return result, nil
-		}
-		lastErr = err
-		attempts = append(attempts, mailer.Attempt{
-			Channel: c.cfg.Channel,
-			Proxy:   mailer.MaskProxy(proxyURL),
-			Kind:    mailer.KindOf(err),
-			Message: err.Error(),
-		})
-		// 与 Graph 通道同样的判断：只有连不上才换代理。
-		// 代理配置本身写错（协议不支持、URL 非法）时 NewDialer 会直接报 proxy_failed，
-		// 那种情况不该顺着候选链滑到直连——用户以为走着代理，实际是裸连。
-		if !mailer.RetriableWithAnotherProxy(err) || isProxyConfigError(err) {
-			return zero, attachAttempts(err, attempts)
-		}
-	}
-
-	if lastErr == nil {
-		return zero, newError(c.cfg.Channel, mailer.ErrKindProxyFailed, "没有可用的出站通道", nil)
-	}
-	if mailer.KindOf(lastErr) == mailer.ErrKindNetwork && len(candidates) > 1 {
-		wrapped := newError(c.cfg.Channel, mailer.ErrKindProxyFailed, "全部代理候选均不可用", lastErr)
-		wrapped.Attempts = attempts
-		return zero, wrapped
-	}
-	return zero, attachAttempts(lastErr, attempts)
+	return withProxy(ctx, c, cred, func(proxyURL string) (T, error) {
+		return runOnProxy(ctx, c, cred, proxyURL, fn)
+	})
 }
 
 // runOnProxy 在一个代理候选上建连接并执行 fn。
@@ -231,38 +196,4 @@ func (c *Client) authenticate(
 func classifyAuthError(channel string, err error) error {
 	kind, message := mailer.ClassifyIMAPAuthError(err.Error())
 	return newError(channel, kind, message, err)
-}
-
-func isProxyConfigError(err error) bool {
-	var e *mailer.Error
-	if !asMailerError(err, &e) {
-		return false
-	}
-	return e.Kind == mailer.ErrKindProxyFailed
-}
-
-func asMailerError(err error, target **mailer.Error) bool {
-	for err != nil {
-		if e, ok := err.(*mailer.Error); ok {
-			*target = e
-			return true
-		}
-		u, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-	}
-	return false
-}
-
-func attachAttempts(err error, attempts []mailer.Attempt) error {
-	var e *mailer.Error
-	if asMailerError(err, &e) {
-		e.Attempts = attempts
-		return e
-	}
-	wrapped := mailer.NewError(mailer.KindOf(err), "", err.Error(), err)
-	wrapped.Attempts = attempts
-	return wrapped
 }

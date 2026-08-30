@@ -21,6 +21,8 @@ type ChainOptions struct {
 	Timeout           time.Duration
 	OAuthClientID     string
 	OAuthClientSecret string
+	// TokenURL 供进程内协议桩覆盖；生产留空，各通道使用自己的 OAuth 端点。
+	TokenURL string
 }
 
 // defaultChainFactory 返回「按账号构造回退链」的函数。
@@ -29,41 +31,49 @@ type ChainOptions struct {
 // 复用就等于让不同账号共用出口身份，{mail} 模板代理的意义就没了。
 // 构造本身很轻，真正的开销在建连接上。
 func defaultChainFactory(s *MessageService, opt ChainOptions) func(*model.MailAccount) mailer.Client {
+	return func(account *model.MailAccount) mailer.Client {
+		return newMailChain(s, account, opt)
+	}
+}
+
+// newMailChain 同时供收信与令牌刷新使用，避免两边的可用通道或轮换写回再次分叉。
+func newMailChain(s *MessageService, account *model.MailAccount, opt ChainOptions) *mailer.Chain {
 	if opt.Timeout <= 0 {
 		opt.Timeout = defaultChainTimeout
 	}
-	return func(account *model.MailAccount) mailer.Client {
-		// 两个回调都脱离请求的 context：服务端已经把 token 换过了，
-		// 这时若因请求取消而不落库，账号下次刷新就会失效。
-		hookCtx := func() context.Context { return context.WithoutCancel(context.Background()) }
-		onRotate := func(_, refreshToken string) {
-			s.OnTokenRotated(hookCtx(), account.TenantID, account.ID, refreshToken)
-		}
-
-		chain := mailer.NewChain(map[string]mailer.Client{
-			mailer.ChannelGraph: graph.New(graph.Config{
-				Timeout:        opt.Timeout,
-				OnTokenRefresh: onRotate,
-			}),
-			mailer.ChannelIMAPNew: imapx.New(imapx.Config{
-				Channel:        mailer.ChannelIMAPNew,
-				Timeout:        opt.Timeout,
-				OnTokenRefresh: onRotate,
-			}),
-			mailer.ChannelIMAPOld: imapx.New(imapx.Config{
-				Channel:        mailer.ChannelIMAPOld,
-				Timeout:        opt.Timeout,
-				OnTokenRefresh: onRotate,
-			}),
-			mailer.ChannelIMAP: imapx.New(imapx.Config{
-				Channel: mailer.ChannelIMAP,
-				Timeout: opt.Timeout,
-			}),
-		})
-		previous := account.AuthChannel
-		chain.OnSuccess = func(_ mailer.Credential, result mailer.ChannelSuccess) {
-			s.OnChannelSuccess(hookCtx(), account.TenantID, account.ID, previous, result.Channel)
-		}
-		return chain
+	// 回调脱离请求的 context：上游已签发新令牌，客户端断开也应保存新值，
+	// 否则后续仍使用旧值，失去新令牌带来的有效期延续。
+	hookCtx := func() context.Context { return context.WithoutCancel(context.Background()) }
+	onRotate := func(_, refreshToken string) {
+		s.OnTokenRotated(hookCtx(), account.TenantID, account.ID, refreshToken)
 	}
+
+	chain := mailer.NewChain(map[string]mailer.Client{
+		mailer.ChannelGraph: graph.New(graph.Config{
+			Timeout:        opt.Timeout,
+			TokenURL:       opt.TokenURL,
+			OnTokenRefresh: onRotate,
+		}),
+		mailer.ChannelIMAPNew: imapx.New(imapx.Config{
+			Channel:        mailer.ChannelIMAPNew,
+			Timeout:        opt.Timeout,
+			TokenURL:       opt.TokenURL,
+			OnTokenRefresh: onRotate,
+		}),
+		mailer.ChannelIMAPOld: imapx.New(imapx.Config{
+			Channel:        mailer.ChannelIMAPOld,
+			Timeout:        opt.Timeout,
+			TokenURL:       opt.TokenURL,
+			OnTokenRefresh: onRotate,
+		}),
+		mailer.ChannelIMAP: imapx.New(imapx.Config{
+			Channel: mailer.ChannelIMAP,
+			Timeout: opt.Timeout,
+		}),
+	})
+	previous := account.AuthChannel
+	chain.OnSuccess = func(_ mailer.Credential, result mailer.ChannelSuccess) {
+		s.OnChannelSuccess(hookCtx(), account.TenantID, account.ID, previous, result.Channel)
+	}
+	return chain
 }

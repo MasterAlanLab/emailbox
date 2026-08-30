@@ -43,9 +43,8 @@ type Config struct {
 	Timeout time.Duration
 	// OnTokenRefresh 在微软返回了新的 refresh_token 时调用。
 	//
-	// 微软会轮换 refresh_token，不持久化新值的话下次刷新就会失败——
-	// 这类 bug 的表现是「昨天还好好的账号今天全部 auth_failed」，
-	// 而且从日志上看不出任何异常。允许为 nil（cmd/mailprobe 这类不落库的调用方）。
+	// 持久化最新值，后续续期不再依赖旧值的剩余寿命；轮换不代表旧值立即失效。
+	// 允许为 nil（cmd/mailprobe 这类不落库的调用方）。
 	OnTokenRefresh func(email, refreshToken string)
 	// sleep 供测试注入，避免真的等 Retry-After。
 	sleep func(context.Context, time.Duration) error
@@ -146,7 +145,8 @@ func withSession[T any](
 			Kind:    mailer.KindOf(err),
 			Message: err.Error(),
 		})
-		if !mailer.RetriableWithAnotherProxy(err) {
+		// 407 等代理配置/认证错误必须响亮失败，滑到直连会让用户误以为请求仍经过代理。
+		if !mailer.RetriableWithAnotherProxy(err) || mailer.KindOf(err) == mailer.ErrKindProxyFailed {
 			return zero, attachAttempts(err, attempts)
 		}
 	}
@@ -208,6 +208,10 @@ func (c *Client) doJSON(ctx context.Context, s *session, method, path string, bo
 		if err != nil {
 			if ctx.Err() != nil {
 				return newError(mailer.ErrKindCanceled, "请求已取消", 0, err)
+			}
+			if mailer.IsProxyAuthenticationError(err) {
+				return newError(mailer.ErrKindProxyFailed,
+					"代理认证失败，请检查代理账号和密码", 0, err)
 			}
 			return newError(mailer.ErrKindNetwork, "请求 Graph 失败", 0, err)
 		}
@@ -316,6 +320,8 @@ func classifyAPIStatus(status int, raw []byte) (mailer.ErrKind, string) {
 		return mailer.ErrKindBanned, "账号已被服务商封禁"
 	}
 	switch {
+	case status == http.StatusProxyAuthRequired:
+		return mailer.ErrKindProxyFailed, "代理认证失败，请检查代理账号和密码"
 	case status == http.StatusTooManyRequests:
 		return mailer.ErrKindRateLimited, "请求过于频繁，已被限流"
 	case status == http.StatusUnauthorized:

@@ -130,6 +130,12 @@ type BatchResult struct {
 	Items     []ItemResult `json:"items"`
 }
 
+// TokenRefresher 只交换 OAuth 令牌，不访问邮箱。独立于 Client，避免让密码型通道
+// 或仅做邮件操作的测试桩也承诺具备令牌刷新能力。
+type TokenRefresher interface {
+	RefreshToken(ctx context.Context, cred Credential) error
+}
+
 // Client 是一个邮件通道。graph / imapx 各实现一份，chain 组合它们并实现回退，
 // 对外只暴露这一个接口。
 //

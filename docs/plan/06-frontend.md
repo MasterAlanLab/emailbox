@@ -235,6 +235,7 @@ interface SelectionState {
 路由用 `handle.shell` 声明这一形态（`src/router/handle.ts`），`Layout` 据此分流。
 
 登录后**没有顶栏**：左侧是常驻导航栏 `AppSidebar`，右侧才是下面这块工作台。
+侧栏导航项统一使用相同间距，邮箱、令牌与用量等入口之间不额外插入分组留白。
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -293,11 +294,18 @@ VirtualList.tsx      SplitPane.tsx         EmptyState.tsx
   分组下拉选完还要再点一次按钮才提交——下拉一变就发任务，误触的代价是几千次上游调用
 - 任务面板：`Meter` 进度 + 成功/失败计数 + 逐条结果（邮箱 → 成功/已跳过/失败原因）。
   进度靠 SSE 推送，关掉页面再回来会自动接上仍在跑的那个任务（§7 的 `jobStore`）
-- 需要重新授权的账号：筛出 `auth_failed` / `consent_required` 的 Outlook 账号，逐行提供
-  「重新授权」。弹窗先创建一次性 PKCE 流程，再打开 Microsoft；参考应用的回调仍是
-  localhost 时，用户粘贴地址栏的最终地址，换成平台自己的回调域名后则自动完成
+- 刷新失败的账号：分页扫描失败账号，按 `account_type=outlook` 收集并展示最多 200 个账号的具体原因；仅
+  `auth_failed` / `consent_required` 提供「重新授权」。弹窗先创建一次性 PKCE 流程，
+  再打开 Microsoft；参考应用的回调仍是 localhost 时，用户粘贴地址栏的最终地址，
+  换成平台自己的回调域名后则自动完成。代理与应用配置错误按服务端提示处理
 - 最近 7 天的失败原因分布：banned / auth_failed / proxy_failed… 各自的处置完全不同，
   这也是把它们分开统计的全部意义
+
+`auth_failed` 的统一标签为「认证失败」，不等同于「令牌失效」；逐账号展示服务端的具体原因。
+过期、撤销、重新登录等账号侧问题归 `auth_failed`，客户端配置归 `provider_error`，
+权限不足归 `consent_required`。Graph 或 IMAP OAuth 任一通道刷新成功都显示成功。
+刷新失败面板展示服务端返回的 Outlook OAuth 失败账号，只有认证/权限问题提供重新授权动作，
+代理与应用配置问题按服务端提示处理。
 
 对应后端的 `scope`：`all` / `failed` / `group`（还有一个 `selected` 供别处调用）。
 没有 refresh_token 的账号（IMAP 密码账号）四种范围都会自动排除。
@@ -446,7 +454,8 @@ export type AuthChannel = "" | "graph" | "imap_new" | "imap_old" | "imap";
 export type MailFolder  = "inbox" | "junkemail" | "deleteditems" | "all";
 export type RefreshStatus = "never" | "success" | "failed";
 export type ErrorKind = "auth_failed" | "banned" | "consent_required" | "proxy_failed"
-                      | "network" | "rate_limited" | "folder_unavailable" | "provider_error";
+                      | "network" | "rate_limited" | "folder_unavailable" | "provider_error"
+                      | "canceled";
 export type PlatformRole = "user" | "admin";
 export type GroupColor = "blue" | "green" | "amber" | "red" | "purple" | "gray";
 ```

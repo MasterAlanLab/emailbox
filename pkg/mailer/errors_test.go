@@ -5,38 +5,70 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 )
 
-// 微软对「账号被封」和「令牌失效」返回的都是 400，只能靠响应体里的特征串区分，
-// 而两者的正确处置完全相反——判错一次就是「把已封的账号反复提交给上游」
-// 或者「把可修复的授权问题报成封号」。这张表是这层判断的全部依据。
+// 相同的 invalid_grant 包含过期、权限和登录策略等不同原因，分类与处置文案都要钉住。
 func TestClassifyOAuthError(t *testing.T) {
 	cases := []struct {
-		name   string
-		status int
-		body   string
-		want   ErrKind
+		name        string
+		status      int
+		body        string
+		want        ErrKind
+		wantMessage string
 	}{
-		{"被封（abuse mode）", 400, `{"error":"invalid_grant","error_description":"...service abuse mode..."}`, ErrKindBanned},
-		{"被封的大小写变体", 400, "SERVICE ABUSE MODE detected", ErrKindBanned},
-		{"令牌失效", 400, `{"error":"invalid_grant","error_description":"token expired"}`, ErrKindAuthFailed},
-		{"client_id 无效", 400, `{"error":"invalid_client"}`, ErrKindAuthFailed},
-		{"未同意授权 AADSTS65001", 400, "AADSTS65001: The user or administrator has not consented", ErrKindConsentRequired},
-		{"未同意授权 AADSTS90008", 400, "AADSTS90008", ErrKindConsentRequired},
-		{"consent_required", 400, `{"error":"consent_required"}`, ErrKindConsentRequired},
-		{"其它 AADSTS 也值得降级重试", 400, "AADSTS70011: scope is not valid", ErrKindConsentRequired},
-		{"限流", 429, "too many requests", ErrKindRateLimited},
-		{"服务商 5xx", 503, "service unavailable", ErrKindProviderError},
-		{"未知 4xx", 418, "teapot", ErrKindProviderError},
+		{"被封（abuse mode）", 400, `{"error":"invalid_grant","error_description":"...service abuse mode..."}`, ErrKindBanned, "封禁"},
+		{"被封的大小写变体", 400, "SERVICE ABUSE MODE detected", ErrKindBanned, "封禁"},
+		{"仅 invalid_grant 不推断过期", 400, `{"error":"invalid_grant","error_description":"token expired"}`, ErrKindAuthFailed, "当前通道的令牌交换未通过"},
+		{"过期码优先于笼统授权失败", 400, `{"error":"invalid_grant","error_codes":[70008]}`, ErrKindAuthFailed, "因长期未使用而过期"},
+		{"结构化码优先于描述中的码", 400, `{"error":"invalid_grant","error_codes":[700082],"error_description":"AADSTS65001"}`, ErrKindAuthFailed, "AADSTS700082"},
+		{"固定寿命到期", 400, `{"error":"invalid_grant","error_codes":[700084]}`, ErrKindAuthFailed, "SPA 固定有效期"},
+		{"授权撤销", 400, `{"error":"invalid_grant","error_codes":[50173]}`, ErrKindAuthFailed, "授权已被撤销"},
+		{"多因素验证", 400, `{"error":"invalid_grant","error_codes":[50076]}`, ErrKindAuthFailed, "多因素验证"},
+		{"条件访问", 400, `{"error":"invalid_grant","error_codes":[53003]}`, ErrKindAuthFailed, "条件访问策略"},
+		{"登录频率策略", 400, `{"error":"invalid_grant","error_codes":[70043]}`, ErrKindAuthFailed, "登录频率策略"},
+		{"交互登录不等于权限不足", 400, `{"error":"interaction_required"}`, ErrKindAuthFailed, "交互式登录验证"},
+		{"客户端认证失败属于应用配置", 400, `{"error":"invalid_client"}`, ErrKindProviderError, "客户端认证失败"},
+		{"客户端密钥过期属于应用配置", 400, `{"error":"invalid_client","error_codes":[7000222]}`, ErrKindProviderError, "client_secret 已过期"},
+		{"invalid_grant 不遮盖权限诊断", 400, `{"error":"invalid_grant","error_codes":[65001]}`, ErrKindConsentRequired, "尚未获得所需权限"},
+		{"旧端点描述中的权限诊断", 400, `{"error":"invalid_grant","error_description":"AADSTS65001: Consent missing"}`, ErrKindConsentRequired, "AADSTS65001"},
+		{"未同意授权 AADSTS90008", 400, "AADSTS90008", ErrKindConsentRequired, "所需权限"},
+		{"consent_required", 400, `{"error":"consent_required"}`, ErrKindConsentRequired, "所需权限"},
+		{"范围不匹配", 400, "AADSTS70011: scope is not valid", ErrKindConsentRequired, "权限范围不匹配"},
+		{"结构化描述中的无可用权限", 403, `{"error":"invalid_grant","error_description":"No applicable permissions found"}`, ErrKindConsentRequired, "权限范围不匹配"},
+		{"结构化描述中的权限已失效", 401, `{"error":"invalid_grant","error_description":"The permissions requested are unauthorized or expired"}`, ErrKindConsentRequired, "权限范围不匹配"},
+		{"普通 AADSTS 不推断为权限错误", 400, "AADSTS90023: invalid request", ErrKindProviderError, "请求参数不正确"},
+		{"代理认证错误", 407, `{"error":"invalid_grant"}`, ErrKindProxyFailed, "代理认证失败"},
+		{"限流优先于正文认证错误", 429, `{"error":"invalid_grant","error_description":"service abuse mode"}`, ErrKindRateLimited, "稍后重试"},
+		{"服务商 5xx 优先于正文认证错误", 503, `{"error":"invalid_grant","error_codes":[700082]}`, ErrKindProviderError, "服务商暂时不可用"},
+		{"未知 4xx", 418, "teapot", ErrKindProviderError, "HTTP 418"},
 	}
 	for _, c := range cases {
-		got, message := ClassifyOAuthError(c.status, c.body)
-		if got != c.want {
-			t.Errorf("%s: 分类 = %q，期望 %q", c.name, got, c.want)
-		}
-		if message == "" {
-			t.Errorf("%s: 文案为空，用户看不到任何可操作的信息", c.name)
+		t.Run(c.name, func(t *testing.T) {
+			got, message := ClassifyOAuthError(c.status, c.body)
+			if got != c.want {
+				t.Errorf("分类 = %q，期望 %q", got, c.want)
+			}
+			if !strings.Contains(message, c.wantMessage) {
+				t.Errorf("文案 = %q，期望包含 %q", message, c.wantMessage)
+			}
+		})
+	}
+}
+
+func TestOAuthErrorMessagesNeverEchoProviderResponse(t *testing.T) {
+	const secret = "PRIVATE-CREDENTIAL-MARKER"
+	for _, body := range []string{
+		`{"error":"invalid_grant","error_codes":[700082],"error_description":"` + secret + `"}`,
+		`{"error":"invalid_grant","error_codes":[999999],"error_description":"AADSTS999999: ` + secret + `"}`,
+		`{"error":"` + secret + `","trace_id":"` + secret + `"}`,
+		"AADSTS65001: " + secret,
+		secret,
+	} {
+		_, message := ClassifyOAuthError(400, body)
+		if strings.Contains(message, secret) || strings.Contains(message, "AADSTS999999") {
+			t.Fatalf("响应包含未允许回显的上游字段：%q", message)
 		}
 	}
 }
@@ -127,29 +159,37 @@ func TestRetriable(t *testing.T) {
 	}
 }
 
-// RetriableFrom 与 Retriable 只差一处：Graph 的 auth_failed 要继续回退，
-// 因为 Graph 与 IMAP 申请的是不同 scope，微软可以只拒其中一套。
+// OAuth 端点的授权和权限失败可换资源通道；本地缺凭据与 IMAP 登录失败仍立即停止。
 func TestRetriableFrom(t *testing.T) {
 	cases := []struct {
+		name    string
 		channel string
 		kind    ErrKind
+		status  int
 		want    bool
 	}{
-		{ChannelGraph, ErrKindAuthFailed, true},
-		{ChannelIMAPNew, ErrKindAuthFailed, false},
-		{ChannelIMAPOld, ErrKindAuthFailed, false},
-		{ChannelIMAP, ErrKindAuthFailed, false},
+		{"Graph OAuth 认证失败", ChannelGraph, ErrKindAuthFailed, 400, true},
+		{"新版 IMAP OAuth 认证失败", ChannelIMAPNew, ErrKindAuthFailed, 400, true},
+		{"旧版 IMAP OAuth 认证失败", ChannelIMAPOld, ErrKindAuthFailed, 400, true},
+		{"Graph 本地缺凭据", ChannelGraph, ErrKindAuthFailed, 0, false},
+		{"新版 IMAP 登录失败", ChannelIMAPNew, ErrKindAuthFailed, 0, false},
+		{"密码 IMAP 登录失败", ChannelIMAP, ErrKindAuthFailed, 0, false},
 		// 被封才是越试越严的那一类，Graph 上也必须立即停手。
-		{ChannelGraph, ErrKindBanned, false},
-		{ChannelGraph, ErrKindConsentRequired, false},
-		{ChannelGraph, ErrKindCanceled, false},
-		{ChannelGraph, ErrKindNetwork, true},
-		{ChannelIMAPNew, ErrKindNetwork, true},
+		{"Graph 封禁", ChannelGraph, ErrKindBanned, 400, false},
+		{"Graph 权限不足", ChannelGraph, ErrKindConsentRequired, 403, true},
+		{"新版 IMAP 权限不足", ChannelIMAPNew, ErrKindConsentRequired, 400, true},
+		{"调用取消", ChannelGraph, ErrKindCanceled, 400, false},
+		{"Graph 网络错误", ChannelGraph, ErrKindNetwork, 0, true},
+		{"IMAP 网络错误", ChannelIMAPNew, ErrKindNetwork, 0, true},
 	}
 	for _, c := range cases {
-		if got := RetriableFrom(c.channel, newError(c.kind, c.channel, "", nil)); got != c.want {
-			t.Errorf("RetriableFrom(%s, %s) = %v，期望 %v", c.channel, c.kind, got, c.want)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			err := newError(c.kind, c.channel, "", nil)
+			err.StatusCode = c.status
+			if got := RetriableFrom(c.channel, err); got != c.want {
+				t.Errorf("RetriableFrom(%s, %s, HTTP %d) = %v，期望 %v", c.channel, c.kind, c.status, got, c.want)
+			}
+		})
 	}
 }
 

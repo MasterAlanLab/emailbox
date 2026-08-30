@@ -200,24 +200,52 @@ var FolderMatchAliases = map[Folder][]string{
 - 响应体含 `User account is found to be in service abuse mode` → **账号被封**，
   直接返回 `ErrKindBanned`，不再试下一通道，并把 `accounts.status` 置为 `banned`。
   来源：`outlook_mail_reader.py:124`、`03_mail_helpers.py` 多处。
-- **IMAP 通道上**的 `invalid_grant` / 授权码错误 → `ErrKindAuthFailed`，不再回退。
-  那是账号自身的配置问题（授权码不对、未开 IMAP 服务），换另一条 IMAP 通道结果一样。
+- **IMAP 登录阶段**的 `auth_failed` / 授权码错误不再回退，保留现有停止策略。
+  `invalid_grant` 只是 OAuth 错误大类，具体过期、撤销、权限或配置原因按 §8 分类。
 - `context.Canceled` / `DeadlineExceeded` → 直接返回。
 
-值得回退的：网络错误、代理错误、单通道 5xx、Graph 权限不足（`AADSTS*`）、IMAP SELECT 失败，
-**以及 Graph 通道上的 `auth_failed`**。
+值得回退的：网络错误、代理错误、单通道 5xx、IMAP SELECT 失败，
+**以及 Graph 的 token/API HTTP 响应或 IMAP OAuth 令牌端点返回的
+`auth_failed` / `consent_required`**。本地缺少令牌等没有 HTTP 响应的错误不在此列。
 
 > **Graph 的 `auth_failed` 要继续回退**（`mailer.RetriableFrom`，2026-08-27）。
 > 这里一度写着「三条通道用的是同一个 refresh_token，一条认证失败则三条都会失败」。
-> token 确实是同一个，但**申请的 scope 不是**：Graph 要 `https://graph.microsoft.com/...`，
-> 两条 IMAP 要 `https://outlook.office.com/IMAP.AccessAsUser.All`（`provider.go` 的 `ScopeIMAP`）。
-> 微软完全可能拒掉其中一套而照常签发另一套——管理员回收了 Graph 权限、应用注册变更、
+> token 确实是同一个，但**请求的资源与 scope 不同**：Graph 要
+> `https://graph.microsoft.com/...`；项目的新版 IMAP 兼容通道向 v2 `consumers` 端点发送
+> `https://outlook.office.com/IMAP.AccessAsUser.All offline_access`，旧版兼容通道按历史实现走
+> `login.live.com` 且省略 scope。微软说明 refresh token 绑定用户与客户端、不绑定单一资源，
+> 但只能为已授权的资源换取 access token。因此管理员回收了 Graph 权限、应用注册变更、
 > 或该账号本就只被授予过 IMAP scope，都会打到这个组合上。按旧逻辑这类账号在 Graph 一步就被判死，
 > 尽管两条 IMAP 通道拿同一个 token 拉信完全正常。实测确认：mailprobe 逐通道试时
 > Graph 报 `auth_failed`，而两条 IMAP 都成功拉到了邮件。
 >
-> 放宽**只针对 Graph**：`banned` 仍然立即停手（那才是越试越严的一类），IMAP 侧的
-> `auth_failed` 也仍然立即停手。`mailer.Retriable` 保留原语义，回退链改用 `RetriableFrom`。
+> `banned` 仍然立即停手（那才是越试越严的一类），IMAP LOGIN / XOAUTH2 登录阶段的
+> `auth_failed` 也仍然立即停手。2026-08-30 补齐 IMAP OAuth 端点的回退：新版与旧版端点、
+> scope 不同，一次 HTTP 令牌交换被拒绝不代表另一端点同样失败。
+> Graph/IMAP 错误携带 HTTP `StatusCode` 时表示上游 HTTP 响应；本地凭据检查与
+> IMAP 协议登录错误没有 HTTP 状态码。
+> `mailer.Retriable` 保留原语义，收信与刷新共用 `RetriableFrom`。
+
+### 3.1 令牌刷新复用同一条通道链
+
+手动、批量刷新与收信共用 `ChannelOrder`、回退判断和成功回调，优先上次成功的
+`auth_channel`。Graph、IMAP 新版、IMAP 旧版任一通道换取 access token 成功即为刷新成功，
+成功通道与上次不同时才窄 UPDATE；响应返回非空且与当前值不同的 refresh token 时，
+加密写回数据库。
+刷新只访问 OAuth 令牌端点，不建立 IMAP 会话、不取邮件、不消费取件额度。
+它证明令牌交换成功，而非保证所有邮件操作都可用；响应未给新 refresh token 时保留旧值。
+密码型 IMAP 账号不参与令牌刷新。
+
+微软当前的 IMAP OAuth 文档要求完整的 IMAP scope，并说明可通过 `offline_access`
+获得 refresh token。对 `login.microsoftonline.com` v2 端点，刷新时的 `scope` 可省略；若传入，
+必须与初始授权的 scope 等同或为其子集。微软要求保存刷新响应中的新值，并明确 v2 平台不会仅因
+用旧 refresh token 换取新 token 就吊销旧值。`login.live.com` 是历史兼容端点：微软归档示例的
+refresh 请求不带 scope，成功响应会返回 refresh token 并要求更新存储，但不应把 v2
+的“使用时不吊销旧值”保证直接扩大到该历史端点。`.local` 原始凭据文件不随数据库轮换更新。
+参考：[IMAP OAuth](https://learn.microsoft.com/en-us/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth#get-an-access-token)、
+[刷新响应](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow#refresh-the-access-token)、
+[令牌生命周期](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens)、
+[旧版 Microsoft account OAuth（归档）](https://learn.microsoft.com/en-us/previous-versions/office/office-365-api/how-to/onenote-auth#get-a-new-access-token-after-it-expires-consumer-apps)。
 
 ## 4. Graph 通道（`pkg/mailer/graph/`）
 
@@ -233,16 +261,15 @@ var FolderMatchAliases = map[Folder][]string{
 （去重后按序尝试；每个候选自身还要走代理 failover）
 
 判定「是否降级重试下一个 scope」：
-  HTTP 状态码 ∈ {400, 401, 403}  且  响应体命中下列任一：
-    error ∈ {invalid_scope, consent_required, interaction_required}
-    正文含 aadsts90023 / aadsts70000 / aadsts70011
-    正文含 "no applicable permissions" / "requested are unauthorized or expired"
-             / "consent" / "invalid scope"
+  HTTP 状态码 ∈ {400, 401, 403} 且结构化错误分类为 consent_required
+    只对明确的 scope / 权限 / 同意缺失尝试较低权限
+    过期、撤销、MFA、登录频率策略、客户端配置不触发 scope 降级
   否则：直接返回该响应（不再降级）
 ```
 
-Go 实现要点：把响应体读一次存 `[]byte`，既用于 JSON 解析也用于小写子串匹配
-（Python 用 `json.dumps(details).lower()`，Go 直接 `bytes.ToLower` 即可）。
+Go 实现要点：响应体只读一次；结构化解析 OAuth `error` 与微软 `error_codes`，
+缺少结构化数字码时，只把描述中的完整 AADSTS 码作为兼容信号。数字码用于
+best-effort 的诊断细分，不是稳定的 OAuth 协议契约。
 
 ### 4.2 API 调用
 
@@ -382,8 +409,8 @@ func expandMailPlaceholder(rawURL, email string) string
 
 ```
 候选序列 = [primary, fallback1, fallback2, DIRECT]（去空、去重）
-逐个尝试；仅当错误"值得换代理重试"时才继续（连接被拒/超时/SOCKS 握手失败/代理认证失败）
-认证失败、4xx 业务错误不换代理
+逐个尝试；仅当错误"值得换代理重试"时才继续（连接被拒/超时/连接中断）
+代理配置或认证失败、4xx 业务错误不换代理
 成功时若 index > 0，记 WARN 日志（说明主代理有问题）
 ```
 
@@ -443,14 +470,15 @@ Outlook OAuth（4 段）：邮箱----密码----A----B
 ```go
 type ErrKind string
 const (
-    ErrKindAuthFailed        ErrKind = "auth_failed"        // refresh_token 失效、密码错误
+    ErrKindAuthFailed        ErrKind = "auth_failed"        // 认证/令牌交换失败，原因见 message
     ErrKindBanned            ErrKind = "banned"             // service abuse mode
     ErrKindConsentRequired   ErrKind = "consent_required"   // scope/权限不足，需重新授权
-    ErrKindProxyFailed       ErrKind = "proxy_failed"       // 全部代理候选失败
+    ErrKindProxyFailed       ErrKind = "proxy_failed"       // 代理配置/认证或全部候选失败
     ErrKindNetwork           ErrKind = "network"            // 超时、连接重置
     ErrKindRateLimited       ErrKind = "rate_limited"       // 429
     ErrKindFolderUnavailable ErrKind = "folder_unavailable" // SELECT 失败
-    ErrKindProviderError     ErrKind = "provider_error"     // 其它 4xx/5xx
+    ErrKindProviderError     ErrKind = "provider_error"     // 服务商故障或应用配置错误
+    ErrKindCanceled          ErrKind = "canceled"           // 调用取消或整体超时
 )
 
 type Error struct {
@@ -464,8 +492,19 @@ type Error struct {
 ```
 
 `ErrKind` 直接落到 `job_items.error_kind` 与 `mail_refresh_logs.error_kind`，
-前端据此做筛选与聚合统计（「本次刷新失败 312 个，其中被封 47 个、令牌失效 210 个、代理故障 55 个」）——
+前端据此做筛选与聚合统计（「本次刷新失败 312 个，其中被封 47 个、认证失败 210 个、代理故障 55 个」）——
 这是 outlookEmail 只有自由文本 error_message 时做不到的。
+
+OAuth 错误细分保留现有 `ErrKind`，用明确的中文 `message` 表达处置：
+闲置过期、固定期限到期、授权撤销、需要重新登录或额外验证、权限不足、客户端配置错误。
+`invalid_grant` 缺少进一步证据时只报当前通道令牌交换失败，不推断过期；429/5xx
+优先按限流/上游故障分类。已知的结构化 AADSTS 数字码只做 best-effort 的分类与文案细化，
+展示时限于白名单，不回显上游原始描述、凭据或响应。微软明确警告数字码与消息可能变化，
+`error_description` 不应成为程序分支契约；因此映射表必须有回归测试并定期复核。
+具体依据：[微软错误码](https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes)。
+
+代理返回 407、HTTPS CONNECT 报 `Proxy Authentication Required`，以及 SOCKS5 用户名/密码
+握手失败均归 `proxy_failed`，并停止该通道的代理候选，避免认证配置错误时滑到直连。
 
 ## 9. 测试策略
 

@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"emailbox/pkg/crypto"
 	"emailbox/pkg/job"
 	"emailbox/pkg/mailer"
 	"emailbox/pkg/model"
+	"emailbox/pkg/quota"
 	"emailbox/pkg/repo"
 	"emailbox/pkg/service"
 
@@ -40,7 +44,8 @@ func (s stubRefresher) RefreshToken(ctx context.Context, cred mailer.Credential)
 	case strings.HasPrefix(cred.Email, "banned"):
 		return mailer.NewError(mailer.ErrKindBanned, mailer.ChannelGraph, "账号已被封禁", nil)
 	case strings.HasPrefix(cred.Email, "authfail"):
-		return mailer.NewError(mailer.ErrKindAuthFailed, mailer.ChannelGraph, "refresh_token 已失效", nil)
+		return mailer.NewError(mailer.ErrKindAuthFailed, mailer.ChannelGraph,
+			"当前通道的令牌交换未通过，请核对账号授权与 client_id", nil)
 	case strings.HasPrefix(cred.Email, "proxyfail"):
 		return mailer.NewError(mailer.ErrKindProxyFailed, mailer.ChannelGraph, "代理不可用", nil)
 	default:
@@ -422,6 +427,214 @@ func TestSingleAccountRefresh(t *testing.T) {
 	if !strings.Contains(body, "auth_failed") {
 		t.Errorf("响应应当带上错误分类: %s", body)
 	}
+}
+
+// 使用真实的默认刷新器和本地 OAuth 桩：Graph 权限失败后 IMAP 成功，
+// 要同时更新页面依赖的状态、任务结果与日志，并保留轮换后的密文凭据。
+func TestIMAPTokenRefreshUpdatesAccountAndJobResults(t *testing.T) {
+	for _, channel := range []string{mailer.ChannelIMAPNew, mailer.ChannelIMAPOld} {
+		t.Run(channel, func(t *testing.T) {
+			var graphCalls, imapCalls atomic.Int32
+			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/token" {
+					t.Error("令牌刷新访问了非令牌端点")
+					http.NotFound(w, r)
+					return
+				}
+				if err := r.ParseForm(); err != nil {
+					t.Error(err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if r.Form.Get("grant_type") != "refresh_token" || r.Form.Get("client_id") != "test-client" {
+					t.Error("OAuth 刷新请求未携带原账号的客户端及正确的 grant_type")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				scope := r.Form.Get("scope")
+				if strings.Contains(scope, "graph.microsoft.com") {
+					graphCalls.Add(1)
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = w.Write([]byte(`{"error":"invalid_grant","error_codes":[65001]}`))
+					return
+				}
+				wantScope := mailer.ScopeIMAP
+				if channel == mailer.ChannelIMAPOld {
+					wantScope = ""
+				}
+				if scope != wantScope {
+					t.Errorf("IMAP scope = %q，期望 %q", scope, wantScope)
+				}
+				imapCalls.Add(1)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"access_token": "test-access", "refresh_token": r.Form.Get("refresh_token") + ".next",
+				})
+			}))
+			t.Cleanup(provider.Close)
+			e, store, _ := newTestServerWithMailOptions(t, service.ChainOptions{
+				TokenURL: provider.URL + "/token", Timeout: time.Second,
+			})
+			token, tenantID := register(t, e, "alice", "alice@example.com")
+			accountID := createAccount(t, e, token, tenantID,
+				`{"email":"imap@outlook.com","client_id":"test-client","refresh_token":"test-refresh","remark":"keep"}`)
+			ctx := context.Background()
+			if channel == mailer.ChannelIMAPOld {
+				if err := store.UpdateMailAccountAuthChannel(ctx, tenantID, accountID, channel); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := store.UpdateMailAccountRefreshResult(ctx, tenantID, accountID,
+				string(model.RefreshFailed), "旧的失败记录", string(mailer.ErrKindAuthFailed)); err != nil {
+				t.Fatal(err)
+			}
+			status, body := do(t, e, http.MethodPost, mailPath(tenantID, "/accounts/"+accountID+"/token/refresh"), token, "")
+			if status != http.StatusOK || !strings.Contains(body, "刷新成功") {
+				t.Fatalf("IMAP 单个刷新应返回成功：%d %s", status, body)
+			}
+			firstGraphCalls := graphCalls.Load()
+			if (channel == mailer.ChannelIMAPNew && firstGraphCalls == 0) ||
+				(channel == mailer.ChannelIMAPOld && firstGraphCalls != 0) {
+				t.Fatalf("首次刷新未遵循通道顺序：Graph 调用 %d 次", firstGraphCalls)
+			}
+			jobID := submitBatch(t, e, token, tenantID)
+			result := waitForJob(t, e, token, tenantID, jobID)
+			if result["status"] != model.JobStatusSucceeded || result["success_count"] != float64(1) || result["failed_count"] != float64(0) {
+				t.Fatalf("IMAP 批量刷新未记成功：%v", result)
+			}
+			if imapCalls.Load() != 2 || graphCalls.Load() != firstGraphCalls {
+				t.Fatal("后续刷新没有复用成功的 IMAP 通道")
+			}
+			account, err := store.GetMailAccount(ctx, tenantID, accountID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if account.AuthChannel != channel || account.LastRefreshStatus != model.RefreshSuccess ||
+				account.LastRefreshError != "" || account.LastRefreshErrorKind != "" || account.Remark != "keep" {
+				t.Error("账号的成功通道、刷新状态或窄更新结果错误")
+			}
+			plain, err := testCipher(t).Decrypt(account.RefreshTokenEnc)
+			if err != nil || !crypto.IsEncrypted(account.RefreshTokenEnc) || plain != "test-refresh.next.next" {
+				t.Error("IMAP 轮换后的凭据未正确加密保存并供下一次刷新使用")
+			}
+			logs, total, err := store.ListRefreshLogs(ctx, tenantID, model.RefreshLogFilter{AccountID: accountID})
+			if err != nil || total != 2 {
+				t.Fatalf("刷新日志应包含手动与批量两次成功：total=%d err=%v", total, err)
+			}
+			for _, log := range logs {
+				if log.Status != "success" || log.ErrorKind != "" || log.ErrorMessage != "" {
+					t.Error("成功的 IMAP 刷新被记录为失败")
+				}
+			}
+			if used, err := quota.NewService(store).Usage(ctx, tenantID, model.MetricMailFetch); err != nil || used != 0 {
+				t.Fatalf("令牌刷新不应消费取件额度：used=%d err=%v", used, err)
+			}
+			bobToken, bobTenant := register(t, e, "bobby", "bob@example.com")
+			status, _ = do(t, e, http.MethodPost, mailPath(bobTenant, "/accounts/"+accountID+"/token/refresh"), bobToken, "")
+			if status != http.StatusNotFound || imapCalls.Load() != 2 {
+				t.Error("跨租户刷新应返回 404 且不调用 OAuth 端点")
+			}
+		})
+	}
+}
+
+// OAuth 的具体诊断不能只停在协议层：批量任务明细、账号最近状态与刷新日志
+// 都要保留同一条可操作原因，不能在中间层又收敛成笼统的「refresh_token 已失效」。
+func TestDetailedOAuthFailureFlowsToAccountJobAndRefreshLog(t *testing.T) {
+	const (
+		providerSecret = "PRIVATE-PROVIDER-DETAIL"
+		wantMessage    = "邮箱账号需要完成多因素验证，请重新登录微软账号（AADSTS50076）"
+	)
+	var graphCalls, imapNewCalls, imapOldCalls atomic.Int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/token" {
+			t.Errorf("令牌刷新访问了非令牌端点：%s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		scope := r.Form.Get("scope")
+		switch {
+		case strings.Contains(scope, "graph.microsoft.com"):
+			graphCalls.Add(1)
+		case scope == mailer.ScopeIMAP:
+			imapNewCalls.Add(1)
+		case scope == "":
+			imapOldCalls.Add(1)
+		default:
+			t.Errorf("未知 OAuth scope：%q", scope)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprintf(w,
+			`{"error":"invalid_grant","error_codes":[50076],"error_description":"%s"}`,
+			providerSecret)
+	}))
+	t.Cleanup(provider.Close)
+
+	e, store, _ := newTestServerWithMailOptions(t, service.ChainOptions{
+		TokenURL: provider.URL + "/token", Timeout: time.Second,
+	})
+	token, tenantID := register(t, e, "alice", "alice@example.com")
+	accountID := createAccount(t, e, token, tenantID,
+		`{"email":"mfa@outlook.com","client_id":"test-client","refresh_token":"test-refresh"}`)
+
+	jobID := submitBatch(t, e, token, tenantID)
+	result := waitForJob(t, e, token, tenantID, jobID)
+	if result["status"] != model.JobStatusFailed || result["success_count"] != float64(0) || result["failed_count"] != float64(1) {
+		t.Fatalf("OAuth 失败的任务聚合错误：%v", result)
+	}
+	if graphCalls.Load() != 1 || imapNewCalls.Load() != 1 || imapOldCalls.Load() != 1 {
+		t.Fatalf("OAuth 失败未走完三个不同端点：Graph/IMAP新/IMAP旧=%d/%d/%d",
+			graphCalls.Load(), imapNewCalls.Load(), imapOldCalls.Load())
+	}
+
+	status, body := do(t, e, http.MethodGet,
+		mailPath(tenantID, "/jobs/"+jobID+"/items?status=failed"), token, "")
+	if status != http.StatusOK {
+		t.Fatalf("查询失败明细拿到 %d：%s", status, body)
+	}
+	var payload struct {
+		Data struct {
+			Items []model.JobItem `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Data.Items) != 1 {
+		t.Fatalf("失败明细条数 = %d，期望 1：%s", len(payload.Data.Items), body)
+	}
+	item := payload.Data.Items[0]
+	assertDetailedFailure := func(where, kind, message string) {
+		t.Helper()
+		if kind != string(mailer.ErrKindAuthFailed) || !strings.Contains(message, wantMessage) ||
+			strings.Contains(message, "refresh_token 已失效") || strings.Contains(message, providerSecret) {
+			t.Errorf("%s 没有保留脱敏后的具体原因：kind=%q message=%q", where, kind, message)
+		}
+	}
+	assertDetailedFailure("任务明细", item.ErrorKind, item.Error)
+
+	ctx := context.Background()
+	account, err := store.GetMailAccount(ctx, tenantID, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.LastRefreshStatus != model.RefreshFailed {
+		t.Errorf("账号最近刷新状态 = %q，期望 failed", account.LastRefreshStatus)
+	}
+	assertDetailedFailure("账号最近状态", account.LastRefreshErrorKind, account.LastRefreshError)
+
+	logs, total, err := store.ListRefreshLogs(ctx, tenantID, model.RefreshLogFilter{AccountID: accountID})
+	if err != nil || total != 1 || len(logs) != 1 {
+		t.Fatalf("刷新日志条数错误：len=%d total=%d err=%v", len(logs), total, err)
+	}
+	if logs[0].Status != "failed" || logs[0].RefreshType != service.RefreshTypeJob || logs[0].JobID != jobID {
+		t.Errorf("刷新日志归属或状态错误：%+v", logs[0])
+	}
+	assertDetailedFailure("刷新日志", logs[0].ErrorKind, logs[0].ErrorMessage)
 }
 
 // 按分组刷新只覆盖该分组下的账号——令牌页上「刷新指定分组」这条路的全部意义

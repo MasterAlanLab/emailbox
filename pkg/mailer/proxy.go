@@ -3,6 +3,7 @@ package mailer
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 
 	"golang.org/x/net/proxy"
 )
+
+var errProxyAuthentication = errors.New("proxy authentication failed")
 
 // MailPlaceholder 是代理 URL 里的邮箱占位符。
 // 配置原样入库、编辑时原样回显，只在出站时展开——
@@ -111,6 +114,30 @@ func MaskProxy(raw string) string {
 	return strings.ReplaceAll(u.String(), "%2A%2A%2A%2A", "****")
 }
 
+// IsProxyAuthenticationError 识别发生在 HTTP CONNECT 或 SOCKS5 握手阶段的认证失败。
+// net/http 默认会丢掉 HTTPS CONNECT 的状态码，只把可自定义的 reason phrase 放进 Do 的 error；
+// NewHTTPClient 用回调先转成 sentinel。若当成普通网络故障，候选链会继续到直连。
+func IsProxyAuthenticationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, errProxyAuthentication) {
+		return true
+	}
+	lower := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"proxy authentication required",
+		"username/password authentication failed",
+		"no acceptable authentication methods",
+		"invalid username/password",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // Dialer 抽象出「怎么建立 TCP 连接」，是本包能真正并发的关键。
 //
 // outlookEmail 用 socks.set_default_proxy() 全局改写 socket.socket，
@@ -168,6 +195,13 @@ func NewHTTPClient(proxyURL string, timeout time.Duration) (*http.Client, error)
 		// 协议层是短连接为主的批量调用，保持少量空闲连接即可。
 		MaxIdleConnsPerHost: 2,
 		IdleConnTimeout:     30 * time.Second,
+		// CONNECT 的 reason phrase 可由代理任意填写，不能靠错误字符串识别 407。
+		OnProxyConnectResponse: func(_ context.Context, _ *url.URL, _ *http.Request, response *http.Response) error {
+			if response.StatusCode == http.StatusProxyAuthRequired {
+				return errProxyAuthentication
+			}
+			return nil
+		},
 	}
 	if proxyURL != DirectProxy {
 		u, err := url.Parse(proxyURL)
@@ -196,6 +230,9 @@ func DialTLS(ctx context.Context, dialer Dialer, host string, port int) (net.Con
 	address := net.JoinHostPort(host, fmt.Sprint(port))
 	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
+		if IsProxyAuthenticationError(err) {
+			return nil, newError(ErrKindProxyFailed, "", "代理认证失败，请检查代理账号和密码", err)
+		}
 		return nil, newError(ErrKindNetwork, "", "连接 "+host+" 失败", err)
 	}
 	// ServerName 必须显式设置：经 SOCKS5 拨号时对端地址是代理，

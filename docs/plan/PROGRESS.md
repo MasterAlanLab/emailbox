@@ -132,12 +132,12 @@
 原方案要求逐条用真实账号跑完，现已改为「能写成常驻测试的写测试，其余顺手验」：
 真账号拿不齐（Gmail / 163 / QQ 各要一个可用账号加代理），而一次性人工验收
 也不会留在 CI 里。`docs/test-accounts.local` 目前只有一个 Outlook 账号
-且 refresh_token 已过期，靠真账号跑通的是下表几项。
+且 Graph 令牌交换失败（当时被笼统标为已过期），靠真账号跑通的是下表几项。
 
 | # | 项 | 结果 |
 |---|---|---|
 | 3 | Graph 不可用时回退 | ✅ `graph` 失败后 `imap_new` / `imap_old` 均拉到 4 封 |
-| 5 | refresh_token 失效 | ✅ 判为 `auth_failed`。原设计要求就此停手，**实测推翻**：Graph 报 `auth_failed` 时两条 IMAP 仍能拉到邮件，因为两者申请的 scope 不同。已改为 Graph 上继续回退（`RetriableFrom`，见下） |
+| 5 | Graph 令牌交换失败 | ✅ 判为 `auth_failed`，但这只证明 Graph 通道拒绝了本次交换，不证明 refresh_token 整体失效。原设计要求就此停手，**实测推翻**：两条 IMAP 仍能拉到邮件。已改用 `RetriableFrom` 按通道和错误来源判断回退（见下） |
 | 10 | 附件 | ✅ `-detail` 路径跑通（该账号的信无附件，只验证了链路） |
 | 12 | `{mail}` 模板代理 | ✅ 转为常驻测试 `TestProxyIdentityIsPerConnection` |
 | 13 | 20 账号并发 | ✅ 转为常驻测试 `TestConcurrentListsAreActuallyParallel` |
@@ -265,17 +265,20 @@ sqlc v1.30 能正确解析 `ALTER TABLE ... DROP COLUMN`，生成结果无需手
 
 原设计（04 文档 §3、07 文档 §5 验收表第 5 项）要求 `auth_failed` 一律停止回退，
 理由是「三条通道用的是同一个 refresh_token，一条认证失败则三条都会失败」。
-**token 确实是同一个，但申请的 scope 不是**——Graph 要 `https://graph.microsoft.com/...`，
-两条 IMAP 要 `https://outlook.office.com/IMAP.AccessAsUser.All`。微软完全可能拒掉一套
+**token 确实是同一个，但请求的资源与 scope 不同**——Graph 要
+`https://graph.microsoft.com/...`，项目的新版 IMAP 兼容通道请求
+`https://outlook.office.com/IMAP.AccessAsUser.All offline_access`，旧版兼容通道按历史实现使用
+`login.live.com` 且省略 scope。微软完全可能拒掉一套
 而照常签发另一套：管理员回收了 Graph 权限、应用注册变更、账号本就只被授予过 IMAP scope，
 都会打到这个组合上。按旧逻辑这类账号在 Graph 一步就被判死，尽管 IMAP 拉信完全正常。
 
 mailprobe 逐通道实测确认了这一点：Graph 报 `auth_failed`，两条 IMAP 都拉到了邮件。
 
-改法是加 `mailer.RetriableFrom(channel, err)`，与 `Retriable` 只差一种情形。
-放宽**只针对 Graph**：`banned` 仍然立即停手（那才是越试越严的一类），
-IMAP 侧的 `auth_failed` 也仍然立即停手——那是账号自身的配置问题，换一条 IMAP 结果一样。
-`Retriable` 保留原语义不动，`chain.go` 与 `cmd/mailprobe` 两个回退判断点改用 `RetriableFrom`。
+改法是加 `mailer.RetriableFrom(channel, err)`。2026-08-27 首次放宽只针对 Graph；
+2026-08-30 又把 IMAP OAuth 令牌端点与 IMAP 协议登录分开：前者有 HTTP `StatusCode`，
+认证/权限失败可以继续换通道；后者没有 HTTP 状态码，`auth_failed` 仍然立即停手。
+`banned` 与整体取消始终立即停手，`Retriable` 保留单错误的原语义，回退链用
+`RetriableFrom` 结合通道与错误来源判断。
 
 顺带修掉：`MessageService.Detail` 在协议层返回 nil slice 时补齐空数组。
 Go 的 nil slice 序列化成 `attachments: null`，而前端类型声明的是非空数组，
@@ -356,6 +359,19 @@ tenants / tenant_members / sessions / audit_logs 四张表都有外键指着它�
 有数据时才翻车的那类操作。
 
 ## 过程中发现的坑
+
+- **令牌刷新与收信曾使用不同通道策略**：刷新只检查 Graph，收信却可走 IMAP OAuth，
+  导致「刷新失败但照常收信」。刷新应复用同一通道链，IMAP 刷新只请求 OAuth 端点，
+  不用取邮件证明成功。`invalid_grant` 是大类，不代表已确认过期；标准 OAuth `error`
+  只给出粗粒度类别，微软结构化 AADSTS 码只作为 best-effort 诊断，用来进一步区分
+  过期、撤销、权限与客户端配置。Graph 与 IMAP OAuth 端点的认证/权限失败
+  都要允许跨通道回退；IMAP LOGIN / XOAUTH2 失败、封禁和整体取消仍停止。
+  另外旧版 IMAP 兼容请求不带 scope；v2 平台轮换新值不会因本次使用就吊销旧值，
+  但这个保证不直接扩大到 `login.live.com` 历史端点。
+
+- **HTTPS 代理的 407 出现在 `Do` 的 error，不一定有 HTTP Response**：CONNECT 阶段的
+  `Proxy Authentication Required` 与 SOCKS5 认证失败要先归 `proxy_failed` 并停止代理候选；
+  当成普通 `network` 会触发直连兜底，造成用户配置了代理却从服务器公网出口请求上游。
 
 - **`db/query/` 下的 SQL 必须全部 ASCII**：sqlc v1.30 遇到多字节字符会静默截断生成的 SQL
   常量，运行时报 `SQL logic error: incomplete input`，且爆炸点常在另一条查询上。
@@ -763,7 +779,8 @@ Key 因此**读不到也重置不了自己**（那两个端点要 `tenant:update
 
 ### Microsoft OAuth 重新授权闭环（2026-08-28）
 
-Token 页现在会列出 `auth_failed` / `consent_required` 的 Outlook 账号，并可逐个重新授权。
+Token 页最初只列 `auth_failed` / `consent_required` 的 Outlook 账号并提供重新授权；
+2026-08-30 扩展为展示所有刷新失败类型的具体原因，仅认证/权限类保留重新授权动作。
 后端用授权码 + PKCE、随机一次性 state 和 10 分钟流程表完成交换；refresh token 只以密文
 存在服务端，先用 Graph `/me` 核对主邮箱或别名，再实际刷新一次，全部成功后才用窄 UPDATE
 替换 `client_id` / `refresh_token` / `auth_channel`。因此授权页面选错账号、权限不足或网络失败

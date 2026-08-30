@@ -205,7 +205,7 @@ CREATE TABLE job_items (
     email       TEXT NOT NULL DEFAULT '',   -- 快照，账号删了仍可看历史
     status      TEXT NOT NULL DEFAULT 'pending'
                 CHECK (status IN ('pending','running','success','failed','skipped')),
-    error_kind  TEXT NOT NULL DEFAULT '',   -- auth_failed | banned | proxy_failed | network | provider_error
+    error_kind  TEXT NOT NULL DEFAULT '',   -- protocol-layer ErrKind; see 04-mail-protocol.md
     error       TEXT NOT NULL DEFAULT '',
     started_at  DATETIME,
     finished_at DATETIME

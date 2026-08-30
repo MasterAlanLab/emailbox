@@ -34,11 +34,10 @@ const maxTop = 50
 //
 // mailer 包不碰数据库，这一层就是它与业务之间唯一的接缝。
 type MessageService struct {
-	store             *repo.Store
-	cipher            crypto.Cipher
-	quota             *quota.Service
-	oauthClientID     string
-	oauthClientSecret string
+	store        *repo.Store
+	cipher       crypto.Cipher
+	quota        *quota.Service
+	chainOptions ChainOptions
 	// chainFor 按账号构造回退链。做成字段是为了让测试注入假通道——
 	// 真实实现要连微软，单测里跑不了。
 	chainFor func(account *model.MailAccount) mailer.Client
@@ -47,8 +46,7 @@ type MessageService struct {
 func NewMessageService(
 	store *repo.Store, cipher crypto.Cipher, q *quota.Service, opt ChainOptions,
 ) *MessageService {
-	s := &MessageService{store: store, cipher: cipher, quota: q,
-		oauthClientID: opt.OAuthClientID, oauthClientSecret: opt.OAuthClientSecret}
+	s := &MessageService{store: store, cipher: cipher, quota: q, chainOptions: opt}
 	s.chainFor = defaultChainFactory(s, opt)
 	return s
 }
@@ -271,8 +269,8 @@ func (s *MessageService) credential(
 		IMAPPort:    account.IMAPPort,
 		AuthChannel: account.AuthChannel,
 	}
-	if s.oauthClientSecret != "" && account.ClientID == s.oauthClientID {
-		cred.ClientSecret = s.oauthClientSecret
+	if s.chainOptions.OAuthClientSecret != "" && account.ClientID == s.chainOptions.OAuthClientID {
+		cred.ClientSecret = s.chainOptions.OAuthClientSecret
 	}
 	for _, field := range []struct {
 		enc string
