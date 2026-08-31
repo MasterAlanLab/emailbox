@@ -323,11 +323,7 @@ func (s *MessageService) resolveProxy(
 	if err != nil {
 		return mailer.ResolveProxy(accountProxy, nil), nil
 	}
-	groupProxy, err := s.decryptProxy(mailer.ProxyConfig{
-		URL:       group.ProxyURL,
-		Fallback1: group.FallbackProxyURL1,
-		Fallback2: group.FallbackProxyURL2,
-	})
+	groupProxy, err := s.decryptProxy(mailer.ProxyConfig{URL: group.ProxyURL})
 	if err != nil {
 		return mailer.ProxyConfig{}, err
 	}

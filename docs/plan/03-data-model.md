@@ -62,8 +62,6 @@ CREATE TABLE mail_groups (
     sort_order           INTEGER NOT NULL DEFAULT 0,
     is_system            INTEGER NOT NULL DEFAULT 0,
     proxy_url            TEXT NOT NULL DEFAULT '',
-    fallback_proxy_url_1 TEXT NOT NULL DEFAULT '',
-    fallback_proxy_url_2 TEXT NOT NULL DEFAULT '',
     created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (tenant_id, name)
@@ -78,8 +76,10 @@ CREATE INDEX idx_mail_groups_tenant_sort ON mail_groups(tenant_id, sort_order);
   [PROGRESS.md](PROGRESS.md)「分组压平成一层」。
 - 每个租户在首次使用时自动创建一个 `is_system=1` 的「默认分组」；删除分组时，
   其下账号回落到它，账号本身不删。系统分组自己删不掉。
-- 代理三列共同构成「主 + 两个备用」，账号没配代理时用所属分组的（见 04 文档）。
-  压平之前子分组会向上继承，那份继承结果已由 `000010` 写进各分组自己身上。
+- 账号没配代理时用所属分组的 `proxy_url`（见 04 文档）。分组原本也是「主 + 两个备用」
+  三列，`000016_drop_group_fallback_proxy` 去掉了两个备用位，只留一个；账号自己的代理
+  仍是三列，不受影响。颜色也不再由用户挑选，建分组时随机指派一个。理由见
+  [PROGRESS.md](PROGRESS.md)「分组代理砍掉两个备用位」。
 
 ### 3.2 `mail_accounts` — 邮箱账号（核心表）
 

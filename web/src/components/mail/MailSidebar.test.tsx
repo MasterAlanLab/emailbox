@@ -21,8 +21,6 @@ function group(id: string, name: string, extra: Partial<MailGroupNode> = {}): Ma
     created_at: "",
     updated_at: "",
     proxy_url_masked: "",
-    fallback_proxy_url_1_masked: "",
-    fallback_proxy_url_2_masked: "",
     account_count: 0,
     ...extra,
   };

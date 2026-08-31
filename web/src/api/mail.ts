@@ -21,8 +21,6 @@ export interface MailGroup {
 // 带账号数的分组。列表里的代理只回打码后的串——明文要单独走 groupProxy()。
 export interface MailGroupNode extends MailGroup {
   proxy_url_masked: string;
-  fallback_proxy_url_1_masked: string;
-  fallback_proxy_url_2_masked: string;
   account_count: number;
 }
 
@@ -30,15 +28,11 @@ export interface MailGroupNode extends MailGroup {
 // "****" 当口令存回去了，代理从此是坏的、界面上还看不出来。
 export interface GroupProxy {
   proxy_url: string;
-  fallback_proxy_url_1: string;
-  fallback_proxy_url_2: string;
 }
 
-// 分组的代理三件套，创建与更新共用这个形状。
+// 分组的代理，创建与更新共用这个形状。
 export interface GroupProxyInput {
   proxy_url?: string;
-  fallback_proxy_url_1?: string;
-  fallback_proxy_url_2?: string;
 }
 
 // 账号。凭据字段只回 has_* 布尔值，明文永不出接口。

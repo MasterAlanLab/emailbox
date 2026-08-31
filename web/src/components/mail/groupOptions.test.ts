@@ -13,8 +13,6 @@ function group(id: string, name: string, isSystem = false, accountCount = 1): Ma
     created_at: "",
     updated_at: "",
     proxy_url_masked: "",
-    fallback_proxy_url_1_masked: "",
-    fallback_proxy_url_2_masked: "",
     account_count: accountCount,
   };
 }

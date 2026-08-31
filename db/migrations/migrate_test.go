@@ -198,6 +198,10 @@ func TestFlattenGroupsKeepsAccountsAndInheritedProxy(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `SELECT parent_id FROM mail_groups`); err == nil {
 		t.Error("parent_id 应已随分组压平消失")
 	}
+	// 000016 去掉了两个备用代理位，分组只留一个 proxy_url。
+	if _, err := db.ExecContext(ctx, `SELECT fallback_proxy_url_1 FROM mail_groups`); err == nil {
+		t.Error("fallback_proxy_url_1 应已随 000016 删除")
+	}
 	var groups int
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM mail_groups WHERE tenant_id = 't1'`).Scan(&groups); err != nil {
 		t.Fatal(err)
@@ -215,20 +219,20 @@ func TestFlattenGroupsKeepsAccountsAndInheritedProxy(t *testing.T) {
 		t.Errorf("账号应仍在 g4，实际 %s", groupID)
 	}
 
-	// 继承来的代理已经落到子分组自己身上，三列是一个整体一起搬。
-	for _, tc := range []struct{ id, url, fallback string }{
-		{"g3", "ENC_ROOT", "ENC_ROOT_FB"},
-		{"g4", "ENC_ROOT", "ENC_ROOT_FB"},
-		{"g5", "ENC_OWN", ""}, // 自己配了就不继承
-		{"g1", "", ""},        // 本来就没有可继承的
+	// 继承来的代理已经落到子分组自己身上。
+	for _, tc := range []struct{ id, url string }{
+		{"g3", "ENC_ROOT"},
+		{"g4", "ENC_ROOT"},
+		{"g5", "ENC_OWN"}, // 自己配了就不继承
+		{"g1", ""},        // 本来就没有可继承的
 	} {
-		var url, fallback string
+		var url string
 		if err := db.QueryRowContext(ctx,
-			`SELECT proxy_url, fallback_proxy_url_1 FROM mail_groups WHERE id = ?`, tc.id).Scan(&url, &fallback); err != nil {
+			`SELECT proxy_url FROM mail_groups WHERE id = ?`, tc.id).Scan(&url); err != nil {
 			t.Fatal(err)
 		}
-		if url != tc.url || fallback != tc.fallback {
-			t.Errorf("%s 的代理 = (%q, %q)，期望 (%q, %q)", tc.id, url, fallback, tc.url, tc.fallback)
+		if url != tc.url {
+			t.Errorf("%s 的代理 = %q，期望 %q", tc.id, url, tc.url)
 		}
 	}
 

@@ -104,18 +104,16 @@ type MailAccountAlias struct {
 }
 
 type MailGroup struct {
-	ID                string
-	TenantID          string
-	Name              string
-	Description       string
-	Color             string
-	SortOrder         int32
-	IsSystem          int32
-	ProxyUrl          string
-	FallbackProxyUrl1 string
-	FallbackProxyUrl2 string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID          string
+	TenantID    string
+	Name        string
+	Description string
+	Color       string
+	SortOrder   int32
+	IsSystem    int32
+	ProxyUrl    string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type MailRefreshLog struct {

@@ -58,22 +58,19 @@ func (q *Queries) CountMailGroups(ctx context.Context, tenantID string) (int64, 
 const createMailGroup = `-- name: CreateMailGroup :exec
 
 INSERT INTO mail_groups (
-    id, tenant_id, name, description, color, sort_order, is_system,
-    proxy_url, fallback_proxy_url_1, fallback_proxy_url_2
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    id, tenant_id, name, description, color, sort_order, is_system, proxy_url
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type CreateMailGroupParams struct {
-	ID                string
-	TenantID          string
-	Name              string
-	Description       string
-	Color             string
-	SortOrder         int32
-	IsSystem          int32
-	ProxyUrl          string
-	FallbackProxyUrl1 string
-	FallbackProxyUrl2 string
+	ID          string
+	TenantID    string
+	Name        string
+	Description string
+	Color       string
+	SortOrder   int32
+	IsSystem    int32
+	ProxyUrl    string
 }
 
 // NOTE: keep this file ASCII-only. sqlc miscomputes query boundaries when a
@@ -89,8 +86,6 @@ func (q *Queries) CreateMailGroup(ctx context.Context, arg CreateMailGroupParams
 		arg.SortOrder,
 		arg.IsSystem,
 		arg.ProxyUrl,
-		arg.FallbackProxyUrl1,
-		arg.FallbackProxyUrl2,
 	)
 	return err
 }
@@ -113,7 +108,7 @@ func (q *Queries) DeleteMailGroup(ctx context.Context, arg DeleteMailGroupParams
 }
 
 const getMailGroup = `-- name: GetMailGroup :one
-SELECT id, tenant_id, name, description, color, sort_order, is_system, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, created_at, updated_at FROM mail_groups WHERE tenant_id = $1 AND id = $2 LIMIT 1
+SELECT id, tenant_id, name, description, color, sort_order, is_system, proxy_url, created_at, updated_at FROM mail_groups WHERE tenant_id = $1 AND id = $2 LIMIT 1
 `
 
 type GetMailGroupParams struct {
@@ -133,8 +128,6 @@ func (q *Queries) GetMailGroup(ctx context.Context, arg GetMailGroupParams) (Mai
 		&i.SortOrder,
 		&i.IsSystem,
 		&i.ProxyUrl,
-		&i.FallbackProxyUrl1,
-		&i.FallbackProxyUrl2,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -142,7 +135,7 @@ func (q *Queries) GetMailGroup(ctx context.Context, arg GetMailGroupParams) (Mai
 }
 
 const getSystemMailGroup = `-- name: GetSystemMailGroup :one
-SELECT id, tenant_id, name, description, color, sort_order, is_system, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, created_at, updated_at FROM mail_groups WHERE tenant_id = $1 AND is_system = 1 LIMIT 1
+SELECT id, tenant_id, name, description, color, sort_order, is_system, proxy_url, created_at, updated_at FROM mail_groups WHERE tenant_id = $1 AND is_system = 1 LIMIT 1
 `
 
 func (q *Queries) GetSystemMailGroup(ctx context.Context, tenantID string) (MailGroup, error) {
@@ -157,8 +150,6 @@ func (q *Queries) GetSystemMailGroup(ctx context.Context, tenantID string) (Mail
 		&i.SortOrder,
 		&i.IsSystem,
 		&i.ProxyUrl,
-		&i.FallbackProxyUrl1,
-		&i.FallbackProxyUrl2,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -166,7 +157,7 @@ func (q *Queries) GetSystemMailGroup(ctx context.Context, tenantID string) (Mail
 }
 
 const listMailGroups = `-- name: ListMailGroups :many
-SELECT id, tenant_id, name, description, color, sort_order, is_system, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, created_at, updated_at FROM mail_groups WHERE tenant_id = $1 ORDER BY sort_order, created_at
+SELECT id, tenant_id, name, description, color, sort_order, is_system, proxy_url, created_at, updated_at FROM mail_groups WHERE tenant_id = $1 ORDER BY sort_order, created_at
 `
 
 func (q *Queries) ListMailGroups(ctx context.Context, tenantID string) ([]MailGroup, error) {
@@ -187,8 +178,6 @@ func (q *Queries) ListMailGroups(ctx context.Context, tenantID string) ([]MailGr
 			&i.SortOrder,
 			&i.IsSystem,
 			&i.ProxyUrl,
-			&i.FallbackProxyUrl1,
-			&i.FallbackProxyUrl2,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -224,21 +213,18 @@ func (q *Queries) MoveAccountsToGroup(ctx context.Context, arg MoveAccountsToGro
 
 const updateMailGroup = `-- name: UpdateMailGroup :execrows
 UPDATE mail_groups
-SET name = $1, description = $2, color = $3,
-    proxy_url = $4, fallback_proxy_url_1 = $5, fallback_proxy_url_2 = $6,
+SET name = $1, description = $2, color = $3, proxy_url = $4,
     updated_at = CURRENT_TIMESTAMP
-WHERE tenant_id = $7 AND id = $8
+WHERE tenant_id = $5 AND id = $6
 `
 
 type UpdateMailGroupParams struct {
-	Name              string
-	Description       string
-	Color             string
-	ProxyUrl          string
-	FallbackProxyUrl1 string
-	FallbackProxyUrl2 string
-	TenantID          string
-	ID                string
+	Name        string
+	Description string
+	Color       string
+	ProxyUrl    string
+	TenantID    string
+	ID          string
 }
 
 func (q *Queries) UpdateMailGroup(ctx context.Context, arg UpdateMailGroupParams) (int64, error) {
@@ -247,8 +233,6 @@ func (q *Queries) UpdateMailGroup(ctx context.Context, arg UpdateMailGroupParams
 		arg.Description,
 		arg.Color,
 		arg.ProxyUrl,
-		arg.FallbackProxyUrl1,
-		arg.FallbackProxyUrl2,
 		arg.TenantID,
 		arg.ID,
 	)

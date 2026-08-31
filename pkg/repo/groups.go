@@ -15,14 +15,14 @@ func (s *Store) CreateMailGroup(ctx context.Context, g *model.MailGroup) error {
 			ID: g.ID, TenantID: g.TenantID,
 			Name: g.Name, Description: g.Description, Color: string(g.Color),
 			SortOrder: int64(g.SortOrder), IsSystem: boolToInt64(g.IsSystem),
-			ProxyUrl: g.ProxyURL, FallbackProxyUrl1: g.FallbackProxyURL1, FallbackProxyUrl2: g.FallbackProxyURL2,
+			ProxyUrl: g.ProxyURL,
 		})
 	} else {
 		err = s.postgres.CreateMailGroup(ctx, postgresdb.CreateMailGroupParams{
 			ID: g.ID, TenantID: g.TenantID,
 			Name: g.Name, Description: g.Description, Color: string(g.Color),
 			SortOrder: int32(g.SortOrder), IsSystem: boolToInt32(g.IsSystem),
-			ProxyUrl: g.ProxyURL, FallbackProxyUrl1: g.FallbackProxyURL1, FallbackProxyUrl2: g.FallbackProxyURL2,
+			ProxyUrl: g.ProxyURL,
 		})
 	}
 	return normalize(err)
@@ -97,13 +97,13 @@ func (s *Store) UpdateMailGroup(ctx context.Context, g *model.MailGroup) error {
 	if s.driver == "sqlite" {
 		n, e = s.sqlite.UpdateMailGroup(ctx, sqlitedb.UpdateMailGroupParams{
 			Name: g.Name, Description: g.Description, Color: string(g.Color),
-			ProxyUrl: g.ProxyURL, FallbackProxyUrl1: g.FallbackProxyURL1, FallbackProxyUrl2: g.FallbackProxyURL2,
+			ProxyUrl: g.ProxyURL,
 			TenantID: g.TenantID, ID: g.ID,
 		})
 	} else {
 		n, e = s.postgres.UpdateMailGroup(ctx, postgresdb.UpdateMailGroupParams{
 			Name: g.Name, Description: g.Description, Color: string(g.Color),
-			ProxyUrl: g.ProxyURL, FallbackProxyUrl1: g.FallbackProxyURL1, FallbackProxyUrl2: g.FallbackProxyURL2,
+			ProxyUrl: g.ProxyURL,
 			TenantID: g.TenantID, ID: g.ID,
 		})
 	}
@@ -175,7 +175,7 @@ func mapSQLiteGroup(g sqlitedb.MailGroup) *model.MailGroup {
 		ID: g.ID, TenantID: g.TenantID,
 		Name: g.Name, Description: g.Description, Color: model.GroupColor(g.Color),
 		SortOrder: int(g.SortOrder), IsSystem: g.IsSystem != 0,
-		ProxyURL: g.ProxyUrl, FallbackProxyURL1: g.FallbackProxyUrl1, FallbackProxyURL2: g.FallbackProxyUrl2,
+		ProxyURL:  g.ProxyUrl,
 		CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt,
 	}
 }
@@ -185,7 +185,7 @@ func mapPostgresGroup(g postgresdb.MailGroup) *model.MailGroup {
 		ID: g.ID, TenantID: g.TenantID,
 		Name: g.Name, Description: g.Description, Color: model.GroupColor(g.Color),
 		SortOrder: int(g.SortOrder), IsSystem: g.IsSystem != 0,
-		ProxyURL: g.ProxyUrl, FallbackProxyURL1: g.FallbackProxyUrl1, FallbackProxyURL2: g.FallbackProxyUrl2,
+		ProxyURL:  g.ProxyUrl,
 		CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt,
 	}
 }

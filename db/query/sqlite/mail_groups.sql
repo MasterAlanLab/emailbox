@@ -4,9 +4,8 @@
 
 -- name: CreateMailGroup :exec
 INSERT INTO mail_groups (
-    id, tenant_id, name, description, color, sort_order, is_system,
-    proxy_url, fallback_proxy_url_1, fallback_proxy_url_2
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    id, tenant_id, name, description, color, sort_order, is_system, proxy_url
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetMailGroup :one
 SELECT * FROM mail_groups WHERE tenant_id = ? AND id = ? LIMIT 1;
@@ -22,8 +21,7 @@ SELECT COUNT(*) FROM mail_groups WHERE tenant_id = ?;
 
 -- name: UpdateMailGroup :execrows
 UPDATE mail_groups
-SET name = ?, description = ?, color = ?,
-    proxy_url = ?, fallback_proxy_url_1 = ?, fallback_proxy_url_2 = ?,
+SET name = ?, description = ?, color = ?, proxy_url = ?,
     updated_at = CURRENT_TIMESTAMP
 WHERE tenant_id = ? AND id = ?;
 

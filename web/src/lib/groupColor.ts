@@ -14,6 +14,3 @@ const VARIANTS: Record<GroupColor, string> = {
 export function badgeVariant(color: GroupColor): string {
   return VARIANTS[color] ?? "neutral";
 }
-
-// GROUP_COLORS 是可供用户选择的颜色列表，与后端 CHECK 约束保持一致。
-export const GROUP_COLORS: GroupColor[] = ["blue", "green", "amber", "red", "purple", "gray"];

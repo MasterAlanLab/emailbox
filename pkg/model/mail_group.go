@@ -45,19 +45,15 @@ type MailGroup struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 
-	// 代理三列构成「主 + 两个备用」。含认证口令，出接口前必须打码。
-	ProxyURL          string `json:"-"`
-	FallbackProxyURL1 string `json:"-"`
-	FallbackProxyURL2 string `json:"-"`
+	// 代理地址。含认证口令，出接口前必须打码。
+	ProxyURL string `json:"-"`
 }
 
 // MailGroupNode 是带账号数的分组，供前端左栏直接渲染。
 type MailGroupNode struct {
 	MailGroup
-	// ProxyURLMasked 等三个字段是打码后的代理地址，可以安全地回显。
-	ProxyURLMasked          string `json:"proxy_url_masked"`
-	FallbackProxyURL1Masked string `json:"fallback_proxy_url_1_masked"`
-	FallbackProxyURL2Masked string `json:"fallback_proxy_url_2_masked"`
+	// ProxyURLMasked 是打码后的代理地址，可以安全地回显。
+	ProxyURLMasked string `json:"proxy_url_masked"`
 	// AccountCount 是分组下的账号数。
 	AccountCount int `json:"account_count"`
 }
@@ -71,28 +67,22 @@ type MailGroupNode struct {
 // 这是分组这边唯一一个把凭据明文送出接口的地方，因此按导出的同一档收敛：
 // account:secret 权限 + 强制审计，两件都挂在 api/routes.go 的路由上。
 type MailGroupProxy struct {
-	ProxyURL          string `json:"proxy_url"`
-	FallbackProxyURL1 string `json:"fallback_proxy_url_1"`
-	FallbackProxyURL2 string `json:"fallback_proxy_url_2"`
+	ProxyURL string `json:"proxy_url"`
 }
 
 type CreateMailGroupRequest struct {
-	Name              string     `json:"name"`
-	Description       string     `json:"description"`
-	Color             GroupColor `json:"color"`
-	ProxyURL          string     `json:"proxy_url"`
-	FallbackProxyURL1 string     `json:"fallback_proxy_url_1"`
-	FallbackProxyURL2 string     `json:"fallback_proxy_url_2"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Color       GroupColor `json:"color"`
+	ProxyURL    string     `json:"proxy_url"`
 }
 
 // UpdateMailGroupRequest 的字段用指针以区分「未提供」（保持原值）与「显式清空」。
 type UpdateMailGroupRequest struct {
-	Name              *string     `json:"name"`
-	Description       *string     `json:"description"`
-	Color             *GroupColor `json:"color"`
-	ProxyURL          *string     `json:"proxy_url"`
-	FallbackProxyURL1 *string     `json:"fallback_proxy_url_1"`
-	FallbackProxyURL2 *string     `json:"fallback_proxy_url_2"`
+	Name        *string     `json:"name"`
+	Description *string     `json:"description"`
+	Color       *GroupColor `json:"color"`
+	ProxyURL    *string     `json:"proxy_url"`
 }
 
 type ReorderMailGroupsRequest struct {

@@ -838,3 +838,27 @@ state 中的 tenant ID 做带租户条件的查询。`TestOAuthReauthorizationOn
 
 表单里还顺手提示了两件靠读代码才知道的事：`ResolveProxy` 在主代理为空时视整组未配置
 （只填备用 = 静默直连），以及 `NewDialer` 只支持 socks5/socks5h，http 代理仅 Graph 通道可用。
+
+### 分组代理砍掉两个备用位、颜色改随机（2026-08-31）
+
+上一条「分组代理终于有了界面入口」是同一天早些时候加的，界面一上线就发现配置项太多：
+新建/编辑分组要填主代理、备用代理 1、备用代理 2 三个输入框，还要在六个颜色里选一个——
+分组本来只是「把账号分堆」的轻量操作，三个代理框 + 一个颜色选择器让它变成一次不小的决策。
+
+简化成两件事：
+
+- **分组代理只留一个地址，不再区分主/备用。** `MailGroup.FallbackProxyURL1/2`、
+  `CreateMailGroupRequest`/`UpdateMailGroupRequest` 的对应字段、`db/query/*/mail_groups.sql`
+  的两列一并删掉，新增 `000016_drop_group_fallback_proxy` 把 `mail_groups` 表的两列 DROP 掉
+  （SQLite 3.35+ 原生支持 `DROP COLUMN`，不需要 `000011` 那种整表重建）。**账号自己的
+  代理没有动**——`mail_accounts` 仍是三列，`mailer.ProxyConfig` / `ResolveProxy` /
+  `ProxyCandidates` 都不改，分组这边只是往里面塞的 `ProxyConfig` 少填了两个字段。
+- **新建分组不再选颜色，后端随机挑一个。** `GroupFormDialog` 去掉颜色 `Select`，
+  `GroupService.Create` 在 `req.Color` 为空时从六个合法值里随机取一个
+  （`math/rand/v2`），而不是固定给 `gray`。系统默认分组仍显式指定 `gray`
+  （`EnsureDefaultGroup` 没变）。
+
+`TestGroupProxyRoundTrip`、`GroupFormDialog.test.tsx` 里跟着备用代理走的用例
+（只填备用代理时的警告、备用位的回填/清空断言）一并删掉；
+`TestFlattenGroupsKeepsAccountsAndInheritedProxy` 补一条断言：
+`000016` 之后 `fallback_proxy_url_1` 列应该已经不在了。

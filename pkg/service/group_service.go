@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"strings"
 
 	"emailbox/pkg/crypto"
@@ -15,6 +16,18 @@ import (
 )
 
 const maxGroupNameLen = 100
+
+// groupColors 是新建分组时随机挑选的颜色池，与 ValidGroupColor 的取值集合一致。
+var groupColors = []model.GroupColor{
+	model.GroupColorBlue, model.GroupColorGreen, model.GroupColorAmber,
+	model.GroupColorRed, model.GroupColorPurple, model.GroupColorGray,
+}
+
+// randomGroupColor 给新建分组挑一个颜色。颜色只是视觉区分，不值得让用户在
+// 建分组这个高频操作里多做一次选择。
+func randomGroupColor() model.GroupColor {
+	return groupColors[rand.IntN(len(groupColors))]
+}
 
 // GroupService 管理分组。分组是平的一层：账号挂在某个分组下，分组之间没有关系。
 type GroupService struct {
@@ -52,22 +65,12 @@ func (s *GroupService) Proxy(ctx context.Context, tenantID, groupID string) (*mo
 		return nil, err
 	}
 	out := &model.MailGroupProxy{}
-	for _, f := range []struct {
-		ciphertext string
-		target     *string
-	}{
-		{group.ProxyURL, &out.ProxyURL},
-		{group.FallbackProxyURL1, &out.FallbackProxyURL1},
-		{group.FallbackProxyURL2, &out.FallbackProxyURL2},
-	} {
-		if f.ciphertext == "" {
-			continue
-		}
-		plain, err := s.cipher.Decrypt(f.ciphertext)
+	if group.ProxyURL != "" {
+		plain, err := s.cipher.Decrypt(group.ProxyURL)
 		if err != nil {
 			return nil, errors.New("代理地址解密失败，请检查 CREDENTIAL_KEY 是否与写入时一致")
 		}
-		*f.target = plain
+		out.ProxyURL = plain
 	}
 	return out, nil
 }
@@ -94,11 +97,9 @@ func (s *GroupService) List(ctx context.Context, tenantID string) ([]*model.Mail
 	nodes := make([]*model.MailGroupNode, 0, len(groups))
 	for _, g := range groups {
 		nodes = append(nodes, &model.MailGroupNode{
-			MailGroup:               g,
-			ProxyURLMasked:          s.maskStoredProxy(g.ProxyURL),
-			FallbackProxyURL1Masked: s.maskStoredProxy(g.FallbackProxyURL1),
-			FallbackProxyURL2Masked: s.maskStoredProxy(g.FallbackProxyURL2),
-			AccountCount:            counts[g.ID],
+			MailGroup:      g,
+			ProxyURLMasked: s.maskStoredProxy(g.ProxyURL),
+			AccountCount:   counts[g.ID],
 		})
 	}
 	return nodes, nil
@@ -123,7 +124,7 @@ func (s *GroupService) Create(ctx context.Context, tenantID string, req model.Cr
 	}
 	color := req.Color
 	if color == "" {
-		color = model.GroupColorGray
+		color = randomGroupColor()
 	}
 	if !model.ValidGroupColor(color) {
 		return nil, errors.New("分组颜色取值非法")
@@ -145,20 +146,11 @@ func (s *GroupService) Create(ctx context.Context, tenantID string, req model.Cr
 		ID: uuid.NewString(), TenantID: tenantID,
 		Name: name, Description: strings.TrimSpace(req.Description), Color: color,
 	}
-	for _, f := range []struct {
-		raw    string
-		target *string
-	}{
-		{req.ProxyURL, &group.ProxyURL},
-		{req.FallbackProxyURL1, &group.FallbackProxyURL1},
-		{req.FallbackProxyURL2, &group.FallbackProxyURL2},
-	} {
-		enc, err := s.encryptProxy(f.raw)
-		if err != nil {
-			return nil, err
-		}
-		*f.target = enc
+	enc, err := s.encryptProxy(req.ProxyURL)
+	if err != nil {
+		return nil, err
 	}
+	group.ProxyURL = enc
 	if err := s.store.CreateMailGroup(ctx, group); err != nil {
 		if errors.Is(err, repo.ErrConflict) {
 			return nil, errors.New("同名分组已存在")
@@ -192,22 +184,12 @@ func (s *GroupService) Update(ctx context.Context, tenantID, groupID string, req
 		}
 		group.Color = *req.Color
 	}
-	for _, f := range []struct {
-		raw    *string
-		target *string
-	}{
-		{req.ProxyURL, &group.ProxyURL},
-		{req.FallbackProxyURL1, &group.FallbackProxyURL1},
-		{req.FallbackProxyURL2, &group.FallbackProxyURL2},
-	} {
-		if f.raw == nil {
-			continue
-		}
-		enc, err := s.encryptProxy(*f.raw)
+	if req.ProxyURL != nil {
+		enc, err := s.encryptProxy(*req.ProxyURL)
 		if err != nil {
 			return nil, err
 		}
-		*f.target = enc
+		group.ProxyURL = enc
 	}
 	if err := s.store.UpdateMailGroup(ctx, group); err != nil {
 		if errors.Is(err, repo.ErrConflict) {

@@ -77,7 +77,7 @@ func TestGroupCRUDOverHTTP(t *testing.T) {
 // 分组代理是编辑表单的数据来源，这条钉住它的三个关键行为：
 // 列表只给打码串、明文端点给原样的明文、PATCH 不带代理字段时原值不动。
 //
-// 第三条是最要紧的：前端在代理明文没读回来时会整组省掉这三个字段，
+// 第三条是最要紧的：前端在代理明文没读回来时会省掉这个字段，
 // 若 PATCH 把「未提供」当成「清空」，用户改一次分组名就把代理洗没了，
 // 那批账号从此走服务器公网 IP 直连——出问题时界面上完全看不出来。
 func TestGroupProxyRoundTrip(t *testing.T) {
@@ -86,13 +86,11 @@ func TestGroupProxyRoundTrip(t *testing.T) {
 
 	const plain = "socks5://puser:psecret@proxy.example.com:1080"
 	groupID := createGroup(t, e, token, tenantID,
-		`{"name":"客户 A","proxy_url":"`+plain+`","fallback_proxy_url_1":"socks5://backup:1080"}`)
+		`{"name":"客户 A","proxy_url":"`+plain+`"}`)
 
 	proxyPath := mailPath(tenantID, "/groups/"+groupID+"/proxy")
 	readProxy := func() struct {
-		ProxyURL  string `json:"proxy_url"`
-		Fallback1 string `json:"fallback_proxy_url_1"`
-		Fallback2 string `json:"fallback_proxy_url_2"`
+		ProxyURL string `json:"proxy_url"`
 	} {
 		t.Helper()
 		status, body := do(t, e, http.MethodGet, proxyPath, token, "")
@@ -101,9 +99,7 @@ func TestGroupProxyRoundTrip(t *testing.T) {
 		}
 		var payload struct {
 			Data struct {
-				ProxyURL  string `json:"proxy_url"`
-				Fallback1 string `json:"fallback_proxy_url_1"`
-				Fallback2 string `json:"fallback_proxy_url_2"`
+				ProxyURL string `json:"proxy_url"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal([]byte(body), &payload); err != nil {
@@ -126,21 +122,21 @@ func TestGroupProxyRoundTrip(t *testing.T) {
 		t.Errorf("代理明文应原样回显，实际 %q", got.ProxyURL)
 	}
 
-	// 只改名字，不传代理三项 —— 代理必须原封不动。
+	// 只改名字，不传代理字段 —— 代理必须原封不动。
 	if status, body := do(t, e, http.MethodPatch, mailPath(tenantID, "/groups/"+groupID), token,
 		`{"name":"客户 B"}`); status != http.StatusOK {
 		t.Fatalf("改名失败: %d %s", status, body)
 	}
-	if got := readProxy(); got.ProxyURL != plain || got.Fallback1 != "socks5://backup:1080" {
+	if got := readProxy(); got.ProxyURL != plain {
 		t.Errorf("只改名字不该动代理，实际 %+v", got)
 	}
 
 	// 显式传空串才是清空。
 	if status, body := do(t, e, http.MethodPatch, mailPath(tenantID, "/groups/"+groupID), token,
-		`{"proxy_url":"","fallback_proxy_url_1":""}`); status != http.StatusOK {
+		`{"proxy_url":""}`); status != http.StatusOK {
 		t.Fatalf("清空代理失败: %d %s", status, body)
 	}
-	if got := readProxy(); got.ProxyURL != "" || got.Fallback1 != "" {
+	if got := readProxy(); got.ProxyURL != "" {
 		t.Errorf("显式传空串应清空代理，实际 %+v", got)
 	}
 }
