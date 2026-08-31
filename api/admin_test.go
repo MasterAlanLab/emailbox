@@ -46,6 +46,7 @@ func adminEndpoints(tenantID, userID string) []struct{ method, path string } {
 		{http.MethodGet, "/api/v1/admin/tenants/" + tenantID + "/quota"},
 		{http.MethodPatch, "/api/v1/admin/tenants/" + tenantID + "/quota"},
 		{http.MethodGet, "/api/v1/admin/tenants/" + tenantID + "/mail/groups"},
+		{http.MethodGet, "/api/v1/admin/tenants/" + tenantID + "/mail/groups/grp-1/proxy"},
 		{http.MethodPost, "/api/v1/admin/tenants/" + tenantID + "/mail/groups"},
 		{http.MethodGet, "/api/v1/admin/tenants/" + tenantID + "/mail/accounts"},
 		{http.MethodPost, "/api/v1/admin/tenants/" + tenantID + "/mail/accounts"},

@@ -803,3 +803,38 @@ state 中的 tenant ID 做带租户条件的查询。`TestOAuthReauthorizationOn
 构建监听 `v*` tag push，与 `release.yml` 并行执行：一个创建 Release，一个构建并推送镜像，
 不依赖 Release 事件的二次触发，因此两个工作流都使用仓库内置的 `GITHUB_TOKEN`，省去
 `PAT_TOKEN`。每个版本只推对应的版本号 tag。
+
+### 分组代理终于有了界面入口（2026-08-31）
+
+后端从一开始就收 `proxy_url` / `fallback_proxy_url_1` / `fallback_proxy_url_2`
+（`CreateMailGroupRequest` / `UpdateMailGroupRequest`，加密入库、`mailer.ResolveProxy`
+在账号没配代理时回落到它），但 `GroupFormDialog` 只有名称、描述、颜色三项，
+`mailApi.createGroup` / `updateGroup` 的参数类型里连这三个字段都没声明——
+也就是说整个 web 前端没有任何写代理的地方，只能自己 `curl` PATCH。
+账号那侧同样：`AccountDrawer` 只读 `proxy_url_masked`，没有编辑入口（本次未处理）。
+
+补入口时真正要定的是「编辑框里放什么」。打码串不行：用户进来改个名字一按保存，
+`socks5://u:****@host` 就被当成口令写回库里，代理从此是坏的，而界面上一切正常，
+直到某个账号取信失败才会发现。06 文档 §6.2 本来就写着「代理 URL 在输入框以外
+一律显示打码版」——言下之意输入框里该是明文，只是没人实现。
+
+于是加了 `GET /mail/groups/:groupID/proxy` 单独送明文。它是读操作，
+但收敛口径跟着「读走了什么」而不是「谁在读」走，因此按导出同一档：
+`account:secret` 权限（API Key 天然没有这一项）＋ `AuditWrite` 而不是
+`AuditAdminRead`——普通用户取走一条代理口令同样要留痕，`AuditAdminRead` 只记管理员。
+没配限流：一次只出一个分组的三条代理，分组数本身受配额约束，与「一次取走整租户凭据」
+的导出不是一个量级。明文不进列表接口，否则一进 /mail 就把全部分组的代理口令
+发到浏览器，而绝大多数时候没人要看它们。
+
+两个容易写错的地方，各钉了用例：
+
+- **解密失败必须报错，不能回落。** `maskStoredProxy` 解不开时回显「(无法解密)」是对的
+  ——那是只读展示，少显示一行没有后果。但这个端点的返回值会落进输入框再随下一次保存
+  写回库里，回落成空串更糟：空串和「本来就没配代理」在表单上长得一模一样。
+- **明文没到手时，保存要整组省掉代理三项。** `UpdateMailGroupRequest` 的指针语义
+  （不传即保持原值）就是为这个场景准备的；照发一组空输入框等于把代理静默清掉，
+  那批账号从此走服务器公网 IP 直连。前端的 `proxyLoad !== "ready"` 分支守这一条，
+  `TestGroupProxyRoundTrip` 与 `GroupFormDialog.test.tsx` 两侧各测一半。
+
+表单里还顺手提示了两件靠读代码才知道的事：`ResolveProxy` 在主代理为空时视整组未配置
+（只填备用 = 静默直连），以及 `NewDialer` 只支持 socks5/socks5h，http 代理仅 Graph 通道可用。

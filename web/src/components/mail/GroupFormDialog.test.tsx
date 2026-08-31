@@ -1,0 +1,120 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mailApi, type MailGroup, type MailGroupNode } from "@/api/mail";
+import { GroupFormDialog } from "./GroupFormDialog";
+
+// 这里只测代理那一段。名称、描述、颜色是普通的受控输入，出错也就是存错一个字；
+// 代理不是——它决定这批账号从哪个 IP 出站，错了的表现是「静默直连」，
+// 界面上看不出来，等发现时真实地址已经暴露过了。
+//
+// 守的是两条：编辑时必须拿明文回填（回填打码串会让用户把 "****" 存回库里），
+// 以及明文没到手时保存必须整组省掉代理字段（照发一组空串等于清空）。
+
+function group(extra: Partial<MailGroupNode> = {}): MailGroupNode {
+  return {
+    id: "g1",
+    name: "客户 A",
+    description: "",
+    color: "gray",
+    sort_order: 0,
+    is_system: false,
+    created_at: "",
+    updated_at: "",
+    proxy_url_masked: "socks5://puser:****@proxy.example.com:1080",
+    fallback_proxy_url_1_masked: "",
+    fallback_proxy_url_2_masked: "",
+    account_count: 0,
+    ...extra,
+  };
+}
+
+const PLAIN = "socks5://puser:psecret@proxy.example.com:1080";
+
+function mockProxy(data: { proxy_url: string; fallback_proxy_url_1?: string }) {
+  return vi.spyOn(mailApi, "groupProxy").mockResolvedValue({
+    code: 0,
+    message: "",
+    data: {
+      proxy_url: data.proxy_url,
+      fallback_proxy_url_1: data.fallback_proxy_url_1 ?? "",
+      fallback_proxy_url_2: "",
+    },
+  });
+}
+
+function mockUpdate() {
+  return vi
+    .spyOn(mailApi, "updateGroup")
+    .mockResolvedValue({ code: 0, message: "", data: {} as MailGroup });
+}
+
+// base-ui 的 Select 挂载后还会异步定位一次，不包 act 会打一串
+// "not wrapped in act(...)" 把真正的失败淹掉。
+async function mount(g?: MailGroupNode) {
+  await act(async () => {
+    render(<GroupFormDialog tenantID="t1" group={g} onClose={() => {}} onSaved={() => {}} />);
+  });
+}
+
+async function save(label: string) {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: label }));
+  });
+}
+
+describe("GroupFormDialog 的代理配置", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("编辑时回填明文，保存原样发回去", async () => {
+    mockProxy({ proxy_url: PLAIN });
+    const update = mockUpdate();
+
+    await mount(group());
+
+    // 回填的是明文而不是列表里那个打码串。
+    await screen.findByDisplayValue(PLAIN);
+    expect(screen.queryByDisplayValue(/\*\*\*\*/)).toBeNull();
+
+    await save("保存");
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update.mock.calls[0][2]).toMatchObject({ proxy_url: PLAIN });
+  });
+
+  it("明文没取到时，保存不带代理字段——空输入框不能被当成「清空」", async () => {
+    vi.spyOn(mailApi, "groupProxy").mockRejectedValue(new Error("代理地址解密失败"));
+    const update = mockUpdate();
+
+    await mount(group());
+    await screen.findByText(/代理读取失败/);
+
+    // 名称照常能改，改的是名称就只发名称。
+    fireEvent.change(screen.getByDisplayValue("客户 A"), { target: { value: "客户 B" } });
+    await save("保存");
+
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    const payload = update.mock.calls[0][2];
+    expect(payload).toMatchObject({ name: "客户 B" });
+    expect(payload).not.toHaveProperty("proxy_url");
+    expect(payload).not.toHaveProperty("fallback_proxy_url_1");
+  });
+
+  it("新建分组不去读代理明文", async () => {
+    const proxy = mockProxy({ proxy_url: "" });
+    await mount();
+    // 那个端点每调一次就写一条审计。新建时没有分组可读，一次都不该发。
+    expect(proxy).not.toHaveBeenCalled();
+  });
+
+  it("只填了备用代理时给出提示——主代理为空的话备用一概不生效", async () => {
+    mockProxy({ proxy_url: "" });
+    await mount(group());
+
+    await waitFor(() => expect(mailApi.groupProxy).toHaveBeenCalled());
+    fireEvent.change(screen.getByLabelText("备用代理 1"), {
+      target: { value: "socks5://backup:1080" },
+    });
+    expect(screen.getByText(/主代理为空时备用不会启用/)).toBeTruthy();
+  });
+});

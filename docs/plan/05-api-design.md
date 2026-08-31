@@ -104,7 +104,8 @@ Echo 的后注册中间件会覆盖前面的同类中间件（BodyLimit 读的�
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
-| GET | `/mail/groups` | group:read | 返回分组列表（各带账号数），顺序即 sort_order |
+| GET | `/mail/groups` | group:read | 返回分组列表（各带账号数），顺序即 sort_order；代理只给 `*_masked` |
+| GET | `/mail/groups/:groupID/proxy` | **account:secret** | 代理**明文**，供编辑表单回填；强制审计 |
 | POST | `/mail/groups` | group:write | 创建 |
 | PATCH | `/mail/groups/:groupID` | group:write | 改名/颜色/描述/代理 |
 | DELETE | `/mail/groups/:groupID` | group:write | 删除，账号回落默认分组 |
@@ -112,6 +113,18 @@ Echo 的后注册中间件会覆盖前面的同类中间件（BodyLimit 读的�
 
 分组是平的一层（2026-08-27 起，见 PROGRESS「分组压平成一层」）：没有 `parent_id`、
 没有 `level`，也没有「含子树的账号数」。
+
+**代理明文只从 `/proxy` 这一个端点出去。**它是读操作，但收敛口径跟着「读走了什么」
+而不是「谁在读」走，因此按导出同一档：`account:secret` 权限（API Key 天然没有这一项）
+＋ `AuditWrite` 而不是 `AuditAdminRead`——普通用户取走一条代理口令同样要留痕。
+没配限流：一次只出一个分组的三条代理，而分组数本身受配额约束，
+与「一次取走整租户凭据」的导出不是一个量级。
+
+它存在的理由是编辑表单（06 文档 §6.2「代理 URL 在输入框以外一律显示打码版」）：
+回填打码串的话，用户改完名字一按保存，`socks5://u:****@host` 就被当成口令原样存回库里，
+代理从此是坏的，而界面上看不出来。配套地，`PATCH` 的代理三项是指针语义——
+**不传即保持原值**，只有显式传空串才是清空；前端在明文没读回来时正是靠这一条
+整组省掉代理字段。两条都由 `api/mail_groups_test.go:TestGroupProxyRoundTrip` 钉住。
 
 ### 3.1 API Key（对外取件）
 

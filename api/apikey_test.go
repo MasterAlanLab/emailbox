@@ -79,6 +79,9 @@ func TestAPIKeyAccessMatrix(t *testing.T) {
 			{http.MethodPost, base + "/accounts"},
 			{http.MethodDelete, base + "/accounts/" + accountID},
 			{http.MethodPost, base + "/groups"},
+			// 分组代理明文虽然是 GET，收敛口径却跟着「读走了什么」走：
+			// 它和导出一样要 account:secret，Key 没有这一项。
+			{http.MethodGet, base + "/groups/grp-1/proxy"},
 			{http.MethodPost, base + "/accounts/" + accountID + "/token/refresh"},
 			// Key 不能读取或重置自己：泄露之后不能自我续命，也读不到别的信息。
 			{http.MethodGet, "/api/v1/tenants/" + tenantID + "/api-key"},

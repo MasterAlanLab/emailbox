@@ -25,6 +25,18 @@ func (h *GroupHandler) List(c *echo.Context) error {
 	return success(c, v, "获取成功")
 }
 
+// Proxy 回分组代理的明文，供编辑表单回填。
+//
+// 这是分组这边唯一送出凭据明文的端点，权限（account:secret）与强制审计都挂在
+// 路由上——改路由时两件要一起看，少一件就是一个不设防或不留痕的凭据出口。
+func (h *GroupHandler) Proxy(c *echo.Context) error {
+	v, e := h.service.Proxy(c.Request().Context(), c.Param("tenantID"), c.Param("groupID"))
+	if e != nil {
+		return mailError(c, e)
+	}
+	return success(c, v, "获取成功")
+}
+
 func (h *GroupHandler) Create(c *echo.Context) error {
 	var req model.CreateMailGroupRequest
 	if e := c.Bind(&req); e != nil {

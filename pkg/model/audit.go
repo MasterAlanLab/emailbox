@@ -15,6 +15,9 @@ const (
 //
 // 读操作只记管理员的那三类（08 文档 §2.4）：查看账号列表、查看邮件正文、导出账号。
 // 普通用户的读不记——一个用户翻十页邮件就是十条，量大到会把真正要看的写操作淹掉。
+//
+// 例外是「送出凭据明文」的读：导出与分组代理明文一律记，不分角色。
+// 判据不是「谁在读」而是「读走了什么」——一条明文代理离开接口之后就追不回来了。
 const (
 	AuditAccountList   = "account.list"
 	AuditAccountRead   = "account.read"
@@ -28,6 +31,8 @@ const (
 	AuditMessageRead  = "message.read"
 	AuditMessageWrite = "message.write"
 	AuditGroupWrite   = "group.write"
+	// AuditGroupProxyReveal 记的是「谁把某个分组的代理明文取走了」。
+	AuditGroupProxyReveal = "group.proxy_reveal"
 
 	AuditAPIKeyReset = "api_key.reset"
 

@@ -62,6 +62,20 @@ type MailGroupNode struct {
 	AccountCount int `json:"account_count"`
 }
 
+// MailGroupProxy 是分组代理的**明文**，只由 GET /mail/groups/:groupID/proxy 返回。
+//
+// 它存在的理由只有一个：编辑表单要回填。回填打码串的话，用户改完名字一按保存，
+// "socks5://u:****@host" 就被当作口令原样存回去，代理从此是坏的——而界面上
+// 看起来一切正常，直到某个账号取信失败才会发现。
+//
+// 这是分组这边唯一一个把凭据明文送出接口的地方，因此按导出的同一档收敛：
+// account:secret 权限 + 强制审计，两件都挂在 api/routes.go 的路由上。
+type MailGroupProxy struct {
+	ProxyURL          string `json:"proxy_url"`
+	FallbackProxyURL1 string `json:"fallback_proxy_url_1"`
+	FallbackProxyURL2 string `json:"fallback_proxy_url_2"`
+}
+
 type CreateMailGroupRequest struct {
 	Name              string     `json:"name"`
 	Description       string     `json:"description"`
