@@ -18,12 +18,27 @@ export interface MailGroup {
   updated_at: string;
 }
 
-// 带账号数的分组。代理地址只回打码后的串，明文永不出接口。
+// 带账号数的分组。列表里的代理只回打码后的串——明文要单独走 groupProxy()。
 export interface MailGroupNode extends MailGroup {
   proxy_url_masked: string;
   fallback_proxy_url_1_masked: string;
   fallback_proxy_url_2_masked: string;
   account_count: number;
+}
+
+// 分组代理的明文，只有编辑表单会取。回填打码串的话，用户改完名字一按保存就把
+// "****" 当口令存回去了，代理从此是坏的、界面上还看不出来。
+export interface GroupProxy {
+  proxy_url: string;
+  fallback_proxy_url_1: string;
+  fallback_proxy_url_2: string;
+}
+
+// 分组的代理三件套，创建与更新共用这个形状。
+export interface GroupProxyInput {
+  proxy_url?: string;
+  fallback_proxy_url_1?: string;
+  fallback_proxy_url_2?: string;
 }
 
 // 账号。凭据字段只回 has_* 布尔值，明文永不出接口。
@@ -225,14 +240,19 @@ const EXPORT_TIMEOUT = 60_000;
 export const mailApi = {
   groups: async (tenantID: TenantRef) =>
     (await client.get<ApiResponse<MailGroupNode[]>>(`${base(tenantID)}/groups`)).data,
+  // 明文代理需要 account:secret 权限并会写一条审计——只在编辑表单打开时调一次。
+  groupProxy: async (tenantID: TenantRef, groupID: string) =>
+    (await client.get<ApiResponse<GroupProxy>>(`${base(tenantID)}/groups/${groupID}/proxy`)).data,
   createGroup: async (
     tenantID: TenantRef,
-    data: { name: string; color?: GroupColor; description?: string },
+    data: { name: string; color?: GroupColor; description?: string } & GroupProxyInput,
   ) => (await client.post<ApiResponse<MailGroup>>(`${base(tenantID)}/groups`, data)).data,
+  // 更新用 PATCH 语义：字段不传就保持原值。代理三项因此可以整组省略——
+  // 明文没读到时正是这么做的，免得拿一组空串把用户配好的代理洗掉。
   updateGroup: async (
     tenantID: TenantRef,
     groupID: string,
-    data: Partial<{ name: string; color: GroupColor; description: string }>,
+    data: Partial<{ name: string; color: GroupColor; description: string }> & GroupProxyInput,
   ) =>
     (await client.patch<ApiResponse<MailGroup>>(`${base(tenantID)}/groups/${groupID}`, data)).data,
   reorderGroups: async (tenantID: TenantRef, groupIDs: string[]) =>

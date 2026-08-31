@@ -40,6 +40,38 @@ func (s *GroupService) maskStoredProxy(ciphertext string) string {
 	return MaskProxyURL(plain)
 }
 
+// Proxy 返回分组代理的明文，供编辑表单回填。
+//
+// 解密失败必须报错，不能像 maskStoredProxy 那样回落到一段占位文案：那个回落是给
+// 「只读展示」用的，少显示一行没有后果；这里的返回值会落进输入框，再随下一次保存
+// 原样写回库里。空串更糟——它和「本来就没配代理」在表单上长得一模一样，
+// 用户按下保存就把原来那条代理静默清掉了，那批账号从此走服务器公网 IP 直连。
+func (s *GroupService) Proxy(ctx context.Context, tenantID, groupID string) (*model.MailGroupProxy, error) {
+	group, err := s.store.GetMailGroup(ctx, tenantID, groupID)
+	if err != nil {
+		return nil, err
+	}
+	out := &model.MailGroupProxy{}
+	for _, f := range []struct {
+		ciphertext string
+		target     *string
+	}{
+		{group.ProxyURL, &out.ProxyURL},
+		{group.FallbackProxyURL1, &out.FallbackProxyURL1},
+		{group.FallbackProxyURL2, &out.FallbackProxyURL2},
+	} {
+		if f.ciphertext == "" {
+			continue
+		}
+		plain, err := s.cipher.Decrypt(f.ciphertext)
+		if err != nil {
+			return nil, errors.New("代理地址解密失败，请检查 CREDENTIAL_KEY 是否与写入时一致")
+		}
+		*f.target = plain
+	}
+	return out, nil
+}
+
 // encryptProxy 加密分组的代理地址。
 func (s *GroupService) encryptProxy(raw string) (string, error) {
 	enc, err := s.cipher.Encrypt(strings.TrimSpace(raw))

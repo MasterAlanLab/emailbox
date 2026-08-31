@@ -3,6 +3,7 @@ package api_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -73,6 +74,77 @@ func TestGroupCRUDOverHTTP(t *testing.T) {
 	}
 }
 
+// 分组代理是编辑表单的数据来源，这条钉住它的三个关键行为：
+// 列表只给打码串、明文端点给原样的明文、PATCH 不带代理字段时原值不动。
+//
+// 第三条是最要紧的：前端在代理明文没读回来时会整组省掉这三个字段，
+// 若 PATCH 把「未提供」当成「清空」，用户改一次分组名就把代理洗没了，
+// 那批账号从此走服务器公网 IP 直连——出问题时界面上完全看不出来。
+func TestGroupProxyRoundTrip(t *testing.T) {
+	e := newTestServer(t)
+	token, tenantID := register(t, e, "alice", "alice@example.com")
+
+	const plain = "socks5://puser:psecret@proxy.example.com:1080"
+	groupID := createGroup(t, e, token, tenantID,
+		`{"name":"客户 A","proxy_url":"`+plain+`","fallback_proxy_url_1":"socks5://backup:1080"}`)
+
+	proxyPath := mailPath(tenantID, "/groups/"+groupID+"/proxy")
+	readProxy := func() struct {
+		ProxyURL  string `json:"proxy_url"`
+		Fallback1 string `json:"fallback_proxy_url_1"`
+		Fallback2 string `json:"fallback_proxy_url_2"`
+	} {
+		t.Helper()
+		status, body := do(t, e, http.MethodGet, proxyPath, token, "")
+		if status != http.StatusOK {
+			t.Fatalf("读取代理明文失败: %d %s", status, body)
+		}
+		var payload struct {
+			Data struct {
+				ProxyURL  string `json:"proxy_url"`
+				Fallback1 string `json:"fallback_proxy_url_1"`
+				Fallback2 string `json:"fallback_proxy_url_2"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(body), &payload); err != nil {
+			t.Fatal(err)
+		}
+		return payload.Data
+	}
+
+	// 列表接口不能带明文：一进 /mail 就把全部分组的代理口令发到浏览器，
+	// 而绝大多数时候没人要看它们。
+	_, listBody := do(t, e, http.MethodGet, mailPath(tenantID, "/groups"), token, "")
+	if strings.Contains(listBody, "psecret") {
+		t.Errorf("分组列表泄露了代理口令: %s", listBody)
+	}
+	if !strings.Contains(listBody, "socks5://puser:****@proxy.example.com:1080") {
+		t.Errorf("分组列表应回打码后的代理: %s", listBody)
+	}
+
+	if got := readProxy(); got.ProxyURL != plain {
+		t.Errorf("代理明文应原样回显，实际 %q", got.ProxyURL)
+	}
+
+	// 只改名字，不传代理三项 —— 代理必须原封不动。
+	if status, body := do(t, e, http.MethodPatch, mailPath(tenantID, "/groups/"+groupID), token,
+		`{"name":"客户 B"}`); status != http.StatusOK {
+		t.Fatalf("改名失败: %d %s", status, body)
+	}
+	if got := readProxy(); got.ProxyURL != plain || got.Fallback1 != "socks5://backup:1080" {
+		t.Errorf("只改名字不该动代理，实际 %+v", got)
+	}
+
+	// 显式传空串才是清空。
+	if status, body := do(t, e, http.MethodPatch, mailPath(tenantID, "/groups/"+groupID), token,
+		`{"proxy_url":"","fallback_proxy_url_1":""}`); status != http.StatusOK {
+		t.Fatalf("清空代理失败: %d %s", status, body)
+	}
+	if got := readProxy(); got.ProxyURL != "" || got.Fallback1 != "" {
+		t.Errorf("显式传空串应清空代理，实际 %+v", got)
+	}
+}
+
 // 跨租户测试：拿着别人的 tenantID 请求必须被挡在 tenant.Member 中间件；
 // 拿着自己的 tenantID 去操作别人的 groupID 必须落到 404。
 func TestGroupTenantIsolationOverHTTP(t *testing.T) {
@@ -90,6 +162,9 @@ func TestGroupTenantIsolationOverHTTP(t *testing.T) {
 	for _, tc := range []struct{ method, path, body string }{
 		{http.MethodPatch, mailPath(bobTenant, "/groups/"+groupID), `{"name":"越权改名"}`},
 		{http.MethodDelete, mailPath(bobTenant, "/groups/"+groupID), ""},
+		// 代理明文端点走同一条路。它是分组这边唯一送出凭据明文的接口，
+		// 借自己的 tenantID 去读别人分组的代理口令必须落到 404。
+		{http.MethodGet, mailPath(bobTenant, "/groups/"+groupID+"/proxy"), ""},
 	} {
 		if status, body := do(t, e, tc.method, tc.path, bobToken, tc.body); status != http.StatusNotFound {
 			t.Errorf("%s %s 越权应 404，实际 %d %s", tc.method, tc.path, status, body)

@@ -143,6 +143,17 @@ func mountMailRoutes(m *echo.Group, h Handlers, exportLimiter echo.MiddlewareFun
 	}
 
 	m.GET("/groups", h.Group.List, middleware.Require(model.PermissionMailGroupRead))
+	// 分组代理的明文只从这一个端点出去，编辑表单打开时取一次。
+	// 列表接口不带明文：那样一进 /mail 就把全部分组的代理口令发到浏览器，
+	// 而绝大多数时候没人要看它们。
+	//
+	// 它是读操作，但收敛口径跟着「读走了什么」而不是「谁在读」走，因此按导出
+	// 同一档：account:secret（API Key 天然没有这一项）+ **不分角色**的强制审计。
+	// 这里用 AuditWrite 而不是 AuditAdminRead 就是为了后者——普通用户取走一条
+	// 代理明文同样要留痕。没加限流：一次只出一个分组的一条代理，而分组数本身
+	// 受配额约束，与「一次取走整租户凭据」的导出不是一个量级。
+	m.GET("/groups/:groupID/proxy", h.Group.Proxy, middleware.Require(model.PermissionAccountSecret),
+		audit(model.AuditGroupProxyReveal, "group", "groupID"))
 	m.POST("/groups", h.Group.Create, middleware.Require(model.PermissionMailGroupWrite),
 		audit(model.AuditGroupWrite, "group", ""))
 	m.POST("/groups/reorder", h.Group.Reorder, middleware.Require(model.PermissionMailGroupWrite),

@@ -149,7 +149,13 @@ Key 认证通过后被塞成一个只读的虚拟租户角色 `model.TenantRoleA
 
 - 邮箱密码、`refresh_token`、含口令的代理地址进出库经 `pkg/crypto`，密文永不出接口
   （`MailAccountResponse` 只回 `has_password` 这类布尔值）
-- 代理地址要**先解密再打码**，解密失败回显「(无法解密)」而不是密文
+- 代理地址要**先解密再打码**，解密失败回显「(无法解密)」而不是密文。
+  唯一的例外是编辑表单的回填（`GET /mail/groups/:groupID/proxy`）：那里必须给明文，
+  回填打码串等于让用户把 `****` 当口令存回库里。这类「回显给输入框」的端点，
+  解密失败要**报错**而不是回落——回落成空串和「没配过代理」长得一样，
+  用户按下保存就把代理静默清掉了
+- **送出凭据明文的读操作按写操作审计**（`AuditWrite` 而非 `AuditAdminRead`）：
+  判据是「读走了什么」而不是「谁在读」，普通用户取走一条代理口令同样要留痕
 - **协议层的写回必须是窄 UPDATE**（`auth_channel` / `refresh_token` / `last_refresh_*` 各一条），
   用整行改写会把用户此刻正在编辑的分组、备注、代理一起覆盖掉
 - 写操作挂 `handler.AuditWrite`，管理员的读挂 `handler.AuditAdminRead`
