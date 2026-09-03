@@ -30,6 +30,26 @@ func (q *Queries) BumpJobCounts(ctx context.Context, arg BumpJobCountsParams) er
 	return err
 }
 
+const countActiveJobsByType = `-- name: CountActiveJobsByType :one
+SELECT COUNT(*) FROM jobs
+WHERE tenant_id = ? AND type = ? AND status IN ('pending', 'running', 'stopping')
+`
+
+type CountActiveJobsByTypeParams struct {
+	TenantID string
+	Type     string
+}
+
+// Used by the scheduler to avoid stacking refresh jobs inside one tenant.
+// Two concurrent jobs mean 2 x JOB_WORKERS connections hitting the same
+// provider, which is exactly what the per-account delay exists to prevent.
+func (q *Queries) CountActiveJobsByType(ctx context.Context, arg CountActiveJobsByTypeParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countActiveJobsByType, arg.TenantID, arg.Type)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countJobItems = `-- name: CountJobItems :one
 SELECT COUNT(*) FROM job_items
 WHERE job_id = ?1
@@ -146,6 +166,24 @@ func (q *Queries) CreateJobItem(ctx context.Context, arg CreateJobItemParams) er
 		arg.Email,
 		arg.Position,
 	)
+	return err
+}
+
+const deleteFinishedJobsBefore = `-- name: DeleteFinishedJobsBefore :exec
+DELETE FROM jobs
+WHERE status IN ('succeeded', 'partial', 'failed', 'stopped', 'interrupted')
+  AND COALESCE(finished_at, created_at) < ?1
+`
+
+// Retention sweep. job_items and job_events go with the row via ON DELETE
+// CASCADE; mail_refresh_logs.job_id is ON DELETE SET NULL, so log rows survive
+// their job and are swept on their own schedule.
+//
+// COALESCE rather than a bare finished_at test: every current writer sets that
+// column when it moves a job to a terminal state, but a row that somehow got
+// there without one would otherwise be undeletable forever.
+func (q *Queries) DeleteFinishedJobsBefore(ctx context.Context, cutoff sql.NullTime) error {
+	_, err := q.db.ExecContext(ctx, deleteFinishedJobsBefore, cutoff)
 	return err
 }
 

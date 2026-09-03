@@ -715,3 +715,147 @@ func TestWithTxIsReentrant(t *testing.T) {
 		}
 	}
 }
+
+// 定时刷新的到期扫描与抢占。
+//
+// 除了两个引擎的行为一致，这组用例还守着一个容易被忽略的前提：next_refresh_at
+// 的比较必须与写入时所带的时区无关。SQLite 把 time.Time 存成字符串，`<=` 实际上
+// 是字符串比较——两侧格式一旦不同（一边 +08:00 一边 Z），结果会变成
+// 「到期了却扫不出来」或者「没到期就被刷了」，而且两种表现都不会报错。
+// 所以这里故意用东八区的时刻写入，再用 UTC 的 now 去扫。
+func TestGroupRefreshScheduleParity(t *testing.T) {
+	ctx := context.Background()
+	shanghai := time.FixedZone("CST", 8*3600)
+	dueAt := time.Date(2026, 9, 3, 9, 0, 0, 0, shanghai) // = 01:00 UTC
+	laterAt := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 9, 3, 2, 0, 0, 0, time.UTC) // 在 dueAt 之后
+
+	for _, e := range parityEngines(t) {
+		tenantID := seed(t, e.store)
+		newGroup := func(id, name string, interval int, next time.Time) {
+			t.Helper()
+			if err := e.store.CreateMailGroup(ctx, &model.MailGroup{
+				ID: id, TenantID: tenantID, Name: name, Color: model.GroupColorGray,
+			}); err != nil {
+				t.Fatalf("%s: 创建分组 %s 失败: %v", e.name, name, err)
+			}
+			if err := e.store.UpdateMailGroupSchedule(ctx, tenantID, id, interval, &next); err != nil {
+				t.Fatalf("%s: 设置分组 %s 的定时失败: %v", e.name, name, err)
+			}
+		}
+		newGroup("g-due", "due", 60, dueAt)
+		newGroup("g-later", "later", 60, laterAt)
+		// 关掉定时但残留着一个已到期的 next_refresh_at：关闭必须真的关闭。
+		newGroup("g-off", "off", 0, dueAt)
+
+		got, err := e.store.ListGroupsDueForRefresh(ctx, now, 10)
+		if err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if len(got) != 1 || got[0].ID != "g-due" {
+			ids := make([]string, 0, len(got))
+			for _, g := range got {
+				ids = append(ids, g.ID)
+			}
+			t.Fatalf("%s: 到期分组应当只有 g-due，实际 %v", e.name, ids)
+		}
+		if got[0].RefreshIntervalMinutes != 60 {
+			t.Errorf("%s: 间隔应当回读为 60，实际 %d", e.name, got[0].RefreshIntervalMinutes)
+		}
+		if got[0].NextRefreshAt == nil || !got[0].NextRefreshAt.Equal(dueAt) {
+			t.Errorf("%s: next_refresh_at 回读后与写入值不等: 写入 %v 读出 %v",
+				e.name, dueAt, got[0].NextRefreshAt)
+		}
+
+		next := now.Add(time.Hour)
+		claimed, err := e.store.ClaimGroupRefresh(ctx, "g-due", now, next)
+		if err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if !claimed {
+			t.Fatalf("%s: 首次抢占应当成功", e.name)
+		}
+		// 第二次必须抢不到：这正是多实例下不会重复提交任务的那道闸。
+		again, err := e.store.ClaimGroupRefresh(ctx, "g-due", now, next)
+		if err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if again {
+			t.Errorf("%s: 同一轮的第二次抢占应当失败", e.name)
+		}
+
+		after, err := e.store.ListGroupsDueForRefresh(ctx, now, 10)
+		if err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if len(after) != 0 {
+			t.Errorf("%s: 抢占后不应再有到期分组，实际 %d 个", e.name, len(after))
+		}
+	}
+}
+
+// 保留期清理必须真的按时间生效。
+//
+// 这组用例的重点是「不该删的别删」：finished_at / created_at 由 CURRENT_TIMESTAMP
+// 写入，而 cutoff 由驱动绑定，两侧的文本格式并不天然一致。格式一旦对不齐，
+// SQLite 的字符串比较会退化成恒真或恒假——恒假只是清理不生效（表继续涨），
+// 恒真则是把用户全部的任务历史和刷新日志一次删光。所以两个方向都要断言。
+func TestRetentionSweepParity(t *testing.T) {
+	ctx := context.Background()
+	for _, e := range parityEngines(t) {
+		tenantID := seed(t, e.store)
+
+		job := model.Job{
+			ID: "sweep-job", TenantID: tenantID, Type: model.JobTypeTokenRefresh,
+			Trigger: model.JobTriggerScheduled, Status: model.JobStatusPending,
+			TotalCount: 1, Params: "{}",
+		}
+		if err := e.store.CreateJob(ctx, job); err != nil {
+			t.Fatalf("%s: 建任务失败: %v", e.name, err)
+		}
+		if err := e.store.FinishJob(ctx, job.ID, model.JobStatusSucceeded, ""); err != nil {
+			t.Fatalf("%s: 结束任务失败: %v", e.name, err)
+		}
+		log := model.RefreshLog{
+			ID: "sweep-log", TenantID: tenantID, AccountEmail: "a@example.com",
+			RefreshType: "scheduled", Status: "success",
+		}
+		if err := e.store.CreateRefreshLog(ctx, log); err != nil {
+			t.Fatalf("%s: 写刷新日志失败: %v", e.name, err)
+		}
+
+		// 保留期还没到：两样都必须原封不动。
+		past := time.Now().Add(-30 * 24 * time.Hour)
+		if err := e.store.DeleteFinishedJobsBefore(ctx, past); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if err := e.store.DeleteRefreshLogsBefore(ctx, past); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if _, err := e.store.GetJob(ctx, tenantID, job.ID); err != nil {
+			t.Fatalf("%s: 保留期内的任务被误删了: %v", e.name, err)
+		}
+		if _, total, err := e.store.ListRefreshLogs(ctx, tenantID, model.RefreshLogFilter{}); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		} else if total != 1 {
+			t.Fatalf("%s: 保留期内的刷新日志被误删了，剩 %d 条", e.name, total)
+		}
+
+		// 保留期已过：两样都必须被清掉。
+		future := time.Now().Add(time.Hour)
+		if err := e.store.DeleteFinishedJobsBefore(ctx, future); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if err := e.store.DeleteRefreshLogsBefore(ctx, future); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if _, err := e.store.GetJob(ctx, tenantID, job.ID); !errors.Is(err, repo.ErrNotFound) {
+			t.Errorf("%s: 过期任务应当被清理，实际 err=%v", e.name, err)
+		}
+		if _, total, err := e.store.ListRefreshLogs(ctx, tenantID, model.RefreshLogFilter{}); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		} else if total != 0 {
+			t.Errorf("%s: 过期刷新日志应当被清理，实际还剩 %d 条", e.name, total)
+		}
+	}
+}

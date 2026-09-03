@@ -12,6 +12,8 @@ function group(id: string, name: string, isSystem = false, accountCount = 1): Ma
     is_system: isSystem,
     created_at: "",
     updated_at: "",
+    refresh_interval_minutes: 0,
+    next_refresh_at: null,
     proxy_url_masked: "",
     account_count: accountCount,
   };

@@ -373,6 +373,14 @@ tenants / tenant_members / sessions / audit_logs 四张表都有外键指着它�
   `Proxy Authentication Required` 与 SOCKS5 认证失败要先归 `proxy_failed` 并停止代理候选；
   当成普通 `network` 会触发直连兜底，造成用户配置了代理却从服务器公网出口请求上游。
 
+- **SQLite 的时间列比较是字符串比较，写入前必须归一到 UTC**（2026-09-03，做分组定时刷新时发现）。
+  驱动把 `time.Time` 存成字符串，于是 `next_refresh_at <= ?` 实际比的是两串文本的字典序：
+  一条带 `+08:00` 写入的记录，和一个 UTC 的查询参数比起来结果是错的，
+  表现为「明明到期了却扫不出来」，**不报任何错**。反方向更凶险——若两侧格式连分隔符都不同
+  （`2026-09-03 06:00:00` vs `2026-09-03T07:00:00Z`，空格 0x20 < `T` 0x54），
+  比较会退化成恒真，一个保留期清理就能把用户全部历史一次删光。
+  归一收在 `repo.nullableTime` / `utcNullTime` 一处；`TestGroupRefreshScheduleParity`
+  与 `TestRetentionSweepParity` 分别钉两个方向，后者特意断言「不该删的没被删」。
 - **`db/query/` 下的 SQL 必须全部 ASCII**：sqlc v1.30 遇到多字节字符会静默截断生成的 SQL
   常量，运行时报 `SQL logic error: incomplete input`，且爆炸点常在另一条查询上。
   已加 `db/query/query_test.go` 拦截，并记入 [03-data-model.md §5](03-data-model.md)。
@@ -862,3 +870,44 @@ state 中的 tenant ID 做带租户条件的查询。`TestOAuthReauthorizationOn
 （只填备用代理时的警告、备用位的回填/清空断言）一并删掉；
 `TestFlattenGroupsKeepsAccountsAndInheritedProxy` 补一条断言：
 `000016` 之后 `fallback_proxy_url_1` 列应该已经不在了。
+
+### 分组的定期令牌刷新（2026-09-03）
+
+令牌页此前只有三条**手动**范围（全部 / 只刷失败的 / 某一个分组），刷新永远得有人
+点一下。现在每个分组可以各自设一个间隔，到点自动提交一次该分组的刷新任务。
+
+- **`000017_group_refresh_schedule`**：`mail_groups` 加 `refresh_interval_minutes`
+  （0 = 关闭，默认；否则 10080~43200 分钟，即 7~30 天）与 `next_refresh_at`，配一个
+  `WHERE refresh_interval_minutes > 0` 的部分索引。存间隔而不是 cron 表达式：用户关心的是
+  「多久碰一次令牌」，而 cron 的「每天 3 点」离开租户时区就没有意义，`tenants` 表没有那个概念。
+- **`service.RefreshScheduler`**：每分钟扫一次到期分组，用 `scope=group` 提交一个和手点
+  完全一样的任务，只是 `jobs.trigger` 记 `scheduled`、`created_by` 为空，刷新日志记
+  `refresh_type=scheduled`。进度、SSE、停止、统计因此全部原样复用。放在 service 而不是
+  `pkg/job`：任务系统按设计不认识分组和邮件协议。`JobTriggerScheduled` 与
+  `RefreshTypeScheduled` 两个常量定义了很久一直没有调用方，这次接上了。
+- **不新增端点也不新增配置项**。间隔跟着 `PATCH /mail/groups/:groupID` 走；扫描周期和
+  两个保留期都是常量。原本设计里有个 `SCHEDULE_ENABLED` 开关，删掉了——
+  `refresh_interval_minutes` 默认 0，功能开箱即关，开关本来就在数据里，
+  再加一个全局的等于两个真源，用户关了分组的定时却发现还在跑时要查两个地方。
+- **前端**：`RefreshSchedulePanel` 单独拆一个文件（`TokensPage` 已经 280 行）；
+  「按分组刷新」的 `Select` 顺手改成 `multiple`——后端的 `group_ids` 本来就收数组，
+  之前只发一个元素纯粹是界面上的限制。
+
+三条推进规则见 [05 文档 §6.2](05-api-design.md)，逐条有用例。两条写完专门做过变异验证
+（把实现改成错的那一版，确认用例会红，再还原）：
+
+- **基准必须是 `now` 而不是旧的 `next_refresh_at`。**直觉写法是 `next += interval`，
+  而那会让停机三天、间隔 6 小时的分组被判定为欠了十二个周期然后连着补跑十二轮。
+- **租户已有刷新任务在跑时，跳过但不推进周期。**推进的话，用户给五个分组设同样的间隔时，
+  只有排在最前面那个会真的被刷：其余每轮都恰好撞上「忙」再被推到下个周期。
+
+另外，扫描 SQL 里带一个 `EXISTS`，把被管理员禁用的用户的分组排除掉。其它刷新入口都走
+鉴权、禁用用户在那里已经被 `1003` 挡住，而调度器是这个系统里第一个「没有登录用户也会动」
+的东西，这道检查没有别的地方可放。
+
+顺带补了两处这次才暴露出来的欠账，两处都是**上线定时刷新的前置条件**：
+
+- `jobs` / `job_items` / `mail_refresh_logs` 此前**一条清理都没有**（只有 `job_events` 有）。
+  手动刷新低频，所以一直没出问题；定时刷新把它们变成「账号数 × 每天轮次」的稳定增量，
+  5000 账号每天四轮就是每天两万行。`main.go` 加 `purgeJobs` / `purgeRefreshLogs`，各保留 30 天。
+- 05 文档说代理明文端点「一次只出一个分组的三条代理」，`000016` 之后只剩一条，一并改了。

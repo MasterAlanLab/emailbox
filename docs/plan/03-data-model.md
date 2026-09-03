@@ -44,6 +44,8 @@ P0–P4 的表到 `000005` 就齐了。转发、分享链接、本地邮件保�
 | `000013_drop_token_refresh_quota` | 取消「每日刷新令牌」额度，删掉 `plans` / `tenant_quotas` 的 `daily_token_refresh` | 2026-08-27 |
 | `000014_drop_avatar_url` | 删掉 `users.avatar_url`：个人资料页有输入框，但界面上没有一处显示头像 | 2026-08-27 |
 | `000015_oauth_reauthorization` | Microsoft 重新授权的一次性流程表；账号刷新结果补 `error_kind` | 2026-08-28 |
+| `000016_drop_group_fallback_proxy` | 分组代理只留一个地址，删掉两个备用位；账号自己的代理仍是三列 | 2026-08-31 |
+| `000017_group_refresh_schedule` | 分组的定期令牌刷新：`refresh_interval_minutes` + `next_refresh_at` + 部分索引 | 2026-09-03 |
 
 每个迁移 sqlite / postgres 各一份 `.up.sql` / `.down.sql`。
 `000002_saas` 的表定义见 [08 文档 §2、§4](08-saas-admin.md)，不在本文重复。
@@ -62,11 +64,17 @@ CREATE TABLE mail_groups (
     sort_order           INTEGER NOT NULL DEFAULT 0,
     is_system            INTEGER NOT NULL DEFAULT 0,
     proxy_url            TEXT NOT NULL DEFAULT '',
+    -- 定时刷新令牌：0 表示关闭（默认），否则 10080~43200 分钟（7~30 天）
+    refresh_interval_minutes INTEGER NOT NULL DEFAULT 0,
+    next_refresh_at      DATETIME,
     created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (tenant_id, name)
 );
 CREATE INDEX idx_mail_groups_tenant_sort ON mail_groups(tenant_id, sort_order);
+-- 部分索引：绝大多数分组不开定时，扫描代价应与「开着的分组数」成正比
+CREATE INDEX idx_mail_groups_next_refresh
+    ON mail_groups(next_refresh_at) WHERE refresh_interval_minutes > 0;
 ```
 
 - **原设计是照搬 outlookEmail 的三级树**（`parent_id` + `level` + 防环 + 递归重算），
@@ -80,6 +88,15 @@ CREATE INDEX idx_mail_groups_tenant_sort ON mail_groups(tenant_id, sort_order);
   三列，`000016_drop_group_fallback_proxy` 去掉了两个备用位，只留一个；账号自己的代理
   仍是三列，不受影响。颜色也不再由用户挑选，建分组时随机指派一个。理由见
   [PROGRESS.md](PROGRESS.md)「分组代理砍掉两个备用位」。
+- **定时刷新的两列**（`000017`，2026-09-03）。`next_refresh_at` 落库而不是从「上次
+  任务的时间 + 间隔」倒推：倒推要先列租户再列分组再查每个分组的最后一个任务（N+1），
+  而且任务被保留期清掉之后就再也算不出来了——那时全部分组会同时表现为
+  「从没刷过，该立刻刷」。执行规则见 [05 文档 §6.2](05-api-design.md)。
+- **这两列上的时间比较必须先归一到 UTC**（`repo.nullableTime` / `utcNullTime`）。
+  SQLite 把 `time.Time` 存成字符串，于是时间列上的 `<=` 实际是字符串比较：
+  一条带 `+08:00` 写入的记录和一个 UTC 的查询参数比起来，结果只取决于两串文本的
+  字典序，表现是「明明到期了却扫不出来」且不报任何错。
+  `repo.TestGroupRefreshScheduleParity` 先红后绿钉住了这一点。
 
 ### 3.2 `mail_accounts` — 邮箱账号（核心表）
 

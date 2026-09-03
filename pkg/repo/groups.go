@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"time"
 
 	postgresdb "emailbox/db/generated/postgres"
 	sqlitedb "emailbox/db/generated/sqlite"
@@ -157,6 +158,96 @@ func (s *Store) CountAccountsPerGroup(ctx context.Context, tenantID string) (map
 	return counts, nil
 }
 
+// UpdateMailGroupSchedule 只改定时刷新的两列，是一条**窄** UPDATE。
+//
+// 不并进 UpdateMailGroup 的理由和协议层写回令牌是同一个（AGENTS.md §5.4）：
+// 调度器每个周期都会推进 next_refresh_at，用整行改写会把用户此刻正开着编辑框
+// 改到一半的名称、描述、代理一起盖掉。
+func (s *Store) UpdateMailGroupSchedule(
+	ctx context.Context, tenantID, id string, intervalMinutes int, nextRefreshAt *time.Time,
+) error {
+	var n int64
+	var e error
+	if s.driver == "sqlite" {
+		n, e = s.sqlite.UpdateMailGroupSchedule(ctx, sqlitedb.UpdateMailGroupScheduleParams{
+			RefreshIntervalMinutes: int64(intervalMinutes),
+			NextRefreshAt:          nullableTime(nextRefreshAt),
+			TenantID:               tenantID, ID: id,
+		})
+	} else {
+		n, e = s.postgres.UpdateMailGroupSchedule(ctx, postgresdb.UpdateMailGroupScheduleParams{
+			RefreshIntervalMinutes: int32(intervalMinutes),
+			NextRefreshAt:          nullableTime(nextRefreshAt),
+			TenantID:               tenantID, ID: id,
+		})
+	}
+	return rowsAffected(n, e)
+}
+
+// ListGroupsDueForRefresh 返回到期该刷新的分组，**跨全部租户**。
+//
+// 没有 tenant_id 是有意的：它和 ListStaleJobs、DeleteExpiredSessions 一样属于
+// 运维查询，调用方是进程内的后台 goroutine 而不是某个租户的请求。租户边界在
+// 下游守住——调度器只会用行上自带的 TenantID 去建任务，不接受外部传入的租户。
+func (s *Store) ListGroupsDueForRefresh(
+	ctx context.Context, dueBefore time.Time, limit int,
+) ([]model.MailGroup, error) {
+	at := utcNullTime(dueBefore)
+	out := []model.MailGroup{}
+	if s.driver == "sqlite" {
+		rows, err := s.sqlite.ListGroupsDueForRefresh(ctx, sqlitedb.ListGroupsDueForRefreshParams{
+			DueBefore: at, RowLimit: int64(limit),
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			out = append(out, *mapSQLiteGroup(r))
+		}
+		return out, nil
+	}
+	rows, err := s.postgres.ListGroupsDueForRefresh(ctx, postgresdb.ListGroupsDueForRefreshParams{
+		DueBefore: at, RowLimit: int32(limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out = append(out, *mapPostgresGroup(r))
+	}
+	return out, nil
+}
+
+// ClaimGroupRefresh 把一个到期分组的 next_refresh_at 推到 nextRefreshAt，
+// 抢到了返回 true。抢不到（false）说明这一轮不该由本次调用来处理它。
+//
+// 三种抢不到的情况都是对的：另一个实例先手了、用户在扫描和抢占之间关掉了定时、
+// 用户改了间隔（改间隔会立刻重算 next_refresh_at 到未来）。
+//
+// 它有意不碰 updated_at：那一列的含义是「用户改过这个分组」，
+// 而调度器推进周期不是用户的改动，跟着动会让每个分组看起来每小时都被编辑过。
+func (s *Store) ClaimGroupRefresh(
+	ctx context.Context, id string, dueBefore, nextRefreshAt time.Time,
+) (bool, error) {
+	var n int64
+	var e error
+	due := utcNullTime(dueBefore)
+	next := utcNullTime(nextRefreshAt)
+	if s.driver == "sqlite" {
+		n, e = s.sqlite.ClaimGroupRefresh(ctx, sqlitedb.ClaimGroupRefreshParams{
+			NextRefreshAt: next, ID: id, DueBefore: due,
+		})
+	} else {
+		n, e = s.postgres.ClaimGroupRefresh(ctx, postgresdb.ClaimGroupRefreshParams{
+			NextRefreshAt: next, ID: id, DueBefore: due,
+		})
+	}
+	if e != nil {
+		return false, normalize(e)
+	}
+	return n > 0, nil
+}
+
 // MoveAccountsToGroup 把 fromGroupID 下的账号整体移到 toGroupID，
 // 用于删除分组时让账号回落到默认分组而不是被级联删掉。
 func (s *Store) MoveAccountsToGroup(ctx context.Context, tenantID, fromGroupID, toGroupID string) error {
@@ -177,6 +268,8 @@ func mapSQLiteGroup(g sqlitedb.MailGroup) *model.MailGroup {
 		SortOrder: int(g.SortOrder), IsSystem: g.IsSystem != 0,
 		ProxyURL:  g.ProxyUrl,
 		CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt,
+		RefreshIntervalMinutes: int(g.RefreshIntervalMinutes),
+		NextRefreshAt:          timePtr(g.NextRefreshAt),
 	}
 }
 
@@ -187,5 +280,7 @@ func mapPostgresGroup(g postgresdb.MailGroup) *model.MailGroup {
 		SortOrder: int(g.SortOrder), IsSystem: g.IsSystem != 0,
 		ProxyURL:  g.ProxyUrl,
 		CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt,
+		RefreshIntervalMinutes: int(g.RefreshIntervalMinutes),
+		NextRefreshAt:          timePtr(g.NextRefreshAt),
 	}
 }

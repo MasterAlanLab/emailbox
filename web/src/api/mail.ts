@@ -16,6 +16,10 @@ export interface MailGroup {
   is_system: boolean;
   created_at: string;
   updated_at: string;
+  /** 定时刷新令牌的间隔，0 表示关闭。下限与上限见 model.ValidRefreshIntervalMinutes。 */
+  refresh_interval_minutes: number;
+  /** 下次自动刷新的时刻；关闭定时时为 null。 */
+  next_refresh_at: string | null;
 }
 
 // 带账号数的分组。列表里的代理只回打码后的串——明文要单独走 groupProxy()。
@@ -246,7 +250,15 @@ export const mailApi = {
   updateGroup: async (
     tenantID: TenantRef,
     groupID: string,
-    data: Partial<{ name: string; color: GroupColor; description: string }> & GroupProxyInput,
+    data: Partial<{
+      name: string;
+      color: GroupColor;
+      description: string;
+      // 传 0 是「关闭定时刷新」，不传才是「保持原值」——这个字段上 0 有含义，
+      // 所以后端收的是指针，前端这边也不能用 `|| undefined` 之类的写法过滤掉它。
+      refresh_interval_minutes: number;
+    }> &
+      GroupProxyInput,
   ) =>
     (await client.patch<ApiResponse<MailGroup>>(`${base(tenantID)}/groups/${groupID}`, data)).data,
   reorderGroups: async (tenantID: TenantRef, groupIDs: string[]) =>

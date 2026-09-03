@@ -79,6 +79,7 @@ func main() {
 	refreshService := service.NewRefreshService(store, messageService, quotaService, jobManager)
 	jobManager.Register(refreshService)
 	jobService := service.NewJobService(store, jobManager)
+	refreshScheduler := service.NewRefreshScheduler(store, refreshService)
 
 	// 强杀留下的 running 任务在这里被认出来并标为 interrupted。
 	// 不做这一步的话，前端的进度条会对着一个永远不动的任务一直转。
@@ -122,6 +123,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	go purgeExpiredSessions(ctx, store)
 	go purgeJobEvents(ctx, store)
+	go purgeJobs(ctx, store)
+	go purgeRefreshLogs(ctx, store)
+	// 定时刷新的调度器。它自己不执行刷新，只在分组的周期到了的时候往
+	// jobManager 提交任务，因此和上面几个清理协程一样跟着 ctx 退出即可。
+	go refreshScheduler.Run(ctx)
 	sc := echo.StartConfig{Address: configs.AppConfig.GetServerAddress(), BeforeServeFunc: func(s *http.Server) error {
 		s.ReadHeaderTimeout = 10 * time.Second
 		s.ReadTimeout = 30 * time.Second
@@ -194,6 +200,60 @@ func purgeJobEvents(ctx context.Context, store *repo.Store) {
 		cutoff := time.Now().Add(-retention)
 		if err := store.DeleteJobEventsBefore(ctx, cutoff); err != nil && ctx.Err() == nil {
 			slog.Error("清理任务事件失败", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// 任务与刷新日志的保留期。
+//
+// 写成常量而不是环境变量：这两个值不需要按部署调整，而多一个环境变量就多一处
+// 要在文档、.env.example、Docker 说明之间保持同步的东西。真要改就改这里。
+//
+// 30 天的依据是「还能用来排查」——令牌刷新的排查窗口是几天量级（哪批账号什么
+// 时候开始失败），一个月已经远超；再长就只是在给 SQLite 单文件加体重。
+const (
+	jobRetention        = 30 * 24 * time.Hour
+	refreshLogRetention = 30 * 24 * time.Hour
+)
+
+// purgeJobs 定期清理已结束的任务。job_items 与 job_events 随外键级联删除。
+//
+// 手动刷新是低频的，这张表一直没有清理也没出过问题。定时刷新把它变成了
+// 「账号数 x 每天轮次」的稳定增量——5000 个账号每天四轮就是每天两万行 job_items。
+//
+// 出错只记日志不退出：清理是旁路，下个周期会重来，而让协程悄悄退出会变成
+// 「表一直在涨但没有任何人知道」。下面 purgeRefreshLogs 同理。
+func purgeJobs(ctx context.Context, store *repo.Store) {
+	const interval = 6 * time.Hour
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		cutoff := time.Now().Add(-jobRetention)
+		if err := store.DeleteFinishedJobsBefore(ctx, cutoff); err != nil && ctx.Err() == nil {
+			slog.Error("清理过期任务失败", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// purgeRefreshLogs 定期清理刷新日志。增长原因同 purgeJobs：每个账号每轮一条。
+func purgeRefreshLogs(ctx context.Context, store *repo.Store) {
+	const interval = 6 * time.Hour
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		cutoff := time.Now().Add(-refreshLogRetention)
+		if err := store.DeleteRefreshLogsBefore(ctx, cutoff); err != nil && ctx.Err() == nil {
+			slog.Error("清理过期刷新日志失败", "error", err)
 		}
 		select {
 		case <-ctx.Done():

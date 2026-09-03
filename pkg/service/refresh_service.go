@@ -90,7 +90,13 @@ func (s *RefreshService) Run(ctx context.Context, j model.Job, item model.JobIte
 		// 账号在任务排队期间被删了。这不是失败，跳过即可。
 		return job.Result{Status: model.JobItemSkipped, Message: "账号已删除"}
 	}
-	err := s.refresh(ctx, j.TenantID, item.AccountID, j.ID, RefreshTypeJob)
+	// 定时与手点分开记进 refresh_type，这样刷新日志能回答「昨晚那批失败是定时跑出来的，
+	// 还是有人手点的」——前者要去看间隔和代理，后者多半是用户正在排查某一批账号。
+	refreshType := RefreshTypeJob
+	if j.Trigger == model.JobTriggerScheduled {
+		refreshType = RefreshTypeScheduled
+	}
+	err := s.refresh(ctx, j.TenantID, item.AccountID, j.ID, refreshType)
 	if err == nil {
 		return job.Result{Status: model.JobItemSuccess}
 	}
@@ -153,9 +159,30 @@ func (s *RefreshService) log(ctx context.Context, tenantID, accountID, email, jo
 	}
 }
 
-// SubmitBatch 提交一个批量刷新任务。
+// SubmitBatch 提交一个用户主动发起的批量刷新任务。
 func (s *RefreshService) SubmitBatch(
 	ctx context.Context, tenantID, userID, scope string, accountIDs, groupIDs []string,
+) (*model.Job, error) {
+	return s.submit(ctx, tenantID, userID, scope, model.JobTriggerManual, accountIDs, groupIDs)
+}
+
+// submitScheduled 提交一个由调度器发起的分组刷新任务。
+//
+// createdBy 留空：这次刷新没有发起人，它是配置好的周期到了。前端据此把任务
+// 显示成「定时」而不是挂在某个用户名下——把它记成分组的创建者会更糟，
+// 那是一条查审计时会把人带偏的假线索。
+//
+// 不导出：唯一的调用方是同包的 RefreshScheduler。留着这层而不让它直接调 submit，
+// 是因为那会变成一串位置参数，其中 "" 和 nil 的含义得回头翻签名才知道。
+func (s *RefreshService) submitScheduled(
+	ctx context.Context, tenantID, groupID string,
+) (*model.Job, error) {
+	return s.submit(ctx, tenantID, "", RefreshScopeGroup, model.JobTriggerScheduled,
+		nil, []string{groupID})
+}
+
+func (s *RefreshService) submit(
+	ctx context.Context, tenantID, userID, scope, trigger string, accountIDs, groupIDs []string,
 ) (*model.Job, error) {
 	accounts, err := s.selectAccounts(ctx, tenantID, scope, accountIDs, groupIDs)
 	if err != nil {
@@ -181,7 +208,7 @@ func (s *RefreshService) SubmitBatch(
 	}
 	j := model.Job{
 		ID: uuid.NewString(), TenantID: tenantID, Type: model.JobTypeTokenRefresh,
-		Trigger: model.JobTriggerManual, Status: model.JobStatusPending,
+		Trigger: trigger, Status: model.JobStatusPending,
 		CreatedBy: userID, TotalCount: len(accounts), Params: string(params),
 	}
 

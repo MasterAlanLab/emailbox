@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strings"
+	"time"
 
 	"emailbox/pkg/crypto"
 	"emailbox/pkg/model"
@@ -165,13 +166,72 @@ func (s *GroupService) Update(ctx context.Context, tenantID, groupID string, req
 	if err != nil {
 		return nil, err
 	}
+	if err := s.applyGroupFields(group, req); err != nil {
+		return nil, err
+	}
+
+	// 定时刷新的两列先算好，写库的部分和上面那些字段一起放进同一个事务。
+	// 它们是两条独立的窄 UPDATE（见 repo.UpdateMailGroupSchedule 的说明），
+	// 不放一个事务里的话，改名成功而改间隔失败会留下一个「界面显示已保存、
+	// 实际只生效了一半」的分组。
+	var (
+		interval      int
+		next          *time.Time
+		writeSchedule bool
+	)
+	if req.RefreshIntervalMinutes != nil {
+		interval = *req.RefreshIntervalMinutes
+		if !model.ValidRefreshIntervalMinutes(interval) {
+			// 按天说而不是按分钟：下限是 10080 分钟，直接把这个数字甩给用户
+			// 等于让他自己去除。天数从常量算出来，不写死，免得改了边界忘了改文案。
+			const minutesPerDay = 24 * 60
+			return nil, fmt.Errorf("定时刷新间隔必须是 0（关闭）或 %d~%d 天",
+				model.MinRefreshIntervalMinutes/minutesPerDay,
+				model.MaxRefreshIntervalMinutes/minutesPerDay)
+		}
+		writeSchedule = true
+		if interval > 0 {
+			// 按新间隔立刻重算下次时间，而不是等旧周期跑完：用户把 30 天改成
+			// 7 天，要的是「从现在起每周一次」，让他先等满原来的 30 天说不通。
+			//
+			// 从 now + interval 起算而不是立刻刷一次：打开开关只是配置动作，
+			// 不该顺手往服务商发一批请求——真想马上刷，页面上就有手动按钮。
+			t := time.Now().Add(time.Duration(interval) * time.Minute)
+			next = &t
+		}
+	}
+
+	if err := s.store.WithTx(ctx, func(tx *repo.Store) error {
+		if err := tx.UpdateMailGroup(ctx, group); err != nil {
+			return err
+		}
+		if !writeSchedule {
+			return nil
+		}
+		return tx.UpdateMailGroupSchedule(ctx, tenantID, groupID, interval, next)
+	}); err != nil {
+		if errors.Is(err, repo.ErrConflict) {
+			return nil, errors.New("同名分组已存在")
+		}
+		return nil, err
+	}
+	if writeSchedule {
+		group.RefreshIntervalMinutes = interval
+		group.NextRefreshAt = next
+	}
+	return group, nil
+}
+
+// applyGroupFields 把 PATCH 里提供的普通字段校验后写进 group。
+// 指针为 nil 的字段保持原值——这是 PATCH 的语义，不是遗漏。
+func (s *GroupService) applyGroupFields(group *model.MailGroup, req model.UpdateMailGroupRequest) error {
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
 		if name == "" {
-			return nil, errors.New("分组名称不能为空")
+			return errors.New("分组名称不能为空")
 		}
 		if len(name) > maxGroupNameLen {
-			return nil, fmt.Errorf("分组名称长度不能超过 %d 个字符", maxGroupNameLen)
+			return fmt.Errorf("分组名称长度不能超过 %d 个字符", maxGroupNameLen)
 		}
 		group.Name = name
 	}
@@ -180,24 +240,18 @@ func (s *GroupService) Update(ctx context.Context, tenantID, groupID string, req
 	}
 	if req.Color != nil {
 		if !model.ValidGroupColor(*req.Color) {
-			return nil, errors.New("分组颜色取值非法")
+			return errors.New("分组颜色取值非法")
 		}
 		group.Color = *req.Color
 	}
 	if req.ProxyURL != nil {
 		enc, err := s.encryptProxy(*req.ProxyURL)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		group.ProxyURL = enc
 	}
-	if err := s.store.UpdateMailGroup(ctx, group); err != nil {
-		if errors.Is(err, repo.ErrConflict) {
-			return nil, errors.New("同名分组已存在")
-		}
-		return nil, err
-	}
-	return group, nil
+	return nil
 }
 
 // Reorder 按传入的 ID 顺序重排分组。

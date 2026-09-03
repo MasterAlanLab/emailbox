@@ -45,3 +45,10 @@ FROM mail_refresh_logs
 WHERE tenant_id = ? AND status = 'failed' AND created_at >= ?
 GROUP BY error_kind
 ORDER BY count DESC;
+
+-- Retention sweep. Scheduled refreshes write one row per account per run, so
+-- this table grows with (accounts x runs per day) and needs its own cleanup --
+-- GetRefreshStats is unaffected (it reads mail_accounts) but the 7-day failure
+-- breakdown degrades as history piles up.
+-- name: DeleteRefreshLogsBefore :exec
+DELETE FROM mail_refresh_logs WHERE created_at < ?;

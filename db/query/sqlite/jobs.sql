@@ -104,3 +104,22 @@ SELECT COALESCE(MAX(seq), 0) FROM job_events WHERE job_id = ?;
 
 -- name: DeleteJobEventsBefore :exec
 DELETE FROM job_events WHERE created_at < ?;
+
+-- Used by the scheduler to avoid stacking refresh jobs inside one tenant.
+-- Two concurrent jobs mean 2 x JOB_WORKERS connections hitting the same
+-- provider, which is exactly what the per-account delay exists to prevent.
+-- name: CountActiveJobsByType :one
+SELECT COUNT(*) FROM jobs
+WHERE tenant_id = ? AND type = ? AND status IN ('pending', 'running', 'stopping');
+
+-- Retention sweep. job_items and job_events go with the row via ON DELETE
+-- CASCADE; mail_refresh_logs.job_id is ON DELETE SET NULL, so log rows survive
+-- their job and are swept on their own schedule.
+--
+-- COALESCE rather than a bare finished_at test: every current writer sets that
+-- column when it moves a job to a terminal state, but a row that somehow got
+-- there without one would otherwise be undeletable forever.
+-- name: DeleteFinishedJobsBefore :exec
+DELETE FROM jobs
+WHERE status IN ('succeeded', 'partial', 'failed', 'stopped', 'interrupted')
+  AND COALESCE(finished_at, created_at) < sqlc.arg(cutoff);

@@ -20,6 +20,8 @@ function group(extra: Partial<MailGroupNode> = {}): MailGroupNode {
     is_system: false,
     created_at: "",
     updated_at: "",
+    refresh_interval_minutes: 0,
+    next_refresh_at: null,
     proxy_url_masked: "socks5://puser:****@proxy.example.com:1080",
     account_count: 0,
     ...extra,

@@ -7,7 +7,38 @@ package sqlitedb
 
 import (
 	"context"
+	"database/sql"
 )
+
+const claimGroupRefresh = `-- name: ClaimGroupRefresh :execrows
+UPDATE mail_groups
+SET next_refresh_at = ?1
+WHERE id = ?2
+  AND refresh_interval_minutes > 0
+  AND next_refresh_at IS NOT NULL
+  AND next_refresh_at <= ?3
+`
+
+type ClaimGroupRefreshParams struct {
+	NextRefreshAt sql.NullTime
+	ID            string
+	DueBefore     sql.NullTime
+}
+
+// Claim-by-advancing. The guard repeats the due test instead of comparing the
+// timestamp we read a moment ago: an equality check would hinge on the exact
+// value surviving a round trip through the driver, and it would also miss the
+// two races that actually matter -- the user turning the interval off, or
+// changing it (which recomputes next_refresh_at into the future) between the
+// scan and the claim. Both leave the row failing this WHERE, so rows affected
+// comes back 0 and the caller skips it.
+func (q *Queries) ClaimGroupRefresh(ctx context.Context, arg ClaimGroupRefreshParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, claimGroupRefresh, arg.NextRefreshAt, arg.ID, arg.DueBefore)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
 
 const countAccountsPerGroup = `-- name: CountAccountsPerGroup :many
 SELECT group_id, COUNT(*) AS account_count
@@ -108,7 +139,7 @@ func (q *Queries) DeleteMailGroup(ctx context.Context, arg DeleteMailGroupParams
 }
 
 const getMailGroup = `-- name: GetMailGroup :one
-SELECT id, tenant_id, name, description, color, sort_order, is_system, proxy_url, created_at, updated_at FROM mail_groups WHERE tenant_id = ? AND id = ? LIMIT 1
+SELECT id, tenant_id, name, description, color, sort_order, is_system, proxy_url, created_at, updated_at, refresh_interval_minutes, next_refresh_at FROM mail_groups WHERE tenant_id = ? AND id = ? LIMIT 1
 `
 
 type GetMailGroupParams struct {
@@ -130,12 +161,14 @@ func (q *Queries) GetMailGroup(ctx context.Context, arg GetMailGroupParams) (Mai
 		&i.ProxyUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RefreshIntervalMinutes,
+		&i.NextRefreshAt,
 	)
 	return i, err
 }
 
 const getSystemMailGroup = `-- name: GetSystemMailGroup :one
-SELECT id, tenant_id, name, description, color, sort_order, is_system, proxy_url, created_at, updated_at FROM mail_groups WHERE tenant_id = ? AND is_system = 1 LIMIT 1
+SELECT id, tenant_id, name, description, color, sort_order, is_system, proxy_url, created_at, updated_at, refresh_interval_minutes, next_refresh_at FROM mail_groups WHERE tenant_id = ? AND is_system = 1 LIMIT 1
 `
 
 func (q *Queries) GetSystemMailGroup(ctx context.Context, tenantID string) (MailGroup, error) {
@@ -152,12 +185,78 @@ func (q *Queries) GetSystemMailGroup(ctx context.Context, tenantID string) (Mail
 		&i.ProxyUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RefreshIntervalMinutes,
+		&i.NextRefreshAt,
 	)
 	return i, err
 }
 
+const listGroupsDueForRefresh = `-- name: ListGroupsDueForRefresh :many
+SELECT id, tenant_id, name, description, color, sort_order, is_system, proxy_url, created_at, updated_at, refresh_interval_minutes, next_refresh_at FROM mail_groups
+WHERE refresh_interval_minutes > 0
+  AND next_refresh_at IS NOT NULL
+  AND next_refresh_at <= ?1
+  AND EXISTS (
+      SELECT 1 FROM tenant_members m
+      JOIN users u ON u.id = m.user_id
+      WHERE m.tenant_id = mail_groups.tenant_id AND u.status = 'active'
+  )
+ORDER BY next_refresh_at
+LIMIT ?2
+`
+
+type ListGroupsDueForRefreshParams struct {
+	DueBefore sql.NullTime
+	RowLimit  int64
+}
+
+// Scheduler scan. Deliberately not scoped by tenant_id: this is an operational
+// query in the same family as ListStaleJobs and DeleteExpiredSessions, not a
+// business read. The tenant boundary is upheld downstream -- the scheduler only
+// ever submits a job for the tenant_id carried on the row it just read.
+// The EXISTS guard stops the scheduler from acting for a tenant whose user an
+// admin has disabled. It is the only place that check can live: every other
+// refresh path runs behind authentication, which already rejects a disabled
+// user with code 1003. Without it the platform would keep calling the provider
+// every cycle on behalf of an account nobody is allowed to log into.
+func (q *Queries) ListGroupsDueForRefresh(ctx context.Context, arg ListGroupsDueForRefreshParams) ([]MailGroup, error) {
+	rows, err := q.db.QueryContext(ctx, listGroupsDueForRefresh, arg.DueBefore, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MailGroup{}
+	for rows.Next() {
+		var i MailGroup
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.Name,
+			&i.Description,
+			&i.Color,
+			&i.SortOrder,
+			&i.IsSystem,
+			&i.ProxyUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.RefreshIntervalMinutes,
+			&i.NextRefreshAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMailGroups = `-- name: ListMailGroups :many
-SELECT id, tenant_id, name, description, color, sort_order, is_system, proxy_url, created_at, updated_at FROM mail_groups WHERE tenant_id = ? ORDER BY sort_order, created_at
+SELECT id, tenant_id, name, description, color, sort_order, is_system, proxy_url, created_at, updated_at, refresh_interval_minutes, next_refresh_at FROM mail_groups WHERE tenant_id = ? ORDER BY sort_order, created_at
 `
 
 func (q *Queries) ListMailGroups(ctx context.Context, tenantID string) ([]MailGroup, error) {
@@ -180,6 +279,8 @@ func (q *Queries) ListMailGroups(ctx context.Context, tenantID string) ([]MailGr
 			&i.ProxyUrl,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RefreshIntervalMinutes,
+			&i.NextRefreshAt,
 		); err != nil {
 			return nil, err
 		}
@@ -233,6 +334,32 @@ func (q *Queries) UpdateMailGroup(ctx context.Context, arg UpdateMailGroupParams
 		arg.Description,
 		arg.Color,
 		arg.ProxyUrl,
+		arg.TenantID,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateMailGroupSchedule = `-- name: UpdateMailGroupSchedule :execrows
+UPDATE mail_groups
+SET refresh_interval_minutes = ?, next_refresh_at = ?, updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = ? AND id = ?
+`
+
+type UpdateMailGroupScheduleParams struct {
+	RefreshIntervalMinutes int64
+	NextRefreshAt          sql.NullTime
+	TenantID               string
+	ID                     string
+}
+
+func (q *Queries) UpdateMailGroupSchedule(ctx context.Context, arg UpdateMailGroupScheduleParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateMailGroupSchedule,
+		arg.RefreshIntervalMinutes,
+		arg.NextRefreshAt,
 		arg.TenantID,
 		arg.ID,
 	)

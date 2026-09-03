@@ -148,6 +148,36 @@ func (s *Store) RequestJobStop(ctx context.Context, tenantID, jobID string) erro
 	}))
 }
 
+// CountActiveJobsByType 数一个租户下还没终结的某类任务。
+//
+// 调度器靠它避免在同一个租户里叠任务：Manager 每个任务各起 Workers 个 worker，
+// 两个刷新任务并行就是双倍并发打同一个服务商，而 JOB_ACCOUNT_DELAY_MS
+// 只在单个 worker 内部起作用，拦不住这种叠加。
+func (s *Store) CountActiveJobsByType(ctx context.Context, tenantID, jobType string) (int, error) {
+	if s.driver == "sqlite" {
+		n, err := s.sqlite.CountActiveJobsByType(ctx, sqlitedb.CountActiveJobsByTypeParams{
+			TenantID: tenantID, Type: jobType,
+		})
+		return int(n), err
+	}
+	n, err := s.postgres.CountActiveJobsByType(ctx, postgresdb.CountActiveJobsByTypeParams{
+		TenantID: tenantID, Type: jobType,
+	})
+	return int(n), err
+}
+
+// DeleteFinishedJobsBefore 删除 cutoff 之前结束的任务，items 与 events 随外键级联。
+//
+// 手动刷新是低频的，这张表一直没有清理也没出过问题；定时刷新会把它变成
+// 「账号数 x 每天次数」的稳定增量，不清理迟早拖垮 SQLite 单文件。
+func (s *Store) DeleteFinishedJobsBefore(ctx context.Context, cutoff time.Time) error {
+	at := utcNullTime(cutoff)
+	if s.driver == "sqlite" {
+		return s.sqlite.DeleteFinishedJobsBefore(ctx, at)
+	}
+	return s.postgres.DeleteFinishedJobsBefore(ctx, at)
+}
+
 // GetJobStatus 只取状态。worker 在每个 item 之前问一次，用来响应停止请求。
 func (s *Store) GetJobStatus(ctx context.Context, jobID string) (string, error) {
 	if s.driver == "sqlite" {

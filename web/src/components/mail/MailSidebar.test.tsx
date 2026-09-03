@@ -20,6 +20,8 @@ function group(id: string, name: string, extra: Partial<MailGroupNode> = {}): Ma
     is_system: false,
     created_at: "",
     updated_at: "",
+    refresh_interval_minutes: 0,
+    next_refresh_at: null,
     proxy_url_masked: "",
     account_count: 0,
     ...extra,

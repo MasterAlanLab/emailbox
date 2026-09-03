@@ -9,6 +9,7 @@ import { mailApi, type MailGroupNode, type MailScope, type TenantRef } from "@/a
 import { PageShell } from "@/components/layout/PageShell";
 import { groupSelectItems } from "@/components/mail/groupOptions";
 import { ReauthorizationPanel } from "@/components/mail/ReauthorizationPanel";
+import { RefreshSchedulePanel } from "@/components/mail/RefreshSchedulePanel";
 import { useAsyncAction } from "@/lib/useAsyncAction";
 import { useJobStore } from "@/store/jobStore";
 import { useTenantStore } from "@/store/tenantStore";
@@ -38,10 +39,14 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
 
   const [stats, setStats] = useState<RefreshStats | null>(null);
   const [groups, setGroups] = useState<MailGroupNode[]>([]);
-  // null 而不是空串：Kumo/Base UI 的 Select 靠 value == null 才显示 placeholder，
-  // 空串会被当成「选中了一个不存在的项」，触发器上什么都不显示。
-  const [groupID, setGroupID] = useState<string | null>(null);
+  // 多选，因此是数组而不是 string | null——后端的 group_ids 本来就收数组，
+  // 之前只发一个元素纯粹是界面上的限制。空数组时 Select 自己显示 placeholder。
+  const [groupIDs, setGroupIDs] = useState<string[]>([]);
   const [loadError, setLoadError] = useState("");
+  // 改完定时间隔要把分组重取一遍，好让「下次刷新」显示后端算出来的新值。
+  // 用一个自增的 key 触发，而不是在保存回调里直接 setGroups——那样前端要自己
+  // 复算一遍 next_refresh_at，和后端算出两个不同的时刻只是迟早的事。
+  const [groupsKey, setGroupsKey] = useState(0);
   const { error, pending, run } = useAsyncAction();
 
   const job = useJobStore();
@@ -95,13 +100,13 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
     };
     // 依赖同上：tenant 是每次渲染新建的对象，用 tenantKey 代表它。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantKey]);
+  }, [tenantKey, groupsKey]);
 
   const submit = (scopeName: "all" | "failed" | "group") =>
     void run(async () => {
       const resp = await jobApi.submitRefresh(tenant, {
         scope: scopeName,
-        group_ids: scopeName === "group" && groupID ? [groupID] : undefined,
+        group_ids: scopeName === "group" && groupIDs.length > 0 ? groupIDs : undefined,
       });
       useJobStore.getState().watch(tenant, resp.data.id);
     });
@@ -161,17 +166,18 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
               className="w-44"
               aria-label="要刷新的分组"
               placeholder="选择分组…"
+              multiple
               items={groupSelectItems(groups, { counts: true })}
-              value={groupID}
-              onValueChange={(value: string | null) => setGroupID(value)}
+              value={groupIDs}
+              onValueChange={(value: string[]) => setGroupIDs(value)}
             />
             <Button
               variant="secondary"
               icon={ArrowsClockwise}
-              disabled={pending || running || !groupID}
+              disabled={pending || running || groupIDs.length === 0}
               onClick={() => submit("group")}
             >
-              刷新该分组
+              刷新选中分组
             </Button>
           </div>
         )}
@@ -232,6 +238,12 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
           )}
         </LayerCard>
       )}
+
+      <RefreshSchedulePanel
+        tenant={tenant}
+        groups={groups}
+        onSaved={() => setGroupsKey((k) => k + 1)}
+      />
 
       <ReauthorizationPanel
         key={tenantKey}

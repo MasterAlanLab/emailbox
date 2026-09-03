@@ -104,6 +104,24 @@ func timePtr(v sql.NullTime) *time.Time {
 	return &x
 }
 
+// nullableTime 把可空时刻转成驱动参数，并统一归一到 UTC。
+//
+// UTC 不是可选的。SQLite 把 time.Time 存成字符串，于是时间列上的 `<=` 实际是
+// **字符串比较**：一条带 +08:00 写入的记录和一个 UTC 的查询参数比起来，
+// 结果只取决于两串文本的字典序。表现是「明明到期了却扫不出来」，
+// 而且不会报任何错——TestGroupRefreshScheduleParity 就是先红后绿钉住这一点的。
+func nullableTime(v *time.Time) sql.NullTime {
+	if v == nil {
+		return sql.NullTime{}
+	}
+	return utcNullTime(*v)
+}
+
+// utcNullTime 同 nullableTime，供非指针的必填时刻使用。
+func utcNullTime(v time.Time) sql.NullTime {
+	return sql.NullTime{Time: v.UTC(), Valid: true}
+}
+
 func boolToInt64(v bool) int64 {
 	if v {
 		return 1

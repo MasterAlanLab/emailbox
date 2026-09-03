@@ -171,3 +171,81 @@ func TestGroupTenantIsolationOverHTTP(t *testing.T) {
 		t.Error("A 的分组列表应仍可访问")
 	}
 }
+
+// 定时刷新间隔的边界与回读。
+//
+// 越权改这个字段不用另测：PATCH 的租户隔离已由 TestGroupTenantIsolationOverHTTP
+// 覆盖，而 UpdateMailGroupSchedule 的 WHERE 同样带 tenant_id，跨租户一样落 404。
+// 这里只钉两件真会错的事：下限拦不拦得住，以及 0 有没有被当成「没传」丢掉。
+func TestGroupRefreshIntervalOverHTTP(t *testing.T) {
+	e := newTestServer(t)
+	token, tenantID := register(t, e, "alice", "alice@example.com")
+	groupID := createGroup(t, e, token, tenantID, `{"name":"客户 A"}`)
+
+	interval := func() (int, bool) {
+		t.Helper()
+		status, resp := do(t, e, http.MethodGet, mailPath(tenantID, "/groups"), token, "")
+		if status != http.StatusOK {
+			t.Fatalf("读分组列表失败: %d %s", status, resp)
+		}
+		var payload struct {
+			Data []struct {
+				ID                     string  `json:"id"`
+				RefreshIntervalMinutes int     `json:"refresh_interval_minutes"`
+				NextRefreshAt          *string `json:"next_refresh_at"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(resp), &payload); err != nil {
+			t.Fatal(err)
+		}
+		for _, g := range payload.Data {
+			if g.ID == groupID {
+				return g.RefreshIntervalMinutes, g.NextRefreshAt != nil
+			}
+		}
+		t.Fatalf("分组 %s 不在列表里", groupID)
+		return 0, false
+	}
+
+	if got, hasNext := interval(); got != 0 || hasNext {
+		t.Errorf("新建分组的定时刷新应当是关闭的，实际 interval=%d hasNext=%v", got, hasNext)
+	}
+
+	// 低于下限必须被拒。放过去的话，用户填个 5 分钟就能让平台每五分钟替他
+	// 打一轮服务商，而风控的表现和令牌真的过期长得一模一样。
+	patch := mailPath(tenantID, "/groups/"+groupID)
+	if status, body := do(t, e, http.MethodPatch, patch, token, `{"refresh_interval_minutes":10079}`); status == http.StatusOK {
+		t.Errorf("低于下限（7 天 = 10080 分钟）的间隔应被拒绝，实际 200 %s", body)
+	}
+	if got, _ := interval(); got != 0 {
+		t.Errorf("被拒绝的请求不该改动任何东西，实际 interval=%d", got)
+	}
+
+	// 合法值：写进去并且算出了下次时刻。
+	if status, body := do(t, e, http.MethodPatch, patch, token, `{"refresh_interval_minutes":10080}`); status != http.StatusOK {
+		t.Fatalf("设置 7 天间隔失败: %d %s", status, body)
+	}
+	if got, hasNext := interval(); got != 10080 || !hasNext {
+		t.Errorf("间隔应为 10080 且带下次时刻，实际 interval=%d hasNext=%v", got, hasNext)
+	}
+
+	// 关闭。0 在这个字段上是有含义的取值，一旦哪层把它当 falsy 过滤掉，
+	// 界面会显示已关闭而实际还在按原周期刷。
+	if status, body := do(t, e, http.MethodPatch, patch, token, `{"refresh_interval_minutes":0}`); status != http.StatusOK {
+		t.Fatalf("关闭定时刷新失败: %d %s", status, body)
+	}
+	if got, hasNext := interval(); got != 0 || hasNext {
+		t.Errorf("关闭后应当既没有间隔也没有下次时刻，实际 interval=%d hasNext=%v", got, hasNext)
+	}
+
+	// 不传这个字段时保持原值——PATCH 的语义，和代理字段一致。
+	if status, body := do(t, e, http.MethodPatch, patch, token, `{"refresh_interval_minutes":20160}`); status != http.StatusOK {
+		t.Fatalf("重新开启失败: %d %s", status, body)
+	}
+	if status, body := do(t, e, http.MethodPatch, patch, token, `{"name":"改个名"}`); status != http.StatusOK {
+		t.Fatalf("只改名失败: %d %s", status, body)
+	}
+	if got, _ := interval(); got != 20160 {
+		t.Errorf("只改名不应动到定时配置，实际 interval=%d", got)
+	}
+}

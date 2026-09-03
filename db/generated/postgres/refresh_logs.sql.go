@@ -76,6 +76,19 @@ func (q *Queries) CreateRefreshLog(ctx context.Context, arg CreateRefreshLogPara
 	return err
 }
 
+const deleteRefreshLogsBefore = `-- name: DeleteRefreshLogsBefore :exec
+DELETE FROM mail_refresh_logs WHERE created_at < $1
+`
+
+// Retention sweep. Scheduled refreshes write one row per account per run, so
+// this table grows with (accounts x runs per day) and needs its own cleanup --
+// GetRefreshStats is unaffected (it reads mail_accounts) but the 7-day failure
+// breakdown degrades as history piles up.
+func (q *Queries) DeleteRefreshLogsBefore(ctx context.Context, createdAt time.Time) error {
+	_, err := q.db.ExecContext(ctx, deleteRefreshLogsBefore, createdAt)
+	return err
+}
+
 const getRefreshStats = `-- name: GetRefreshStats :one
 SELECT
     COUNT(*) AS total,

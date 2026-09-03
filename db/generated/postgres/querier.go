@@ -18,11 +18,23 @@ type Querier interface {
 	// Counters are bumped with a relative UPDATE rather than read-modify-write:
 	// N workers finish items concurrently, and "SELECT then SET" loses increments.
 	BumpJobCounts(ctx context.Context, arg BumpJobCountsParams) error
+	// Claim-by-advancing. The guard repeats the due test instead of comparing the
+	// timestamp we read a moment ago: an equality check would hinge on the exact
+	// value surviving a round trip through the driver, and it would also miss the
+	// two races that actually matter -- the user turning the interval off, or
+	// changing it (which recomputes next_refresh_at into the future) between the
+	// scan and the claim. Both leave the row failing this WHERE, so rows affected
+	// comes back 0 and the caller skips it.
+	ClaimGroupRefresh(ctx context.Context, arg ClaimGroupRefreshParams) (int64, error)
 	ClearDefaultPlanExcept(ctx context.Context, id string) error
 	ClearSessionsActiveTenant(ctx context.Context, activeTenantID sql.NullString) error
 	ConsumeOAuthAuthorization(ctx context.Context, arg ConsumeOAuthAuthorizationParams) (int64, error)
 	ConsumeUsage(ctx context.Context, arg ConsumeUsageParams) (int32, error)
 	CountAccountsPerGroup(ctx context.Context, tenantID string) ([]CountAccountsPerGroupRow, error)
+	// Used by the scheduler to avoid stacking refresh jobs inside one tenant.
+	// Two concurrent jobs mean 2 x JOB_WORKERS connections hitting the same
+	// provider, which is exactly what the per-account delay exists to prevent.
+	CountActiveJobsByType(ctx context.Context, arg CountActiveJobsByTypeParams) (int64, error)
 	CountAdminUsers(ctx context.Context, arg CountAdminUsersParams) (int64, error)
 	CountAuditLogs(ctx context.Context, arg CountAuditLogsParams) (int64, error)
 	CountConflictingAliases(ctx context.Context, arg CountConflictingAliasesParams) (int64, error)
@@ -87,10 +99,23 @@ type Querier interface {
 	CreateUser(ctx context.Context, arg CreateUserParams) error
 	DeleteExpiredOAuthAuthorizations(ctx context.Context, tenantID string) (int64, error)
 	DeleteExpiredSessions(ctx context.Context) error
+	// Retention sweep. job_items and job_events go with the row via ON DELETE
+	// CASCADE; mail_refresh_logs.job_id is ON DELETE SET NULL, so log rows survive
+	// their job and are swept on their own schedule.
+	//
+	// COALESCE rather than a bare finished_at test: every current writer sets that
+	// column when it moves a job to a terminal state, but a row that somehow got
+	// there without one would otherwise be undeletable forever.
+	DeleteFinishedJobsBefore(ctx context.Context, cutoff sql.NullTime) error
 	DeleteJobEventsBefore(ctx context.Context, createdAt time.Time) error
 	DeleteMailAliasesByAccount(ctx context.Context, arg DeleteMailAliasesByAccountParams) error
 	DeleteMailGroup(ctx context.Context, arg DeleteMailGroupParams) (int64, error)
 	DeletePlan(ctx context.Context, id string) (int64, error)
+	// Retention sweep. Scheduled refreshes write one row per account per run, so
+	// this table grows with (accounts x runs per day) and needs its own cleanup --
+	// GetRefreshStats is unaffected (it reads mail_accounts) but the 7-day failure
+	// breakdown degrades as history piles up.
+	DeleteRefreshLogsBefore(ctx context.Context, createdAt time.Time) error
 	DeleteSession(ctx context.Context, id string) (int64, error)
 	DeleteSessionsByUserID(ctx context.Context, userID string) error
 	DeleteTenantMemberKeepingOwner(ctx context.Context, arg DeleteTenantMemberKeepingOwnerParams) (int64, error)
@@ -150,6 +175,16 @@ type Querier interface {
 	// Filters are all optional. Tie-break on id so pages stay stable when several
 	// rows share a timestamp (a batch operation writes many rows in one second).
 	ListAuditLogsPage(ctx context.Context, arg ListAuditLogsPageParams) ([]AuditLog, error)
+	// Scheduler scan. Deliberately not scoped by tenant_id: this is an operational
+	// query in the same family as ListStaleJobs and DeleteExpiredSessions, not a
+	// business read. The tenant boundary is upheld downstream -- the scheduler only
+	// ever submits a job for the tenant_id carried on the row it just read.
+	// The EXISTS guard stops the scheduler from acting for a tenant whose user an
+	// admin has disabled. It is the only place that check can live: every other
+	// refresh path runs behind authentication, which already rejects a disabled
+	// user with code 1003. Without it the platform would keep calling the provider
+	// every cycle on behalf of an account nobody is allowed to log into.
+	ListGroupsDueForRefresh(ctx context.Context, arg ListGroupsDueForRefreshParams) ([]MailGroup, error)
 	// Replay after a dropped SSE connection: the client sends its last seq back.
 	ListJobEventsAfter(ctx context.Context, arg ListJobEventsAfterParams) ([]JobEvent, error)
 	ListJobItemsPage(ctx context.Context, arg ListJobItemsPageParams) ([]JobItem, error)
@@ -204,6 +239,7 @@ type Querier interface {
 	// the next refresh, so this must be its own statement that cannot be skipped.
 	UpdateMailAccountRefreshToken(ctx context.Context, arg UpdateMailAccountRefreshTokenParams) (int64, error)
 	UpdateMailGroup(ctx context.Context, arg UpdateMailGroupParams) (int64, error)
+	UpdateMailGroupSchedule(ctx context.Context, arg UpdateMailGroupScheduleParams) (int64, error)
 	UpdateMailGroupSort(ctx context.Context, arg UpdateMailGroupSortParams) error
 	// code is not updatable: it is the stable identifier other systems key off.
 	UpdatePlan(ctx context.Context, arg UpdatePlanParams) (int64, error)

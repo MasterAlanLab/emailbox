@@ -31,6 +31,26 @@ func ValidGroupColor(c GroupColor) bool {
 	return false
 }
 
+// 定时刷新的间隔边界，单位分钟。0 不在这个区间里，它单独表示「关闭定时刷新」。
+//
+// 下限 7 天：Outlook 的 refresh_token 是滑动过期（连续 90 天不用才失效），
+// 所以定时刷新要解决的问题只有一个——别让令牌因为长期没人碰而作废。
+// 每周碰一次对这件事绰绰有余，再密就纯粹是在给服务商加无谓的量，
+// 而量大了会撞风控——风控的表现恰好是一批账号集体认证失败，和令牌真的过期
+// 在界面上长得一模一样，用户会朝着完全错误的方向排查。
+//
+// 上限 30 天：再长就逼近 90 天的失效线，一次失败还没等到下次重试就已经晚了。
+const (
+	MinRefreshIntervalMinutes = 7 * 24 * 60
+	MaxRefreshIntervalMinutes = 30 * 24 * 60
+)
+
+// ValidRefreshIntervalMinutes 判断定时刷新间隔是否合法。0 表示关闭。
+func ValidRefreshIntervalMinutes(minutes int) bool {
+	return minutes == 0 ||
+		(minutes >= MinRefreshIntervalMinutes && minutes <= MaxRefreshIntervalMinutes)
+}
+
 // MailGroup 是一个分组。分组是平的一层，没有父子关系——
 // 它要解决的问题只是「把账号分堆」，层级带来的规则（选上级、层数上限、
 // 直属与含子树两个账号数口径）在这个产品里没有对应的用法。
@@ -47,6 +67,14 @@ type MailGroup struct {
 
 	// 代理地址。含认证口令，出接口前必须打码。
 	ProxyURL string `json:"-"`
+
+	// RefreshIntervalMinutes 是定时刷新令牌的间隔，0 表示关闭（默认）。
+	// 存间隔而不是 cron 表达式：用户关心的是「多久碰一次令牌」，
+	// 而 cron 的「每天 3 点」离开租户时区就没有意义，tenants 表里没有那个概念。
+	RefreshIntervalMinutes int `json:"refresh_interval_minutes"`
+	// NextRefreshAt 是下次该刷新的时刻，由调度器推进。
+	// 它落库而不是从上次任务倒推，理由见 000017 迁移。
+	NextRefreshAt *time.Time `json:"next_refresh_at"`
 }
 
 // MailGroupNode 是带账号数的分组，供前端左栏直接渲染。
@@ -83,6 +111,9 @@ type UpdateMailGroupRequest struct {
 	Description *string     `json:"description"`
 	Color       *GroupColor `json:"color"`
 	ProxyURL    *string     `json:"proxy_url"`
+	// RefreshIntervalMinutes 传 0 是「关闭定时刷新」，不传是「保持原值」——
+	// 这正是这里必须用指针的原因：0 在这个字段上是一个有意义的取值。
+	RefreshIntervalMinutes *int `json:"refresh_interval_minutes"`
 }
 
 type ReorderMailGroupsRequest struct {

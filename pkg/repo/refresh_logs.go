@@ -9,6 +9,18 @@ import (
 	"emailbox/pkg/model"
 )
 
+// DeleteRefreshLogsBefore 删除 cutoff 之前的刷新日志。
+//
+// 与任务清理同一个理由：定时刷新每个账号每轮写一条，这张表的增速从此跟着
+// 账号数走。GetRefreshStats 的四个数字读的是 mail_accounts 不受影响，
+// 但「最近 7 天失败原因」那条聚合会随历史堆积一起变慢。
+func (s *Store) DeleteRefreshLogsBefore(ctx context.Context, cutoff time.Time) error {
+	if s.driver == "sqlite" {
+		return s.sqlite.DeleteRefreshLogsBefore(ctx, cutoff.UTC())
+	}
+	return s.postgres.DeleteRefreshLogsBefore(ctx, cutoff.UTC())
+}
+
 // CreateRefreshLog 记一次刷新结果。
 func (s *Store) CreateRefreshLog(ctx context.Context, l model.RefreshLog) error {
 	var err error

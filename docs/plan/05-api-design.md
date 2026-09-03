@@ -107,7 +107,7 @@ Echo 的后注册中间件会覆盖前面的同类中间件（BodyLimit 读的�
 | GET | `/mail/groups` | group:read | 返回分组列表（各带账号数），顺序即 sort_order；代理只给 `*_masked` |
 | GET | `/mail/groups/:groupID/proxy` | **account:secret** | 代理**明文**，供编辑表单回填；强制审计 |
 | POST | `/mail/groups` | group:write | 创建 |
-| PATCH | `/mail/groups/:groupID` | group:write | 改名/颜色/描述/代理 |
+| PATCH | `/mail/groups/:groupID` | group:write | 改名/颜色/描述/代理/定时刷新间隔 |
 | DELETE | `/mail/groups/:groupID` | group:write | 删除，账号回落默认分组 |
 | POST | `/mail/groups/reorder` | group:write | 排序，body `{group_ids: []}` |
 
@@ -117,14 +117,23 @@ Echo 的后注册中间件会覆盖前面的同类中间件（BodyLimit 读的�
 **代理明文只从 `/proxy` 这一个端点出去。**它是读操作，但收敛口径跟着「读走了什么」
 而不是「谁在读」走，因此按导出同一档：`account:secret` 权限（API Key 天然没有这一项）
 ＋ `AuditWrite` 而不是 `AuditAdminRead`——普通用户取走一条代理口令同样要留痕。
-没配限流：一次只出一个分组的三条代理，而分组数本身受配额约束，
-与「一次取走整租户凭据」的导出不是一个量级。
+没配限流：一次只出一个分组的一条代理（`000016` 去掉两个备用位之后就只剩一条了），
+而分组数本身受配额约束，与「一次取走整租户凭据」的导出不是一个量级。
 
 它存在的理由是编辑表单（06 文档 §6.2「代理 URL 在输入框以外一律显示打码版」）：
 回填打码串的话，用户改完名字一按保存，`socks5://u:****@host` 就被当成口令原样存回库里，
 代理从此是坏的，而界面上看不出来。配套地，`PATCH` 的代理三项是指针语义——
 **不传即保持原值**，只有显式传空串才是清空；前端在明文没读回来时正是靠这一条
 整组省掉代理字段。两条都由 `api/mail_groups_test.go:TestGroupProxyRoundTrip` 钉住。
+
+**定时刷新的间隔也挂在分组上**（`refresh_interval_minutes`，2026-09-03 起）。
+`GET /mail/groups` 一并回 `refresh_interval_minutes` 与 `next_refresh_at`，
+`PATCH` 收前者，取值是 0（关闭）或 10080~43200 分钟（7~30 天）。语义与执行见 §6.2。
+
+不为它单开 `/mail/groups/:groupID/schedule`：它就是分组的一个属性，多一个端点等于
+多一处租户校验、权限与审计要维护。这个字段同样是指针语义，但和代理相反——
+**0 是有含义的取值（关闭），不是「没传」**，因此后端收 `*int`，
+前端也不能用 falsy 判断把它过滤掉。
 
 ### 3.1 API Key（对外取件）
 
@@ -302,6 +311,49 @@ data: {"status":"partial","success":4900,"failed":100,"error_summary":"..."}
 GET /mail/refresh/stats        → {total, success, failed, never, last_job:{...}, by_error_kind:{banned:47,...}}
 GET /mail/refresh/logs         → 分页，支持 status / account_id / 时间范围
 ```
+
+### 6.2 定时刷新（2026-09-03）
+
+没有新端点。间隔配置走 `PATCH /mail/groups/:groupID`（见 §3），执行由进程内的
+`service.RefreshScheduler` 每分钟扫一次 `mail_groups.next_refresh_at` 完成，
+到期就用 `scope=group` 提交一个和手点完全一样的刷新任务——只是
+`jobs.trigger` 记 `scheduled`、`created_by` 为空，刷新日志记 `refresh_type=scheduled`。
+因此进度、SSE、停止、统计全部原样复用，前端不需要第二套东西。
+
+存间隔而不是 cron 表达式：用户关心的是「多久碰一次令牌」，而 cron 的「每天 3 点」
+离开租户时区就没有意义，`tenants` 表里没有那个概念。
+
+三条推进规则（`pkg/service/refresh_scheduler_test.go` 逐条钉住）：
+
+| 情况 | 提交任务 | 推进 `next_refresh_at` |
+|---|---|---|
+| 到期，租户没有 token_refresh 在跑 | 是 | `now + interval` |
+| 到期，租户已有同类任务未终结 | 否 | **不推进**，下一轮再看 |
+| 到期，分组下没有可刷新账号 | 否 | `now + interval` |
+
+两条容易写错的地方：
+
+- **基准是 `now`，不是旧的 `next_refresh_at`。**按旧值累加的话，停机三天再启动时
+  一个 6 小时间隔的分组会被判定为欠了十二个周期然后连着补跑——那不是补进度，
+  是把服务商直接打到风控。
+- **租户忙时不推进周期。**推进的话，用户给五个分组设同样的间隔时，只有排在最前面
+  那个会真的被刷：其余每轮都恰好撞上「忙」再被推到下个周期，
+  表现为「有几个分组从来没被定时刷过」。不推进则它们只是排队。
+
+**被管理员禁用的用户，其分组不再被扫到**（扫描 SQL 里的 `EXISTS` 子句）。
+这道检查没有别的地方可放：其它刷新入口都走鉴权，禁用用户在那里已经被 `1003` 挡住了，
+而调度器是这个系统里第一个「没有登录用户也会动」的东西。少了它，平台会替一个谁都
+登不进去的账号，每个周期继续打一轮服务商。周期也不推进，用户被重新启用后立刻就是到期状态。
+
+同一租户不叠加刷新任务（`repo.CountActiveJobsByType`）：`job.Manager` 每个任务各起
+`JOB_WORKERS` 个 worker，两个任务并行就是双倍并发打同一个服务商，而
+`JOB_ACCOUNT_DELAY_MS` 只在单个 worker 内部起作用，拦不住这种叠加。跨租户不额外限制
+——两个用户同时点「刷新全部」这个情况本来就存在，不是定时引入的。
+
+**保留期清理是这个功能的前置条件，不是附赠。**手动刷新是低频的，`jobs` / `job_items` /
+`mail_refresh_logs` 一直没有清理也没出过问题；定时刷新把它们变成「账号数 × 每天轮次」
+的稳定增量（5000 账号每天四轮 ≈ 每天两万行）。`main.go` 的 `purgeJobs` 与
+`purgeRefreshLogs` 各保留 30 天，写成常量。
 
 ## 7. 已删除的端点组
 
