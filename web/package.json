@@ -38,7 +38,7 @@
     "esbuild": "^0.28.2",
     "eslint": "^10.9.0",
     "eslint-plugin-react-hooks": "^7.0.0",
-    "eslint-plugin-react-refresh": "^0.5.4",
+    "eslint-plugin-react-refresh": "^0.5.5",
     "globals": "^17.11.0",
     "jsdom": "^30.0.0",
     "prettier": "^3.9.6",
