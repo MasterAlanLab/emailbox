@@ -58,17 +58,17 @@ docker compose up -d --build
 
 ### 使用 GHCR 镜像
 
-当前版本是 `v0.2.1`，镜像位于 [GitHub Container Registry](https://github.com/users/MasterAlanLab/packages/container/package/emailbox)：
+当前版本是 `v0.3.1`，镜像位于 [GitHub Container Registry](https://github.com/users/MasterAlanLab/packages/container/package/emailbox)：
 
 ```bash
-docker pull ghcr.io/masteralanlab/emailbox:v0.2.1
+docker pull ghcr.io/masteralanlab/emailbox:v0.3.1
 mkdir -p data
 docker run -d \
   --name emailbox \
   --restart unless-stopped \
   -p 1323:1323 \
   -v "$PWD/data:/app/data" \
-  ghcr.io/masteralanlab/emailbox:v0.2.1
+  ghcr.io/masteralanlab/emailbox:v0.3.1
 ```
 
 生产部署请配置 `APP_ENV=production` 和 `ENCRYPTION_KEY`。Linux 主机首次挂载 `data` 目录时，需要让容器的 uid 1000 具备写入权限。
@@ -88,20 +88,6 @@ Microsoft OAuth 默认使用参考项目的应用配置。重新授权时，如�
 - [开发方案](docs/plan/README.md) — 架构、数据模型、协议层、API 和前端
 - [实施进度与踩过的坑](docs/plan/PROGRESS.md) — 已完成工作和实现过程中的重要结论
 - [AGENTS.md](AGENTS.md) — 仓库开发约定
-
-## 资源推荐
-
-下面列出一些我自己使用过、或认为适合这套工作流的服务。部分链接属于推广 / 推荐（affiliate）链接；通过它们注册或购买可能为作者带来少量返佣，**不会额外增加你的花费**。
-
-- **代理**：[Free Proxy](https://github.com/MasterAlanLab/free-proxy) — 在自己的 VPS 上运行免费代理池，接入 Emailbox 的分组代理
-- **海外账号、电话卡**：[点这里](https://cutt.ly/dywt86NC) — TG、TikTok 等海外平台账号
-- **打码平台**：[Captcha.run](https://captcha.run/sso?inviter=542f4f4f-31b6-4b70-b485-c4762c45d1e8) · [YesCaptcha](https://cutt.ly/Mywt39r0)
-- **指纹浏览器**：[比特指纹浏览器](https://client.bitbrowser.cn/register?lang=zh&code=Alan123)
-- **海外 VPS**：[搬瓦工](https://cutt.ly/qywJNWzd) · [DMIT](https://cutt.ly/YywJIzY0)
-- **海外虚拟信用卡**：[点这里](https://cutt.ly/IyrMR4Mg)
-- **Telegram 资源搜索机器人**：[点这里](https://cutt.ly/2yeh3GOE)
-- **GPT 中转站**：[满血 CC / GPT 中转](https://cutt.ly/JywJG3G5)
-- **订阅合租拼车**：[点这里](https://cutt.ly/5ywt8vb4)
 
 ## 联系我
 

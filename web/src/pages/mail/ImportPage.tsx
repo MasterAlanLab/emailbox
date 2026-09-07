@@ -7,19 +7,66 @@ import { findSystemGroup } from "@/components/mail/groupOptions";
 import { useAsyncAction } from "@/lib/useAsyncAction";
 import { useTenantStore } from "@/store/tenantStore";
 
+// 每种格式都带一段**多行**样例，直接当 placeholder 用。
+// 这个输入框有 16 行高，空着的时候是页面上最大的一块留白；只放一条 Outlook 的样例，
+// 用 QQ / 163 / Gmail 的人会以为这里只收 Outlook。
 const FORMATS = [
-  { value: "auto", label: "自动识别", hint: "按段数与字段形态判断，混合内容也能处理" },
+  {
+    value: "auto",
+    label: "自动识别",
+    hint: "按段数与字段形态判断，混合内容也能处理",
+    placeholder: [
+      "zhang@qq.com----授权码",
+      "li@163.com----授权码",
+      "wang@gmail.com----应用专用密码",
+      "alice@outlook.com----密码----client_id----refresh_token",
+      "bob@example.com----密码----imap.example.com----993",
+    ],
+  },
   {
     value: "outlook_oauth",
     label: "Outlook OAuth（4 段）",
     hint: "邮箱----密码----client_id----refresh_token",
+    placeholder: [
+      "alice@outlook.com----密码----client_id----refresh_token",
+      "bob@hotmail.com----密码----client_id----refresh_token",
+    ],
   },
-  { value: "imap", label: "标准 IMAP（2 段）", hint: "邮箱----授权码，服务商按域名推断" },
+  {
+    value: "imap",
+    label: "标准 IMAP（2 段）",
+    hint: "邮箱----授权码，服务商按域名推断",
+    placeholder: [
+      "zhang@qq.com----授权码",
+      "li@163.com----授权码",
+      "wang@gmail.com----应用专用密码",
+    ],
+  },
   {
     value: "custom_imap",
     label: "自定义 IMAP（4 段）",
     hint: "邮箱----密码----imap 服务器----端口",
+    placeholder: [
+      "bob@example.com----密码----imap.example.com----993",
+      "carol@example.net----密码----mail.example.net----993",
+    ],
   },
+];
+
+// 这份清单是后端 `domainProvider`（pkg/mailer/provider.go）的用户可见版本，
+// 加服务商时两处都要改。之所以值得多维护一份：域名认不认识决定了 2 段写法能不能用，
+// 而用户在这里唯一的替代方案是先导一批进去、失败了再回来猜。
+//
+// 最后一行的「其他域名」用 RFC 2606 保留的 example.com，不要换成看起来更像真企业域的
+// 名字：那些域名多半真有人注册（corp.com 就是微软的），照抄不改的人会去连别人的服务器。
+const SAMPLES = [
+  { label: "QQ / Foxmail", line: "zhang@qq.com----授权码" },
+  { label: "163 / 126", line: "li@163.com----授权码" },
+  { label: "Gmail", line: "wang@gmail.com----应用专用密码" },
+  { label: "Yahoo", line: "kate@yahoo.com----应用专用密码" },
+  { label: "阿里 / 2925", line: "zhao@aliyun.com----授权码" },
+  { label: "Outlook / Hotmail", line: "alice@outlook.com----密码----client_id----refresh_token" },
+  { label: "其他域名", line: "bob@example.com----密码----imap.example.com----993" },
 ];
 
 export default function ImportPage() {
@@ -51,6 +98,7 @@ export default function ImportPage() {
   }, [tenantID]);
 
   const lineCount = content.split("\n").filter((l) => l.trim() !== "").length;
+  const current = FORMATS.find((f) => f.value === format) ?? FORMATS[0];
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -79,7 +127,7 @@ export default function ImportPage() {
             label={`账号内容${lineCount > 0 ? `（${lineCount} 行）` : ""}`}
             rows={16}
             className="font-mono text-xs"
-            placeholder={"user@outlook.com----password----client_id----refresh_token"}
+            placeholder={current.placeholder.join("\n")}
             value={content}
             onChange={(event) => setContent(event.target.value)}
             required
@@ -88,6 +136,8 @@ export default function ImportPage() {
           <Button type="submit" variant="secondary" size="lg" disabled={pending || !content.trim()}>
             {pending ? "导入中…" : `导入 ${lineCount} 行`}
           </Button>
+
+          <FormatSamples />
         </div>
 
         <aside className="space-y-4">
@@ -103,9 +153,7 @@ export default function ImportPage() {
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-kumo-subtle">
-              {FORMATS.find((f) => f.value === format)?.hint}
-            </p>
+            <p className="mt-1 text-xs text-kumo-subtle">{current.hint}</p>
           </Field>
 
           <Field label="导入到分组">
@@ -141,6 +189,44 @@ export default function ImportPage() {
 
       {result && <ImportSummary result={result} />}
     </PageShell>
+  );
+}
+
+// 摆在输入框正下方，而不是折叠进侧栏：会来看示例的人，正是那些还不确定自己
+// 这批账号该写成几段的人，让他们先点开一层才看得到没有道理。
+function FormatSamples() {
+  return (
+    <section className="rounded-lg border border-kumo-line bg-kumo-elevated p-5">
+      <h2 className="text-sm font-medium text-kumo-strong">格式示例</h2>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <tbody className="divide-y divide-kumo-hairline">
+            {SAMPLES.map((s) => (
+              <tr key={s.label}>
+                <td className="py-2 pr-4 align-top whitespace-nowrap text-kumo-subtle">
+                  {s.label}
+                </td>
+                <td className="py-2 align-top font-mono text-xs whitespace-nowrap">{s.line}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <ul className="mt-4 space-y-1.5 text-xs text-kumo-subtle">
+        <li>
+          QQ、163、126、Gmail、Yahoo、阿里填的是邮箱网页版「设置 → 账号 / POP3·IMAP」里开启 IMAP
+          服务后生成的授权码或应用专用密码，<strong className="font-medium">不是登录密码</strong>
+          ；用登录密码会以「授权码错误，或未在邮箱设置中开启 IMAP 服务」失败。
+        </li>
+        <li>
+          Outlook / Hotmail 只能走 4 段 OAuth：微软已停用个人账号的邮箱密码登录，2
+          段写法导得进来也刷不动信。
+        </li>
+        <li>
+          域名不在上面这些里（企业自建域等），用最后一行的 4 段写法显式给出 IMAP 服务器与端口。
+        </li>
+      </ul>
+    </section>
   );
 }
 
