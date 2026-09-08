@@ -1015,9 +1015,29 @@ Chromium（+150MB）。Wails 用系统自带的 WebView（WKWebView / WebView2 /
   对同一个 tag 创建 Release，`softprops/action-gh-release` 在 v2.5.2 / v2.6.0
   修掉了共享 tag 的竞争与并发上传，仓库用的 `@v3` 已包含。
 
-  **仍未验证**：Windows 与 Linux 的 `go build` 这一步在 macOS 上跑不了
-  （Wails 要链接各平台原生的 WebView 库）。修掉的是打包逻辑，编译本身能否过
-  只有推 tag 才知道——建议先推一个 `-rc` 试跑，它会被识别成 prerelease。
+  **v0.3.2 实跑结果：macOS 与 Windows 成功出包，Linux 挂了**——挂在 `go vet` 上，
+  比打包更早，脚本根本没跑到。原因是 **Wails v3 在 Linux 上默认链接 GTK4 +
+  webkitgtk-6.0**，而 `desktop.yml` 装的是 GTK3 + webkit2gtk-4.1：
+  `Package 'gtk4', required by 'virtual:world', not found`。
+
+  修法是给 Linux 加 `gtk3` 这个 build tag，而不是改去装 GTK4。选 GTK3 是因为
+  `webkit2gtk-4.1` 在 Ubuntu 22.04 / Debian 12 上就有，`webkitgtk-6.0` 只有很新的
+  发行版才带——发出去的二进制链哪个，决定了多少人装得上；包内 README.txt
+  写的运行时依赖本来也是 4.1。
+
+  查 wails 源码确认过这个 tag 是完备的：`pkg/application`、
+  `internal/assetserver/webview`、`internal/operatingsystem` 三处带 `pkg-config`
+  的 cgo 文件**每一个都有 `gtk3` / `!gtk3` 成对的构建约束**，不存在只认 GTK4 的漏网文件。
+  唯一无条件参与编译的是 `global_shortcut_linux_x11.go`（要 `x11`）和两个
+  `mainthread_linux.go`（要 `glib-2.0`），两者与 GTK 版本无关。
+
+  apt 那行不用改：v0.3.2 的报错里**只有** gtk4 和 webkitgtk-6.0 说找不到，
+  同一条 pkg-config 命令里的 `libsoup-3.0`、`gio-unix-2.0`、`x11` 都没报，
+  说明 `libgtk-3-dev` + `libwebkit2gtk-4.1-dev` 已经把 GTK3 路径的依赖带齐了。
+
+  **tag 必须同时出现在 build、vet、lint 三处**，少一处就是那一处失败——v0.3.2
+  正是漏在 `go vet` 上。所以 `Makefile` 里用 `uname -s` 统一算出 `DESKTOP_TAGS`，
+  `package-desktop.sh` 按 `GOOS` 判断，`desktop.yml` 的 vet 步骤按 `RUNNER_OS` 判断。
 
 - **邮件正文沙箱重新验证**：结论是三层防护在系统 WebView 下**全部成立**，且桌面端比浏览器
   少一个攻击面。逐层核对——DOMPurify 是纯 JS，与引擎无关；`sandbox=""` 和

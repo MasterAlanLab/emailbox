@@ -8,6 +8,18 @@ GOLANGCI_LINT_VERSION := v2.12.2
 SQLC_VERSION := v1.30.0
 AIR_VERSION := v1.61.7
 
+# Wails v3 在 Linux 上默认链接 GTK4 + webkitgtk-6.0。本项目改用 GTK3 +
+# webkit2gtk-4.1：后者在 Ubuntu 22.04 / Debian 12 上就有，而 webkitgtk-6.0
+# 只有很新的发行版才带——发出去的二进制链哪个，决定了多少人装得上。
+# 包内 README.txt 写的运行时依赖也是 4.1。
+#
+# 这个 tag 必须同时出现在 build、vet 和 lint 三处：少一处，那一处就会去找
+# gtk4 的 pkg-config 然后失败（v0.3.2 的 Linux job 就是漏在 go vet 上）。
+# macOS 与 Windows 不需要 tag，留空即可。
+DESKTOP_TAGS := $(if $(filter Linux,$(shell uname -s)),gtk3,)
+DESKTOP_TAGFLAG := $(if $(DESKTOP_TAGS),-tags $(DESKTOP_TAGS),)
+DESKTOP_LINTFLAG := $(if $(DESKTOP_TAGS),--build-tags $(DESKTOP_TAGS),)
+
 .PHONY: help deps sqlc-generate sqlc-verify test lint lint-go lint-web lint-web-fix lint-desktop build build-go build-web build-desktop embed-web package-desktop dev run run-desktop clean docker tools check
 
 # 默认目标
@@ -70,7 +82,7 @@ lint-desktop: ## 运行桌面版子模块的代码检查
 	@echo "🔍 运行桌面版代码检查..."
 	@# 独立子模块不在根模块的 ./... 范围内，golangci-lint 必须在它自己的目录里跑一次，
 	@# 否则这部分代码永远不会被任何检查覆盖到。
-	cd desktop && golangci-lint run --config ../.golangci.yml
+	cd desktop && golangci-lint run --config ../.golangci.yml $(DESKTOP_LINTFLAG)
 
 lint-web-fix: ## 自动修复前端格式与 lint 问题
 	@echo "🔧 格式化前端代码..."
@@ -99,7 +111,7 @@ build-desktop: embed-web ## 构建桌面版二进制（当前平台）
 	@echo "🔨 构建桌面版..."
 	@# desktop 是独立子模块：wails/v3 会带进上百个 CLI 工具链依赖，
 	@# 放进主模块会让 server 二进制、Docker 镜像和 CI 全都背上它们。
-	cd desktop && go build -trimpath -o emailbox .
+	cd desktop && go build -trimpath $(DESKTOP_TAGFLAG) -o emailbox .
 
 package-desktop: ## 打包桌面版安装包（当前平台，产物在 dist-desktop/）
 	./scripts/package-desktop.sh $(VERSION)

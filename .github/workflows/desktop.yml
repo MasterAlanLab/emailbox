@@ -84,9 +84,18 @@ jobs:
         if: runner.os == 'Linux'
         run: go test -race ./pkg/server/...
 
+      # Linux 必须带 gtk3 tag，否则 vet 会去找 gtk4 的 pkg-config 然后失败——
+      # v0.3.2 的 Linux job 就是挂在这里，比打包更早，脚本根本没跑到。
+      # 选 GTK3 的理由见 scripts/package-desktop.sh。
       - name: Vet desktop module
         working-directory: desktop
-        run: go vet ./...
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            go vet -tags gtk3 ./...
+          else
+            go vet ./...
+          fi
 
       - name: Package desktop app
         # SKIP_WEB=1：前端已在上面构建过，不必再来一遍

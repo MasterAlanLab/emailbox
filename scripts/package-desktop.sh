@@ -40,16 +40,24 @@ mkdir -p "$BUILD_DIR"
 # -s -w 去掉调试符号；Wails 应用本身就有十几 MB，符号表没有留下的必要。
 LDFLAGS="-s -w"
 BIN_NAME="emailbox"
+TAGS=""
 if [ "$GOOS" = "windows" ]; then
     BIN_NAME="emailbox.exe"
     # -H windowsgui：不带这个标志，双击启动会连带弹出一个黑色控制台窗口。
     LDFLAGS="$LDFLAGS -H windowsgui"
 fi
+if [ "$GOOS" = "linux" ]; then
+    # Wails v3 在 Linux 上默认链接 GTK4 + webkitgtk-6.0，gtk3 这个 tag 把它切回
+    # GTK3 + webkit2gtk-4.1。选后者是因为它在 Ubuntu 22.04 / Debian 12 上就有，
+    # 而 webkitgtk-6.0 只有很新的发行版才带——发出去的二进制链哪个，
+    # 决定了多少人装得上。下面 README.txt 里写的运行时依赖也是按 4.1 给的。
+    TAGS="gtk3"
+fi
 
 echo "🔨 编译桌面二进制..."
 # 输出用相对路径，同样是为了绕开 Git Bash 与原生 go 之间的路径表示差异。
 cd "$PROJECT_ROOT/desktop"
-go build -trimpath -ldflags "$LDFLAGS" -o "../dist-desktop/.build/$BIN_NAME" .
+go build -trimpath ${TAGS:+-tags "$TAGS"} -ldflags "$LDFLAGS" -o "../dist-desktop/.build/$BIN_NAME" .
 
 case "$GOOS" in
 darwin)
