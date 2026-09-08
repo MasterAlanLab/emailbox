@@ -27,7 +27,8 @@ export default function HomePage() {
       </h1>
 
       <p className="mt-7 max-w-xl text-lg leading-relaxed text-kumo-default">
-        支持 Outlook OAuth、Gmail 与主流 IMAP 邮箱批量托管。提供定时令牌轮换、独立代理路由与只读 API 接入。
+        支持 Outlook OAuth、Gmail 与主流 IMAP 邮箱批量托管。提供定时令牌轮换、独立代理路由与只读 API
+        接入。
       </p>
 
       {/* 只留一个入口。「登录」在右上角的顶栏里已经有了，

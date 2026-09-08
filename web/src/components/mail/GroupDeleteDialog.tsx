@@ -27,7 +27,8 @@ export function GroupDeleteDialog({ tenantID, group, onClose, onDeleted }: Group
         <ul className="mt-4 space-y-2 text-sm text-kumo-default">
           {group.account_count > 0 ? (
             <li>
-              该分组下的 {group.account_count} 个邮箱账号将自动移入「默认分组」，账号数据与连接凭据完整保留。
+              该分组下的 {group.account_count}{" "}
+              个邮箱账号将自动移入「默认分组」，账号数据与连接凭据完整保留。
             </li>
           ) : (
             <li>该分组下暂无邮箱账号。</li>

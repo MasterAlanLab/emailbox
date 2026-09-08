@@ -28,7 +28,10 @@ export default function ProfileSettingsPage() {
   }
 
   return (
-    <SettingsPage title="个人资料" description="管理你的账户基本信息。用户名用于系统登录，个人邮箱为选填项。">
+    <SettingsPage
+      title="个人资料"
+      description="管理你的账户基本信息。用户名用于系统登录，个人邮箱为选填项。"
+    >
       <LayerCard render={<form onSubmit={submit} />} className="max-w-2xl p-6">
         <div className="space-y-5">
           <Input

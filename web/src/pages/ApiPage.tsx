@@ -109,7 +109,8 @@ export default function ApiPage() {
                 />
               </div>
               <p className="mt-2 text-xs text-kumo-subtle">
-                每个空间分配唯一 API Key。重置将使当前凭据立即失效，使用旧凭据的外部请求将返回 401 未授权。
+                每个空间分配唯一 API Key。重置将使当前凭据立即失效，使用旧凭据的外部请求将返回 401
+                未授权。
               </p>
             </>
           ) : (
@@ -192,7 +193,8 @@ export default function ApiPage() {
             </table>
           </div>
           <p className="mt-3 text-xs text-kumo-subtle">
-            列出邮件与读取正文均消耗每日取信配额，详见「套餐与用量」；本接口仅限 GET 只读，任何写请求均返回 403。
+            列出邮件与读取正文均消耗每日取信配额，详见「套餐与用量」；本接口仅限 GET
+            只读，任何写请求均返回 403。
           </p>
         </section>
 

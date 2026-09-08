@@ -58,7 +58,10 @@ export default function AdminPlansPage() {
     });
 
   return (
-    <AdminShell title="套餐" description="定义各订阅等级的基础资源配额。管理员可在用户列表中为特定租户设定专属覆盖值。">
+    <AdminShell
+      title="套餐"
+      description="定义各订阅等级的基础资源配额。管理员可在用户列表中为特定租户设定专属覆盖值。"
+    >
       <LayerCard render={<form onSubmit={create} />} className="mb-6 flex flex-wrap gap-3 p-4">
         <Input
           className="max-w-40"
