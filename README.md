@@ -58,17 +58,17 @@ docker compose up -d --build
 
 ### 使用 GHCR 镜像
 
-当前版本是 `v0.3.1`，镜像位于 [GitHub Container Registry](https://github.com/users/MasterAlanLab/packages/container/package/emailbox)：
+当前版本是 `v0.3.2`，镜像位于 [GitHub Container Registry](https://github.com/users/MasterAlanLab/packages/container/package/emailbox)：
 
 ```bash
-docker pull ghcr.io/masteralanlab/emailbox:v0.3.1
+docker pull ghcr.io/masteralanlab/emailbox:v0.3.2
 mkdir -p data
 docker run -d \
   --name emailbox \
   --restart unless-stopped \
   -p 1323:1323 \
   -v "$PWD/data:/app/data" \
-  ghcr.io/masteralanlab/emailbox:v0.3.1
+  ghcr.io/masteralanlab/emailbox:v0.3.2
 ```
 
 生产部署请配置 `APP_ENV=production` 和 `ENCRYPTION_KEY`。Linux 主机首次挂载 `data` 目录时，需要让容器的 uid 1000 具备写入权限。
