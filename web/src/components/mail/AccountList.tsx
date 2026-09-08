@@ -94,8 +94,8 @@ export function AccountList({
       {accounts.length === 0 ? (
         <EmptyState
           icon={Tray}
-          title="这里还没有邮箱账号"
-          description="用顶部的「导入邮箱」批量添加，或换一个筛选条件试试。"
+          title="暂无符合条件的邮箱账号"
+          description="点击工具栏中的「导入邮箱」添加账号凭据，或调整当前筛选条件。"
         />
       ) : (
         <VirtualList
@@ -220,16 +220,16 @@ function AccountRow({
 
 function RefreshCell({ account }: { account: MailAccount }) {
   if (account.last_refresh_status === "never") {
-    return <span className="text-xs text-kumo-subtle">未刷新</span>;
+    return <span className="text-xs text-kumo-subtle">未检测</span>;
   }
   if (account.last_refresh_status === "success") {
-    return <span className="text-xs text-kumo-success">正常</span>;
+    return <span className="text-xs text-kumo-success">有效</span>;
   }
   // 失败原因挂在 title 上：用户最需要知道的是「为什么失败」，
   // 而不是再点进详情页找一次。
   return (
     <span className="text-xs text-kumo-danger" title={account.last_refresh_error}>
-      失败
+      失效
     </span>
   );
 }

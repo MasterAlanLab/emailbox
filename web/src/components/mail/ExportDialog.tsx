@@ -56,8 +56,7 @@ export function ExportDialog({ tenantID, groupID, selectedIDs, onClose }: Export
       <LayerCard render={<form onSubmit={submit} />} className="w-full max-w-md p-5">
         <h2 className="text-lg font-semibold text-kumo-strong">导出账号</h2>
         <p className="mt-1 text-sm text-kumo-subtle">
-          导出文件包含密码与刷新令牌的<strong className="text-kumo-danger">明文</strong>
-          ，可被本平台重新导入。本次操作会记入审计日志。
+          导出文件将包含密码与刷新令牌明文（可直接重新导入）。敏感凭据读取属于高风险操作，已记入全局审计日志。
         </p>
 
         <div className="mt-4 flex flex-col gap-3">

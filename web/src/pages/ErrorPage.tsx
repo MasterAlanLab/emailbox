@@ -35,7 +35,7 @@ export default function ErrorPage() {
         <p className="mt-3 text-sm text-kumo-subtle">
           {notFound
             ? "这个地址没有对应的页面，可能是链接过期或输错了。"
-            : "抱歉，这个页面无法正常显示。"}
+            : "页面加载时发生异常，请尝试重新加载或返回控制台。"}
         </p>
 
         {detail && (
@@ -46,7 +46,7 @@ export default function ErrorPage() {
 
         <div className="mt-7 flex items-center justify-center gap-3">
           <LinkButton href={home} variant="secondary">
-            {authed ? "回到邮箱" : "返回首页"}
+            {authed ? "回到控制台" : "返回首页"}
           </LinkButton>
           {/* 404 重新加载还是 404，这个按钮只对渲染错误有意义。 */}
           {!notFound && (

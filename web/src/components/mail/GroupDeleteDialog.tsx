@@ -27,11 +27,10 @@ export function GroupDeleteDialog({ tenantID, group, onClose, onDeleted }: Group
         <ul className="mt-4 space-y-2 text-sm text-kumo-default">
           {group.account_count > 0 ? (
             <li>
-              其中的 <b>{group.account_count}</b> 个邮箱账号会移到「默认分组」，
-              <b>不会被删除</b>，凭据也不受影响。
+              该分组下的 {group.account_count} 个邮箱账号将自动移入「默认分组」，账号数据与连接凭据完整保留。
             </li>
           ) : (
-            <li>这个分组下没有邮箱账号。</li>
+            <li>该分组下暂无邮箱账号。</li>
           )}
           <li className="text-kumo-subtle">分组本身的代理配置会随分组一起消失。</li>
         </ul>

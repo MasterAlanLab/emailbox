@@ -24,7 +24,7 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthCard title="欢迎回来" description="用你的用户名和密码继续。">
+    <AuthCard title="欢迎回来" description="输入用户名与密码访问你的托管空间。">
       <form onSubmit={submit} className="space-y-4">
         <Input
           label="用户名"

@@ -74,7 +74,7 @@ export default function ApiPage() {
   return (
     <PageShell
       title="API"
-      description="让脚本或 Agent 用一把 Key 读取你的邮件。只读，不能改动任何东西。"
+      description="提供只读 API 访问凭据，供自动化脚本或 AI Agent 读取邮件与下载附件，不开放写入权限。"
     >
       {loadError && <p className="mb-4 text-sm text-kumo-danger">{loadError}</p>}
 
@@ -109,7 +109,7 @@ export default function ApiPage() {
                 />
               </div>
               <p className="mt-2 text-xs text-kumo-subtle">
-                每个工作空间一把。重置会立刻作废旧的那把，正在用它的脚本会全部收到 401。
+                每个空间分配唯一 API Key。重置将使当前凭据立即失效，使用旧凭据的外部请求将返回 401 未授权。
               </p>
             </>
           ) : (
@@ -192,7 +192,7 @@ export default function ApiPage() {
             </table>
           </div>
           <p className="mt-3 text-xs text-kumo-subtle">
-            列邮件与读正文各扣 1 次每日取件额度，用量见「用量」页。写操作一律 403。
+            列出邮件与读取正文均消耗每日取信配额，详见「套餐与用量」；本接口仅限 GET 只读，任何写请求均返回 403。
           </p>
         </section>
 
@@ -202,7 +202,7 @@ export default function ApiPage() {
             <a className="underline" href="/llms.txt" target="_blank" rel="noreferrer">
               /llms.txt
             </a>{" "}
-            是一份公开的接入说明（不含 Key）。把下面这段贴给 Agent，它就知道该读哪里、用谁的身份。
+            遵循 Agent 接入规范（不含凭据）。将下方提示词提供给 Agent，即可配置只读调用上下文：
           </p>
           <div className="mt-3 flex items-center gap-2">
             <code className="min-w-0 flex-1 overflow-x-auto rounded-md bg-kumo-tint px-3 py-2 font-mono text-xs whitespace-nowrap">
@@ -229,7 +229,7 @@ function mask(token: string) {
 }
 
 function agentPrompt(base: string, tenantID: string) {
-  return `读取 ${base}/llms.txt 了解接口，工作空间 ID 是 ${tenantID}，API Key 由我提供。`;
+  return `请查阅 ${base}/llms.txt 了解接口规范；租户 ID 为 ${tenantID}，API Key 由我单独提供。`;
 }
 
 // copy 静默失败：非 HTTPS 或用户拒权时 clipboard 不可用，

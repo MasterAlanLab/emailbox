@@ -20,13 +20,13 @@ interface MailStatusBarProps {
 export function MailStatusBar({ stats }: MailStatusBarProps) {
   return (
     <div className="flex h-(--ebx-status-h) shrink-0 items-center gap-4 overflow-x-auto border-t border-kumo-line bg-kumo-canvas px-4 text-xs text-kumo-subtle">
-      <span className="shrink-0 tabular-nums">{stats?.total ?? 0} 账号</span>
-      <Stat tone="online" label="登录成功" value={stats?.success} />
-      <Stat tone="error" label="登录失败" value={stats?.failed} />
-      <Stat tone="idle" label="尚未登录" value={stats?.never} />
+      <span className="shrink-0 tabular-nums">{stats?.total ?? 0} 托管账号</span>
+      <Stat tone="online" label="凭据正常" value={stats?.success} />
+      <Stat tone="error" label="授权失效" value={stats?.failed} />
+      <Stat tone="idle" label="未检测" value={stats?.never} />
 
       <div className="ml-auto flex shrink-0 items-center gap-4">
-        <span>邮箱助手</span>
+        <span>服务就绪</span>
         <Clock />
       </div>
     </div>

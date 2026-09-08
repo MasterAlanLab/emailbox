@@ -36,7 +36,7 @@ export function PublicHeader() {
               重定向回工作台。直接给他要去的地方。 */}
           {authed ? (
             <LinkButton href="/mail" variant="secondary">
-              进入邮箱
+              进入控制台
               <ArrowRight size={13} />
             </LinkButton>
           ) : (

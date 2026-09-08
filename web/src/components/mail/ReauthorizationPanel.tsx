@@ -79,10 +79,9 @@ export function ReauthorizationPanel({ tenant, tenantKey, refreshKey }: Reauthor
   return (
     <>
       <LayerCard className="mb-6 p-4">
-        <h2 className="mb-1 text-sm font-medium text-kumo-strong">刷新失败的账号</h2>
+        <h2 className="mb-1 text-sm font-medium text-kumo-strong">授权失效的账号</h2>
         <p className="mb-3 text-xs text-kumo-subtle">
-          显示最多 200 个刷新失败的 Outlook OAuth 账号。请先查看具体原因；
-          认证或权限问题可在这里重新授权，代理与应用配置问题请按提示处理。
+          列出近期授权失效的 Outlook OAuth 账号（最多 200 个）。凭据过期或权限变更可直接在此重新授权；网络或配置异常请检查对应代理与应用设置。
         </p>
         {displayMessage && <p className="mb-3 text-sm text-kumo-danger">{displayMessage}</p>}
         <div className="divide-y divide-kumo-hairline">

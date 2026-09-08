@@ -34,14 +34,14 @@ export default function UsagePage() {
 
   if (error) {
     return (
-      <PageShell title="用量">
+      <PageShell title="套餐与用量">
         <p className="text-sm text-kumo-danger">{error}</p>
       </PageShell>
     );
   }
   if (!data) {
     return (
-      <PageShell title="用量">
+      <PageShell title="套餐与用量">
         <p className="text-sm text-kumo-subtle">加载中…</p>
       </PageShell>
     );
@@ -56,20 +56,22 @@ export default function UsagePage() {
   const overQuota = counted.filter((q) => q.limit !== UNLIMITED && q.used > q.limit);
 
   return (
-    <PageShell title="用量" description={limits.plan_name}>
+    <PageShell title="套餐与用量" description={`当前订阅方案：${limits.plan_name}`}>
       {/* 管理员调低配额时不追溯删除已有数据，只阻止新增，所以这里可能出现「已超额」 */}
       {overQuota.length > 0 && (
         <Banner variant="alert" className="mb-6">
-          {overQuota.map((q) => `${q.label}已超出上限 ${q.used - q.limit} 个`).join("；")}
-          。已有数据不受影响，但无法继续新增。
+          {overQuota
+            .map((q) => `${q.label}已超出当前套餐上限（超额 ${q.used - q.limit} 个）`)
+            .join("；")}
+          。存量账号与凭据不受影响，但无法继续录入。
         </Banner>
       )}
 
       <div className="grid max-w-3xl gap-6 lg:grid-cols-2">
-        <QuotaCard title="资源用量" items={counted} />
+        <QuotaCard title="基础资源配额" items={counted} />
         {/* 令牌刷新没有额度：它是账号能不能用的前提，卡住它等于让账号批量失效。
             既然不受限，就不摆在「额度」里占位——用量页只讲有上限的东西。 */}
-        <QuotaCard title={`每日额度（${data.day} 重置）`} items={daily} />
+        <QuotaCard title={`每日调用配额（每日 ${data.day} 自动重置）`} items={daily} />
       </div>
     </PageShell>
   );
@@ -117,7 +119,7 @@ function QuotaMeter({ label, used, limit }: { label: string; used: number; limit
       />
       {ratio >= WARN_RATIO && (
         <p className="mt-1 text-xs text-kumo-warning">
-          {ratio >= 1 ? "已达上限，无法继续新增。" : "接近上限。"}
+          {ratio >= 1 ? "已达当前套餐配额上限。" : "配额使用率已超过 80%。"}
         </p>
       )}
     </div>

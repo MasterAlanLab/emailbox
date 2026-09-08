@@ -14,6 +14,18 @@ interface AccountDrawerProps {
   onSaved: () => void;
 }
 
+const STATUS_TEXT: Record<string, string> = {
+  active: "正常",
+  disabled: "已停用",
+  banned: "已封禁",
+};
+
+const REFRESH_TEXT: Record<string, string> = {
+  success: "凭据正常",
+  failed: "授权失效",
+  never: "未检测",
+};
+
 export function AccountDrawer({ tenantID, account, groups, onClose, onSaved }: AccountDrawerProps) {
   const [remark, setRemark] = useState(account.remark);
   const [groupID, setGroupID] = useState(account.group_id);
@@ -60,12 +72,12 @@ export function AccountDrawer({ tenantID, account, groups, onClose, onSaved }: A
         <section className="space-y-2 text-sm">
           <Row label="状态">
             <Badge variant={account.status === "active" ? "green" : "neutral"}>
-              {account.status}
+              {STATUS_TEXT[account.status] ?? account.status}
             </Badge>
           </Row>
           <Row label="最近刷新">
             <span className={account.last_refresh_status === "failed" ? "text-kumo-danger" : ""}>
-              {account.last_refresh_status === "never" ? "从未刷新" : account.last_refresh_status}
+              {REFRESH_TEXT[account.last_refresh_status] ?? account.last_refresh_status}
             </span>
           </Row>
           {account.last_refresh_error && (

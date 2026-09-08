@@ -22,17 +22,19 @@ export default function HomePage() {
 
   return (
     <section className="shell flex flex-1 flex-col justify-center py-20 sm:py-28">
-      <h1 className="display-xl max-w-3xl text-kumo-strong text-balance">少折腾，多产出</h1>
+      <h1 className="display-xl max-w-3xl text-kumo-strong text-balance">
+        第三方邮箱集中托管与批量运维
+      </h1>
 
       <p className="mt-7 max-w-xl text-lg leading-relaxed text-kumo-default">
-        极简、稳定，专为多邮箱管理而生
+        支持 Outlook OAuth、Gmail 与主流 IMAP 邮箱批量托管。提供定时令牌轮换、独立代理路由与只读 API 接入。
       </p>
 
       {/* 只留一个入口。「登录」在右上角的顶栏里已经有了，
           同一个动作在一屏里出现两次，用户得先分辨它们是不是同一件事。 */}
       <div className="mt-10">
         <LinkButton href={authed ? "/mail" : "/register"} variant="secondary" size="lg">
-          {authed ? "进入邮箱" : "免费开始"}
+          {authed ? "进入控制台" : "免费注册体验"}
           <ArrowRight size={14} />
         </LinkButton>
       </div>

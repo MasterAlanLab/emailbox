@@ -31,10 +31,10 @@ import { StatusDot, type StatusTone } from "./StatusDot";
 // 就近放在列表上，比让用户跳出工作台再跳回来短得多。
 
 const STATUS_ITEMS: { value: RefreshStatus | ""; label: string; tone: StatusTone }[] = [
-  { value: "", label: "全部", tone: "unread" },
-  { value: "success", label: "登录成功", tone: "online" },
-  { value: "failed", label: "登录失败", tone: "error" },
-  { value: "never", label: "尚未登录", tone: "idle" },
+  { value: "", label: "全部账号", tone: "unread" },
+  { value: "success", label: "凭据正常", tone: "online" },
+  { value: "failed", label: "授权失效", tone: "error" },
+  { value: "never", label: "未检测", tone: "idle" },
 ];
 
 // 与后端 model.Unlimited 对应：-1 表示不限。上限未知时也用它——

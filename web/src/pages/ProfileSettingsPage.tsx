@@ -28,7 +28,7 @@ export default function ProfileSettingsPage() {
   }
 
   return (
-    <SettingsPage title="个人资料" description="用户名用于登录，邮箱可填可不填。">
+    <SettingsPage title="个人资料" description="管理你的账户基本信息。用户名用于系统登录，个人邮箱为选填项。">
       <LayerCard render={<form onSubmit={submit} />} className="max-w-2xl p-6">
         <div className="space-y-5">
           <Input
@@ -45,7 +45,9 @@ export default function ProfileSettingsPage() {
           />
           {/* 邮箱目前不参与任何流程：不用来登录、不发通知、不做找回。
               说清楚这一点，比让用户猜「不填会不会出事」强。 */}
-          <p className="-mt-2 text-xs text-kumo-subtle">不用于登录，也不会收到邮件。</p>
+          <p className="-mt-2 text-xs text-kumo-subtle">
+            此邮箱仅作备用联系，不作为登录凭证，系统亦不会主动发送邮件通知。
+          </p>
           {error && <p className="text-sm text-kumo-danger">{error}</p>}
         </div>
         <div className="mt-6 flex items-center gap-3 border-t border-kumo-line pt-5">

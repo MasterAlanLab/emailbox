@@ -28,8 +28,7 @@ export default function TermsPage() {
         <section>
           <h2 className="font-medium text-kumo-strong">账户责任</h2>
           <p className="mt-2">
-            请妥善保管登录密码，并对账号内的操作负责。导出凭据需要二次输入登录密码，
-            且每一次导出都会记入审计日志。
+            请妥善保管登录凭据并对账户行为负责。导出操作仅限具备凭据读取权限的账号发起，受系统限流保护且全量记入审计日志。
           </p>
         </section>
         <section>

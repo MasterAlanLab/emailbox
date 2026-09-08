@@ -195,13 +195,13 @@ describe("MailSidebar 的折叠", () => {
     await mount([group("a", "客户 A")]);
 
     // 默认两段都展开。
-    expect(screen.getByText("登录失败")).toBeTruthy();
+    expect(screen.getByText("授权失效")).toBeTruthy();
     expect(screen.getByText("客户 A")).toBeTruthy();
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /账号状态/ }));
     });
-    expect(screen.queryByText("登录失败")).toBeNull();
+    expect(screen.queryByText("授权失效")).toBeNull();
     // 收起状态段不该连带把分组段也收了。
     expect(screen.getByText("客户 A")).toBeTruthy();
 

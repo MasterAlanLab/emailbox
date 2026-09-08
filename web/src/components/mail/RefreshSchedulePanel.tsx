@@ -52,8 +52,7 @@ export function RefreshSchedulePanel({ tenant, groups, onSaved }: RefreshSchedul
     <LayerCard className="mb-6 p-4">
       <h2 className="text-sm font-medium text-kumo-strong">定时刷新</h2>
       <p className="mt-1 text-xs text-kumo-subtle">
-        每个分组各自计时，到点自动提交一次该分组的刷新任务。同一时刻只会有一个刷新任务在跑，
-        其余分组顺延到它结束之后。
+        支持按分组独立设置自动轮换周期。调度器将按计划排队执行，同一空间内任务严格串行以避免触发上游风控。
       </p>
 
       <div className="mt-4 flex flex-col">
@@ -96,7 +95,7 @@ export function RefreshSchedulePanel({ tenant, groups, onSaved }: RefreshSchedul
       </div>
 
       <p className="mt-3 text-xs text-kumo-subtle">
-        分组里没有 refresh_token 的账号会被跳过；整组都没有时不会产生任务。
+        分组中基于密码的普通 IMAP 账号无需轮换，将自动跳过；整组均无 OAuth 凭据时不产生任务。
       </p>
     </LayerCard>
   );

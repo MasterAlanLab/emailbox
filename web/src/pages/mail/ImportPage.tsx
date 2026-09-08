@@ -115,10 +115,10 @@ export default function ImportPage() {
   }
 
   return (
-    <PageShell title="批量导入邮箱" description="每行一个账号，字段用 ---- 分隔。">
+    <PageShell title="批量导入邮箱" description="支持按行批量解析，字段之间使用 ---- 分隔。">
       {/* 服务条款要求在导入页展示一次授权提示 */}
       <div className="mb-6 rounded-lg border border-kumo-line bg-kumo-warning-tint p-4 text-sm">
-        导入即表示你确认对这些邮箱账号拥有合法授权。凭据会加密存储，但请勿导入不属于你的账号。
+        授权承诺：导入即表示你确认对所填邮箱账号拥有合法访问权限。凭据将在落库前执行 AES-256-GCM 独立加密，严禁托管未获授权的第三方凭据。
       </div>
 
       <form onSubmit={submit} className="grid gap-6 lg:grid-cols-[1fr_320px]">
@@ -247,10 +247,10 @@ function ImportSummary({ result }: { result: ImportResult }) {
       <h2 className="text-lg font-medium">导入结果</h2>
       <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-5">
         <Stat label="总行数" value={result.total} />
-        <Stat label="新建" value={result.created} />
-        <Stat label="更新" value={result.updated} />
-        <Stat label="跳过" value={result.skipped} />
-        <Stat label="失败" value={result.failed} />
+        <Stat label="新增账号" value={result.created} />
+        <Stat label="凭据更新" value={result.updated} />
+        <Stat label="重复跳过" value={result.skipped} />
+        <Stat label="格式错误" value={result.failed} />
       </dl>
       {result.errors.length > 0 && (
         <div className="mt-5">

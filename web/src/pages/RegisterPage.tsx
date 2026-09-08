@@ -23,7 +23,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <AuthCard title="创建账号" description="只要用户名和密码，邮箱以后想填再填。">
+    <AuthCard title="创建账号" description="无需绑定个人邮箱，设置用户名与密码即可开始。">
       <form onSubmit={submit} className="space-y-4">
         <Input
           label="用户名"
@@ -49,7 +49,11 @@ export default function RegisterPage() {
           <Link className="text-kumo-link hover:underline" to="/legal/terms">
             服务条款
           </Link>
-          ，并确认只会托管你拥有合法授权的邮箱账号。
+          与
+          <Link className="text-kumo-link hover:underline" to="/legal/privacy-policy">
+            隐私政策
+          </Link>
+          ，并承诺仅托管拥有合法授权的邮箱凭据。
         </p>
         <p className="pt-2 text-center text-sm text-kumo-subtle">
           已有账号？{" "}

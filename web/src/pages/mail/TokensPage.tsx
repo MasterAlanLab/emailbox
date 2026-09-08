@@ -122,8 +122,8 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
 
   return (
     <PageShell
-      title="Token 刷新"
-      description="批量确认至少一个 OAuth 通道能否完成令牌交换，并在服务商轮换令牌时写回新值。"
+      title="令牌刷新"
+      description="批量检测托管账号的 OAuth 凭据有效性，并在服务商轮换 Refresh Token 时自动加密持久化。"
     >
       {(error || loadError) && (
         <p className="mb-4 text-sm text-kumo-danger">{error || loadError}</p>
@@ -131,10 +131,10 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
 
       {stats && (
         <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <StatTile label="总账号" value={stats.total} />
-          <StatTile label="正常" value={stats.success} tone="success" />
-          <StatTile label="失败" value={stats.failed} tone="danger" />
-          <StatTile label="从未刷新" value={stats.never} />
+          <StatTile label="托管账号" value={stats.total} />
+          <StatTile label="凭据有效" value={stats.success} tone="success" />
+          <StatTile label="授权失效" value={stats.failed} tone="danger" />
+          <StatTile label="未检测" value={stats.never} />
         </div>
       )}
 
@@ -188,7 +188,7 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
           </Button>
         )}
         <span className="text-xs text-kumo-subtle">
-          没有 refresh_token 的账号（IMAP 密码账号）会被自动排除。
+          仅支持 OAuth 协议账号；普通 IMAP 密码账号无需轮换，将自动跳过。
         </span>
       </LayerCard>
 
