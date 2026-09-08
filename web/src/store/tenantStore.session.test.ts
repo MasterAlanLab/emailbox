@@ -62,9 +62,12 @@ describe("会话切换时的租户数据隔离", () => {
       members: [member("alice", "acme")],
     });
 
-    useTenantStore
-      .getState()
-      .hydrate({ user: user("bob"), tenants: [tenant("beta")], active_tenant_id: "beta" });
+    useTenantStore.getState().hydrate({
+      user: user("bob"),
+      tenants: [tenant("beta")],
+      active_tenant_id: "beta",
+      desktop: false,
+    });
 
     const state = useTenantStore.getState();
     expect(state.activeTenant?.id).toBe("beta");

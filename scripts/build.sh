@@ -14,28 +14,12 @@ echo "📁 项目根目录: $PROJECT_ROOT"
 # 清理之前的构建文件
 echo "🧹 清理之前的构建文件..."
 rm -rf "$PROJECT_ROOT/web/dist"
-rm -rf "$PROJECT_ROOT/static"
 rm -f "$PROJECT_ROOT/server"
 
-# 构建前端
-echo "🔨 构建前端 React 项目..."
-cd "$PROJECT_ROOT/web"
-bun run build
+# 构建前端并同步到 pkg/webui/static（由 go:embed 编译进二进制）
+"$PROJECT_ROOT/scripts/embed-web.sh"
 
-if [ ! -d "dist" ]; then
-    echo "❌ 前端构建失败，dist 目录不存在"
-    exit 1
-fi
-
-echo "✅ 前端构建完成"
-
-# 将前端构建文件复制到后端静态文件目录
-echo "📦 复制前端静态文件到后端..."
 cd "$PROJECT_ROOT"
-mkdir -p static
-cp -r web/dist/* static/
-
-echo "✅ 静态文件复制完成"
 
 # 代码质量检查
 # 工具缺失时必须失败而不是跳过：否则构建会带着未经检查的代码报告成功，
@@ -64,8 +48,7 @@ echo "✅ 后端构建完成"
 echo ""
 echo "🎉 构建完成！"
 echo "📊 构建结果:"
-echo "   - 可执行文件: $PROJECT_ROOT/server"
-echo "   - 静态文件目录: $PROJECT_ROOT/static/"
+echo "   - 可执行文件: $PROJECT_ROOT/server（前端已嵌入，无需附带静态目录）"
 echo "   - 文件大小: $(du -h server | cut -f1)"
 echo ""
 echo "🚀 运行方式:"

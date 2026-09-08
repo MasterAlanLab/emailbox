@@ -4,7 +4,9 @@
 node_modules
 web/node_modules
 web/dist
-static
+# 嵌入目录由 Dockerfile 从前端构建阶段直接填充，开发机上的副本不进上下文，
+# 否则镜像里可能嵌进一份陈旧的前端。
+pkg/webui/static
 server
 tmp
 *.db

@@ -48,6 +48,7 @@ go-imap/v2（锁定 beta 版本，封装在 `pkg/mailer/imapx` 内不外泄类�
 api/            路由装配（mountMailRoutes 同时给用户侧与管理员侧用）+ 接口级测试
 cmd/mailprobe/  协议层诊断 CLI
 configs/        环境变量
+desktop/        桌面版入口（**独立 Go 子模块**，见下）
 db/migrations/  两套同版本号的迁移（sqlite / postgres）
 db/query/       sqlc 命名 SQL，两个方言各一份
 db/generated/   sqlc 生成代码，不手改
@@ -60,8 +61,29 @@ pkg/service/    业务逻辑
 pkg/repo/       数据访问，在此吸收两种方言的差异
 pkg/middleware/ 认证（会话 Cookie / API Key）、租户成员、平台管理员
 pkg/model/      数据结构、DTO、RBAC 权限矩阵
+pkg/server/     服务装配：配置、数据库、路由、静态资源、后台协程与优雅关机
+pkg/webui/      前端产物的 go:embed 落点（static/ 由 scripts/embed-web.sh 填充）
 web/src/        React 前端
 ```
+
+**入口只有两个，装配只有一份。** 仓库根的 `main.go`（Web / Docker）与 `desktop/main.go`
+（桌面版）都只是薄壳，真正的装配全在 `pkg/server`。两者只在「监听哪个地址」和
+「要不要自动登录」上不同——新增中间件或路由时改 `pkg/server` 一处即可，
+不要在任何入口里补第二份。
+
+**`desktop/` 是独立子模块**（`replace emailbox => ../`），这是有意的：`wails/v3` 的 go.mod
+把它的 CLI 工具链（bubbletea、go-git、nfpm、task…）一并列进依赖图，放进主模块会让
+server 二进制的构建、Docker 镜像和 CI 全都背上这些依赖。两个后果要记住：
+
+- 主模块的 `./...` **覆盖不到它**，`make test` / `make lint` 都不含桌面代码。
+  改了 `desktop/` 要另跑 `make lint-desktop`
+- 桌面形态的业务逻辑（数据目录、首启密钥、自动登录）一律放 `pkg/server/desktop.go`，
+  不要放进 `desktop/`。那边只留「起服务 → 开窗口」十几行，才能被主模块的测试覆盖到
+
+**前端产物必须在 `go build` 之前就位**：`go:embed` 在编译期读取 `pkg/webui/static/`，
+晚一步复制得到的是一个能启动但打不开任何页面的二进制。该目录里的 `.gitkeep` 不能删——
+目录为空时 `//go:embed all:static` 会直接编译失败，而「尚未构建前端」正是本仓库
+最常见的状态（`make dev` 下前端由 Vite 提供）。
 
 | 层 | 职责 | 不该出现在这里的东西 |
 |---|---|---|
@@ -336,13 +358,23 @@ Air（可选，热重载）。`make tools` 装齐，`make check` 检查。
 make dev             # 后端 :1323 + 前端 :5173
 make sqlc-generate   # 改完 db/query/ 后必跑
 make sqlc-verify     # CI 也会跑
-make lint            # golangci-lint + eslint + prettier 检查
+make lint            # golangci-lint + eslint + prettier 检查（不含 desktop/）
+make lint-desktop    # 桌面子模块的检查，改了 desktop/ 要另跑
 make test            # go test + vitest
-./scripts/build.sh   # 单二进制 + static/
+make build           # 单二进制（前端已 go:embed 进去，不再有 static/ 目录）
+make embed-web       # 只构建前端并同步到 pkg/webui/static
+make run-desktop     # 构建并启动桌面版
+make package-desktop # 打包当前平台的安装包到 dist-desktop/
 ```
 
-提交前至少 `make lint && make test`。CI 会跑 `go test -race`、PostgreSQL 对照测试、
-前端 lint / 格式检查与测试。
+提交前至少 `make lint && make test`；动了 `desktop/` 再加 `make lint-desktop`。
+CI 会跑 `go test -race`、PostgreSQL 对照测试、前端 lint / 格式检查与测试；
+版本 tag 另外触发 Docker 镜像（`build.yml`）与桌面包（`desktop.yml`，
+只出 macOS arm64 / Windows x64 / Linux x64 三个目标）。
+
+`pkg/server` 里桌面形态的用例在前端未嵌入时会 `t.Skip`，因此本地跑 `make test`
+看到的是跳过；它们只在 `desktop.yml` 里真正执行（那条流水线会先 `make embed-web`）。
+要在本地跑到，先 `make embed-web`。
 
 ## 9. 改动之后
 

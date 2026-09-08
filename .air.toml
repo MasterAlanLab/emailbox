@@ -15,8 +15,11 @@ tmp_dir = "tmp"
   bin = "tmp/main"
   # 要监视的文件扩展名
   include_ext = ["go", "tpl", "tmpl", "html"]
-  # 要排除的目录：前端由 Vite 自己热更新，web/ 及各类产物、文档目录都不归 air 管
-  exclude_dir = ["assets", "tmp", "vendor", "testdata", "web", "static", "node_modules", "docs", "scripts", "data", ".git", ".vscode", ".github"]
+  # 要排除的目录：前端由 Vite 自己热更新，web/ 及各类产物、文档目录都不归 air 管。
+  # pkg/webui/static 是前端产物的嵌入落点，里面有 index.html——不排除的话，
+  # include_ext 里的 "html" 会让每次前端构建都触发一轮后端重启。
+  # desktop/ 是独立子模块，不参与后端热重载。
+  exclude_dir = ["assets", "tmp", "vendor", "testdata", "web", "pkg/webui/static", "desktop", "node_modules", "docs", "scripts", "data", ".git", ".vscode", ".github"]
   # 排除测试文件。正则里的反斜杠必须用单引号字面量字符串包裹：
   # 双引号写法 "_test\.go" 中 \. 是非法转义，会让整个文件解析失败
   exclude_regex = ['_test\.go']

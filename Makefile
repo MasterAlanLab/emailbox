@@ -8,7 +8,7 @@ GOLANGCI_LINT_VERSION := v2.12.2
 SQLC_VERSION := v1.30.0
 AIR_VERSION := v1.61.7
 
-.PHONY: help deps sqlc-generate sqlc-verify test lint lint-go lint-web lint-web-fix build build-go build-web dev run clean docker tools check
+.PHONY: help deps sqlc-generate sqlc-verify test lint lint-go lint-web lint-web-fix lint-desktop build build-go build-web build-desktop embed-web package-desktop dev run run-desktop clean docker tools check
 
 # 默认目标
 help: ## 显示帮助信息
@@ -66,6 +66,12 @@ lint-web: ## 运行前端代码检查
 	cd web && bun run format:check
 	cd web && bun run lint
 
+lint-desktop: ## 运行桌面版子模块的代码检查
+	@echo "🔍 运行桌面版代码检查..."
+	@# 独立子模块不在根模块的 ./... 范围内，golangci-lint 必须在它自己的目录里跑一次，
+	@# 否则这部分代码永远不会被任何检查覆盖到。
+	cd desktop && golangci-lint run --config ../.golangci.yml
+
 lint-web-fix: ## 自动修复前端格式与 lint 问题
 	@echo "🔧 格式化前端代码..."
 	cd web && bun run format
@@ -85,6 +91,18 @@ build-go: ## 仅构建 Go 后端
 build-web: ## 仅构建前端
 	@echo "🔨 构建前端..."
 	cd web && bun run build
+
+embed-web: ## 构建前端并同步到 pkg/webui/static（go:embed 的取材目录）
+	./scripts/embed-web.sh
+
+build-desktop: embed-web ## 构建桌面版二进制（当前平台）
+	@echo "🔨 构建桌面版..."
+	@# desktop 是独立子模块：wails/v3 会带进上百个 CLI 工具链依赖，
+	@# 放进主模块会让 server 二进制、Docker 镜像和 CI 全都背上它们。
+	cd desktop && go build -trimpath -o emailbox .
+
+package-desktop: ## 打包桌面版安装包（当前平台，产物在 dist-desktop/）
+	./scripts/package-desktop.sh $(VERSION)
 
 # 开发
 dev: ## 启动前后端开发环境（同时启动后端和前端）
@@ -115,13 +133,21 @@ run: ## 运行项目（需要先构建）
 		exit 1; \
 	fi
 
+run-desktop: build-desktop ## 构建并启动桌面版
+	@echo "🚀 启动桌面版..."
+	./desktop/emailbox
+
 # 清理
 clean: ## 清理构建文件
 	@echo "🧹 清理构建文件..."
 	rm -rf web/dist
-	rm -rf static
 	rm -rf tmp
-	rm -f server
+	rm -rf dist-desktop
+	rm -f server desktop/emailbox desktop/emailbox.exe
+	@# 嵌入目录整体删掉再补回 .gitkeep：目录为空时 go:embed 会直接编译失败，
+	@# 清理完就 build 不了是最容易让人困惑的一种「干净」。
+	rm -rf pkg/webui/static
+	mkdir -p pkg/webui/static && touch pkg/webui/static/.gitkeep
 	@echo "✅ 清理完成"
 
 # Docker

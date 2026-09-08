@@ -86,7 +86,8 @@ func newTestServerWithMailOptions(t *testing.T, mailOptions service.ChainOptions
 	store := repo.NewStore(db, "sqlite")
 	apiKeyService := service.NewAPIKeyService(store, testCipher(t))
 	handlers := api.Handlers{
-		Auth:   handler.NewAuthHandler(service.NewAuthService(store)),
+		// false：路由用例测的是网页形态，桌面形态由 pkg/server 的用例覆盖。
+		Auth:   handler.NewAuthHandler(service.NewAuthService(store), false),
 		APIKey: handler.NewAPIKeyHandler(apiKeyService),
 		User:   handler.NewUserHandler(service.NewUserService(store)),
 		Tenant: handler.NewTenantHandler(service.NewTenantService(store)),

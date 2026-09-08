@@ -1,0 +1,109 @@
+name: Desktop build
+
+# 与 release.yml / build.yml 一样由版本 tag 触发，三者并行：
+# 一个创建 Release，一个推 Docker 镜像，这个产出四个平台的桌面安装包。
+# Web 与 Docker 的流程完全不受影响。
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  desktop:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      # 一个平台失败不该让其余三个的产物也拿不到——发布时缺一个平台，
+      # 总好过四个平台一起没有。
+      fail-fast: false
+      matrix:
+        include:
+          # 只出这三个目标。macOS 不做 Intel 包：初版挂在已退役的 macos-13 上，
+          # 换 macos-15-intel 也只能撑到 2027 年秋 GitHub 停掉 x86_64 为止，
+          # 与其维护一条注定要拆的流水线，不如现在就不发。
+          - os: macos-latest
+            label: macOS (Apple Silicon)
+          - os: windows-latest
+            label: Windows
+          - os: ubuntu-latest
+            label: Linux
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          # 版本跟随主模块；desktop 子模块的 go 指令与它保持一致
+          go-version-file: go.mod
+          cache-dependency-path: desktop/go.sum
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          # 版本唯一来源同 ci.yml：web/package.json 的 packageManager 字段
+          bun-version-file: web/package.json
+
+      - name: Cache Bun downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      # Wails 在 Linux 上用系统的 GTK3 + WebKitGTK 渲染，二者都要在编译期链接。
+      # macOS（WKWebView）与 Windows（WebView2）用的是系统自带组件，无需安装。
+      - name: Install Linux WebView dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      # 单独一步而不是让打包脚本代劳：下面的测试需要前端已经嵌入才会真正执行。
+      - name: Build and embed frontend
+        run: ./scripts/embed-web.sh
+        shell: bash
+
+      # 桌面模式的用例在前端未嵌入时会 skip，因此只有在这条流水线里才真正跑得到。
+      # 放在 Linux 上跑一次即可：验证的是与平台无关的服务侧行为。
+      - name: Run desktop server tests
+        if: runner.os == 'Linux'
+        run: go test -race ./pkg/server/...
+
+      - name: Vet desktop module
+        working-directory: desktop
+        run: go vet ./...
+
+      - name: Package desktop app
+        # SKIP_WEB=1：前端已在上面构建过，不必再来一遍
+        env:
+          SKIP_WEB: "1"
+        run: ./scripts/package-desktop.sh "${GITHUB_REF_NAME}"
+        shell: bash
+
+      # 四个 job 各自把自己的产物挂到同一个 Release 上。
+      # 与 release.yml 存在竞争：谁先到谁负责创建 Release。这没有问题——
+      # action-gh-release 只更新自己传入的字段，release.yml 的标题与
+      # changelog 会在它那一步补齐，最终状态两者兼有。
+      - name: Attach to release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist-desktop/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

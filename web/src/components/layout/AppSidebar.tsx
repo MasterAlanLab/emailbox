@@ -49,6 +49,7 @@ const SECONDARY: NavItem[] = [
 export function AppSidebar() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+  const desktop = useAuthStore((state) => state.desktop);
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(restoreCollapsed);
   const [theme, setLocalTheme] = useState<ResolvedTheme>(currentTheme);
@@ -140,19 +141,25 @@ export function AppSidebar() {
             </span>
             <span className={`${labelClass} min-w-0 flex-1 truncate`}>{user?.username}</span>
           </NavLink>
-          <SidebarButton
-            icon={SignOut}
-            label="退出"
-            collapsed={collapsed}
-            labelClass={labelClass}
-            // 登出请求失败也要离开当前页：本地会话状态已清空，
-            // 停留在原地会让用户看到一个自己已无权访问的页面。
-            onClick={() => {
-              logout()
-                .catch(() => {})
-                .finally(() => navigate("/"));
-            }}
-          />
+          {/* 桌面版不给退出：那里的本地账号是首次启动时用随机密码建的，
+              密码从不展示也从不留存，退出之后停在登录页就只能重启应用
+              （每次启动都会重新自动登录）。藏掉入口比留一个把人锁在外面的按钮好。
+              服务端的 /auth/logout 照常存在，藏的只是这个入口。 */}
+          {!desktop && (
+            <SidebarButton
+              icon={SignOut}
+              label="退出"
+              collapsed={collapsed}
+              labelClass={labelClass}
+              // 登出请求失败也要离开当前页：本地会话状态已清空，
+              // 停留在原地会让用户看到一个自己已无权访问的页面。
+              onClick={() => {
+                logout()
+                  .catch(() => {})
+                  .finally(() => navigate("/"));
+              }}
+            />
+          )}
         </div>
       </div>
     </nav>

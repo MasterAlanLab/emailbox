@@ -938,3 +938,137 @@ state 中的 tenant ID 做带租户条件的查询。`TestOAuthReauthorizationOn
 `imap_password_enc`，账号能建出来但刷新时必然报「账号没有 IMAP 密码或授权码」。
 微软已停用个人账号的基本认证，这种账号本来就不可能工作，所以没改解析逻辑，
 只在界面上写清楚 Outlook 必须走 4 段。
+
+### 桌面版（2026-09-08，用户要求）
+
+Windows / macOS / Linux 三平台的桌面应用，用 Wails v3（`v3.0.0-beta.17`）。
+**没有第二套后端**：桌面版把 `pkg/server` 装配出来的同一个服务跑在进程内的随机本地端口上，
+再用系统 WebView 打开那个地址。Web 与 Docker 的流程一行没动。
+
+不选 Electron 的理由很直接：这个项目本来就产出一个能在三平台跑的 Go 单二进制，
+套 Electron 等于为了显示一个已经在 localhost 上的页面，再背一个 Node 运行时加一整个
+Chromium（+150MB）。Wails 用系统自带的 WebView（WKWebView / WebView2 / WebKitGTK），
+打出来的 macOS 包 8.5MB。代价是 Linux 上要求宿主装 `libwebkit2gtk-4.1`，
+这写进了 Linux 包里的 README.txt。
+
+七件事，逐条记它们为什么是现在这个形状：
+
+- **前端改为 `go:embed`**，落点是 `pkg/webui/static/`（不是仓库根的 `static/`——
+  go:embed 的路径不能越出所在包的目录）。根目录的 `static/` 已删除，Dockerfile 的运行阶段
+  也不再复制它，镜像里只剩一个二进制。目录里常驻一个 `.gitkeep` 且用 `//go:embed all:static`：
+  少了它，「尚未构建前端」这个最常见的状态（`make dev` 下前端在 Vite 上）会让整个仓库
+  **编译不过**，报 `no matching files found`。`webui.Built()` 用 index.html 而不是「目录非空」
+  判断产物在不在，就是因为只有 `.gitkeep` 的空壳照样能通过 embed。
+
+- **桌面版监听 `127.0.0.1:0`**，端口由内核分配，经 echo 的 `StartConfig.ListenerAddrFunc`
+  取回再传给窗口。不写死 1323 是因为用户很可能已经用 Docker 跑着一份 Emailbox。
+
+- **数据目录走 `os.UserConfigDir()`**（macOS `~/Library/Application Support/emailbox`、
+  Windows `%AppData%\emailbox`、Linux `~/.config/emailbox`），目录权限 0700。
+  沿用服务端「相对工作目录」的默认值会在装进 `/Applications` 或 `C:\Program Files`
+  之后直接启动失败——那里对普通用户是只读的。
+
+- **`ENCRYPTION_KEY` 首启生成并写进数据目录**（0600）。读不到、内容非法一律报错，
+  **不回落到明文 Cipher**：静默降级意味着从此邮箱密码明文入库，而用户毫无察觉。
+
+  这里踩了一个坑：最初的写法是 `configs.Init()` 之后再补密钥，结果桌面版每次启动都会先打一条
+  **与事实相反**的 `WARN 未配置 ENCRYPTION_KEY，邮箱凭据将以明文存储`——而这条日志恰恰是
+  判断凭据到底有没有被加密的唯一依据。现在改成 `prepareDesktopEnv()` 在 `configs.Init()`
+  **之前**把值写进环境变量，顺带让生成出来的密钥也过一遍 `validateCrypto`，
+  不再是「配置文件里的密钥被校验、程序自己生成的却不被校验」。
+
+- **自动登录不绕过认证中间件**。首启用随机密码建出本地账号 `local`（密码从不展示也从不留存），
+  每次启动铸一个会话，窗口打开 `/desktop/session?nonce=…` 换出 Cookie 后 302 回首页。
+  租户隔离、权限矩阵、审计全部照常生效，省掉的只是「输入密码」这一步。Cookie 由
+  `handler.SetSessionCookie` 统一写出——属性抄第二遍迟早漂移，而漂移方向通常是
+  「桌面版那份少了 HttpOnly」这种没人会立刻发现的。
+
+  nonce **有意不做一次性**：webview 在启动时重载一次页面是常见行为（WebView2 尤其），
+  用过即废会让那种无害的重载直接把应用打成登录页。它只存在于内存和窗口自己的地址栏里，
+  同机器上的其他进程读不到，改成进程存活期内有效不降低隔离强度。
+  `sanitizedLogURI` 同时收窄了这个入口——nonce 落进访问日志等于把会话写进日志文件。
+
+- **桌面入口是独立子模块 `desktop/`**（`replace emailbox => ../`），不是主模块里的
+  `cmd/desktop`。`wails/v3` 的 go.mod 把它的 CLI 工具链（bubbletea、go-git、nfpm、task…）
+  一并列进依赖图，放进主模块会让 server 二进制的构建、Docker 镜像和 CI 全都背上这些依赖。
+  分出去之后主模块的 `go.mod` / `go.sum` **一个字节都没改**。
+  代价是根模块的 `./...` 覆盖不到它，因此 `make lint-desktop` 与 CI 里的 `go vet` 各补了一次。
+
+- **CI 三个目标**（`desktop.yml`）：macOS arm64 / Windows x64 / Linux x64，
+  各自把产物挂到同一个 Release 上。不做签名与公证，用户首次打开会撞安全警告（用户已确认接受）。
+  交叉编译走不通——Wails 要经 cgo 链接各平台的原生 WebView 库，只能一个平台一台 runner。
+  `fail-fast: false`：发布时缺一个平台，总好过三个一起没有。
+
+  **macOS Intel 不发**（用户决定）。初版挂在 `macos-13` 上，而它已于 2025-12-04
+  退役，job 根本起不来；换成 `macos-15-intel` 也只能撑到 2027 年秋 GitHub 停掉
+  x86_64 为止。与其维护一条注定要拆的流水线，不如现在就不发——Intel Mac 用 Docker 版。
+  README 里写明了这一点，否则 Intel 机器上的人会下走 arm64 包然后发现打不开。
+
+  **打包脚本初版的 Linux 分支必然中止**，而且只有真跑一次才看得见（tag 还没推，
+  是靠本机实跑 macOS 分支 + 用桩文件静态复演 Linux 分支发现的）：二进制编译到
+  `$BUILD_DIR/emailbox`，紧接着又要建一个同名的打包目录 `$BUILD_DIR/emailbox`——
+  `mkdir -p` 只容忍已存在的**目录**，撞上普通文件直接报错，配合 `set -e` 整个脚本中止。
+  macOS 分支躲过纯属巧合：它的中间目录叫 `Emailbox.app`，名字不一样。
+  改为套一层 `stage/`，tar 的顶层目录仍是 `emailbox`。
+
+  顺带核过、确认**不需要**改的一条：三个平台的 job 与 `release.yml` 会并发地
+  对同一个 tag 创建 Release，`softprops/action-gh-release` 在 v2.5.2 / v2.6.0
+  修掉了共享 tag 的竞争与并发上传，仓库用的 `@v3` 已包含。
+
+  **仍未验证**：Windows 与 Linux 的 `go build` 这一步在 macOS 上跑不了
+  （Wails 要链接各平台原生的 WebView 库）。修掉的是打包逻辑，编译本身能否过
+  只有推 tag 才知道——建议先推一个 `-rc` 试跑，它会被识别成 prerelease。
+
+- **邮件正文沙箱重新验证**：结论是三层防护在系统 WebView 下**全部成立**，且桌面端比浏览器
+  少一个攻击面。逐层核对——DOMPurify 是纯 JS，与引擎无关；`sandbox=""` 和
+  `<meta http-equiv="Content-Security-Policy">` 都是 WebKit 与 Chromium 原生支持的标准特性，
+  而这两个引擎正是浏览器用的那两个。
+
+  关键的额外一条：**Wails 的运行时不会被注入进我们的页面**。它只在两种情况下出现——
+  由 Wails 的 asset server 提供的页面 `import('/wails/runtime.js')`，或用
+  `WebviewWindowOptions.HTML` 创建的窗口被 `maybeInjectInlineEventShim` 注入 shim。
+  我们用的是 `URL`（指向自己的 Echo 服务）、`AllowSimpleEventEmit` 保持默认 false，
+  两条都不成立，页面里没有任何通往 Go 的桥。
+
+  顺手补上了这层一直缺的测试：`sandbox=""` 此前**没有任何用例守着**，
+  而它是「净化被绕过时脚本仍然跑不起来」的最后一道。新增
+  `MessageBody.test.tsx` 并做了变异验证——把 sandbox 改成 `allow-scripts allow-same-origin`
+  后 6 条用例红 4 条，还原后全绿。
+
+- **桌面形态隐藏「退出」入口**。点了它会停在登录页，而本地账号的密码是随机生成、
+  从不展示的，用户填不出任何凭据，只能重启应用恢复。藏掉入口比留一个把人锁在外面的
+  按钮好；服务端的 `/auth/logout` 照常存在，藏的只是这个入口。
+
+  标志搭在 `/api/v1/auth/session` 的响应上（`AuthResponse.Desktop`）。选它有两个理由：
+  前端本来就会在 `Layout` 挂载时取一次会话，不必为一个布尔值新开端点或多打一次请求；
+  而且守卫会等它返回才渲染，按钮不会先闪一下再消失。
+
+  **没有用 Cookie**——这是这次唯一一个不查文档就会写错的地方：**Cookie 不区分端口**。
+  桌面版在 `127.0.0.1` 上种下的标志，会被同一台机器上 Docker 发布在 `127.0.0.1:1323`
+  的实例原样读到，把网页版的退出入口一起藏掉。localStorage 反而是按源（含端口）隔离的，
+  但那又要多一路持久化状态。
+
+  标志由 `AuthHandler` 盖章而不是 `AuthService` 填：进程有没有窗口跟「这把令牌属于谁」
+  无关，服务层不该知道这件事。也没有走 `configs.AppConfig`——那等于多一个用户可设的
+  `DESKTOP_MODE` 环境变量，在 Docker 上被误设就是一个谁也退不出去的网页版；
+  改为从 `server.Options.Desktop` 一路传参进去。三个返回 `AuthResponse` 的入口
+  （注册 / 登录 / 会话）都过同一个 `respondAuth`：桌面版实际只经过会话那条，
+  但「只有一条路径记得盖章」这种约定，在下次有人给前端加登录后跳转时就会失效。
+
+  两端各补一条用例并做了变异验证：摘掉前端的形态判断 → `桌面形态藏掉退出入口` 红；
+  摘掉处理器的盖章 → `会话响应带上桌面形态标志` 红；还原后各自复绿。
+
+三个跟本次改动无关、但撞上了的坑：
+
+- **Windows runner 上脚本跑在 Git Bash 里，`mktemp -d` 给的是 `/tmp/xxx` 这种 POSIX 路径，
+  而 `go` 是原生 Windows 程序，不认它**。构建目录因此改放项目内，输出路径用相对路径。
+  Git Bash 也不自带 `zip`，打包回落到 PowerShell 的 `Compress-Archive`。
+
+- **`sips` 读不了 ICO 容器**。`web/public/favicon.ico` 内部就是一张 256×256 的 PNG，
+  按目录项第 12–15 字节记的偏移把它取出来再交给 `sips`/`iconutil` 就行；
+  取出来之后要验一遍 PNG 魔数，否则 `iconutil` 会拿着一坨二进制生成一个看不出问题的空图标。
+  另外 iconset 只认固定的那套文件名（`icon_32x32@2x.png` 之类），写错的条目被静默忽略。
+
+- **对 `srcdoc` 做子串断言是错的**：`expect(srcDoc).not.toContain('src="https://…"')` 永远
+  判不对，因为被拦下的图片会把原地址留在 `data-blocked-src="https://…"` 上，
+  而 `src="` 正好是 `data-blocked-src="` 的后缀。改成解析 DOM 再取属性。

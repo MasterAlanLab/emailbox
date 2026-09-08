@@ -33,6 +33,12 @@ RUN go mod download
 # 复制后端源码
 COPY . .
 
+# 前端产物必须在 go build 之前落到 pkg/webui/static：它由 go:embed 在**编译期**
+# 读进二进制，晚一步复制得到的就是一个没有任何页面的 server。
+# 该目录被 .dockerignore 排除，因此这里拿到的一定是本阶段刚构建出来的产物，
+# 不会掺进开发机上的陈旧副本。
+COPY --from=frontend-builder /app/dist ./pkg/webui/static
+
 # 构建后端：
 # - modernc.org/sqlite 为纯 Go 实现，无需 CGO，可直接交叉编译
 # - TARGETOS/TARGETARCH 由 buildx 按 --platform 自动注入
@@ -52,10 +58,10 @@ WORKDIR /app
 RUN addgroup -g 1000 app && adduser -D -u 1000 -G app app \
     && mkdir -p /app/data && chown app:app /app/data
 
-# 二进制与静态文件保持 root 属主（app 用户只读、可执行），无需 chmod：
-# COPY 会保留构建阶段的可执行权限位
+# 二进制保持 root 属主（app 用户只读、可执行），无需 chmod：
+# COPY 会保留构建阶段的可执行权限位。
+# 前端已经由 go:embed 编译进二进制，运行阶段不再需要单独的静态目录。
 COPY --from=backend-builder /app/server /app/server
-COPY --from=frontend-builder /app/dist /app/static
 
 USER app
 

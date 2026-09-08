@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { useAuthStore } from "@/store/authStore";
 import { appRoute, shellRoute } from "@/router/handle";
 import { Layout } from "./Layout";
 
@@ -60,5 +61,29 @@ describe("Layout 的三种形态", () => {
     // /mail 的滚动由它内部各面板分别负责，内容区自己一滚，
     // 工具条和状态栏就会跟着跑出视口。
     expect(container.querySelector("main")!.className).not.toContain("overflow-y-auto");
+  });
+});
+
+// 桌面版的本地账号是首次启动时用随机密码建的，密码从不展示也从不留存。
+// 退出之后停在登录页，用户填不出任何凭据，只能重启应用——所以那个入口在
+// 桌面形态下必须不存在。这不是样式问题，钉住的是「点了会把人锁在外面」。
+describe("退出入口的形态差异", () => {
+  afterEach(() => {
+    // 形态是全局状态，不还原会渗进后面的用例。
+    useAuthStore.setState({ desktop: false });
+  });
+
+  it("网页形态保留退出入口", () => {
+    useAuthStore.setState({ desktop: false });
+    renderAt("/settings");
+    expect(screen.getByRole("button", { name: "退出" })).toBeTruthy();
+  });
+
+  it("桌面形态藏掉退出入口", () => {
+    useAuthStore.setState({ desktop: true });
+    renderAt("/settings");
+    expect(screen.queryByRole("button", { name: "退出" })).toBeNull();
+    // 同时确认导航栏本身渲染正常：少了这条，整个侧边栏崩掉时上面那句也是绿的。
+    expect(screen.getByRole("link", { name: "令牌" })).toBeTruthy();
   });
 });

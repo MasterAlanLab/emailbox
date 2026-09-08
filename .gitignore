@@ -1,9 +1,18 @@
 # 构建产物和静态文件
 /web/node_modules
 /web/dist
-/static
 /server
 /app
+
+# 前端产物的嵌入落点（由 scripts/embed-web.sh 填充）。
+# .gitkeep 必须保留：目录为空时 go:embed 会以「no matching files」直接编译失败。
+/pkg/webui/static/*
+!/pkg/webui/static/.gitkeep
+
+# 桌面版构建产物
+/desktop/emailbox
+/desktop/emailbox.exe
+/dist-desktop/
 
 # 前端配置
 /web/.env

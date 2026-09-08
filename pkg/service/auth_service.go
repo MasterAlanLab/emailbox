@@ -269,6 +269,24 @@ func (s *AuthService) createSession(ctx context.Context, userID string, active *
 	}
 	return token, nil
 }
+
+// CreateLocalSession 为桌面版的本地账号铸一个会话。
+//
+// 桌面版没有登录界面：账号在首次启动时建出来，密码随机生成且从不展示，
+// 会话只能由进程自己铸。它省掉的是「输入密码」这一步，而不是会话机制本身——
+// 铸出来的 token 与网页登录拿到的完全一样，过期、清理、撤销都走同一套。
+func (s *AuthService) CreateLocalSession(ctx context.Context, userID string) (string, error) {
+	tenants, err := s.store.ListTenants(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	var active *string
+	if len(tenants) > 0 {
+		active = &tenants[0].ID
+	}
+	return s.createSession(ctx, userID, active)
+}
+
 func TokenHash(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])

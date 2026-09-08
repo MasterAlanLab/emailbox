@@ -11,6 +11,9 @@ interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
   loading: boolean;
+  // 服务端的形态，不是会话的一部分：登出、会话失效都不该把它清掉，
+  // 一个进程不会因为没人登录就不再是桌面版了。
+  desktop: boolean;
   loadSession: () => Promise<AuthResponse | null>;
   login: (data: LoginRequest) => Promise<AuthResponse>;
   register: (data: RegisterRequest) => Promise<AuthResponse>;
@@ -29,12 +32,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isAuthenticated: false,
   loading: true,
+  desktop: false,
   loadSession: async () => {
     if (sessionInFlight) return sessionInFlight;
     sessionInFlight = (async () => {
       try {
         const r = await userApi.session();
-        set({ user: r.data.user, isAuthenticated: true, loading: false });
+        set({ user: r.data.user, isAuthenticated: true, loading: false, desktop: r.data.desktop });
         return r.data;
       } catch {
         set({ user: null, isAuthenticated: false, loading: false });
@@ -50,12 +54,12 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
   login: async (data) => {
     const r = await userApi.login(data);
-    set({ user: r.data.user, isAuthenticated: true });
+    set({ user: r.data.user, isAuthenticated: true, desktop: r.data.desktop });
     return r.data;
   },
   register: async (data) => {
     const r = await userApi.register(data);
-    set({ user: r.data.user, isAuthenticated: true });
+    set({ user: r.data.user, isAuthenticated: true, desktop: r.data.desktop });
     return r.data;
   },
   logout: async () => {

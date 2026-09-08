@@ -73,6 +73,38 @@ docker run -d \
 
 生产部署请配置 `APP_ENV=production` 和 `ENCRYPTION_KEY`。Linux 主机首次挂载 `data` 目录时，需要让容器的 uid 1000 具备写入权限。
 
+### 桌面版
+
+不想装 Docker、只在自己电脑上用的，从 [Releases](https://github.com/MasterAlanLab/emailbox/releases) 下载对应平台的包：
+
+| 平台 | 文件 | 安装 |
+|---|---|---|
+| macOS (Apple Silicon) | `emailbox-<版本>-macos-arm64.zip` | 解压后把 `Emailbox.app` 拖进「应用程序」 |
+| Windows (x64) | `emailbox-<版本>-windows-amd64.zip` | 解压后双击 `emailbox.exe` |
+| Linux (x64) | `emailbox-<版本>-linux-amd64.tar.gz` | 解压后运行 `./emailbox`，安装步骤见包内 README.txt |
+
+只发这三个目标。Intel 芯片的 Mac 没有对应的包（`macos-arm64` 那个在上面跑不起来），
+需要的话用 Docker 版；Linux 的 arm64 同理。
+
+桌面版和 Web 版跑的是同一个服务，只是把它放进了本机进程里：启动后监听一个随机的
+`127.0.0.1` 端口，用系统自带的 WebView 打开，不占端口也不需要登录——本地账号在首次
+启动时自动建好。
+
+几件需要知道的事：
+
+- **安装包没有签名**。macOS 首次打开会提示「无法验证开发者」，在「系统设置 → 隐私与安全性」
+  里点一次「仍要打开」；Windows 的 SmartScreen 选「更多信息 → 仍要运行」。
+- **数据存在本机**：macOS `~/Library/Application Support/emailbox/`、
+  Windows `%AppData%\emailbox\`、Linux `~/.config/emailbox/`。
+  其中 `encryption.key` 是解开全部邮箱凭据的唯一凭证，换电脑时和 `app.db` 一起迁移，
+  且不要放进任何会被同步或分享的目录。
+- **Linux 需要系统的 WebKitGTK 运行库**（`libwebkit2gtk-4.1`），各发行版的安装命令写在包内的
+  README.txt 里。macOS 和 Windows 用的是系统自带组件，不需要额外安装。
+- 桌面版和 Docker 版可以同时装，两者数据互不相干。
+
+从源码构建：`make package-desktop`（产物在 `dist-desktop/`，只构建当前所在平台——
+Wails 需要链接各平台原生的 WebView 库，交叉编译走不通）。
+
 ## API 和 OAuth
 
 登录后，左侧「API」页面会显示 API Key、可调用接口和 Agent 接入说明。

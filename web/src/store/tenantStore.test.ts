@@ -15,7 +15,7 @@ function tenant(id: string) {
 }
 
 function auth(tenants: ReturnType<typeof tenant>[], active: string | null): AuthResponse {
-  return { user, tenants, active_tenant_id: active };
+  return { user, tenants, active_tenant_id: active, desktop: false };
 }
 
 // hydrate 的三段回退是整个应用里分支最多、也最容易出错的一处：
