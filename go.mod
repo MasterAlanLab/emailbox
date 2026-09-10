@@ -1,6 +1,6 @@
 module emailbox
 
-go 1.25.8
+go 1.26.0
 
 require (
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
@@ -10,7 +10,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/echo/v5 v5.3.1
 	github.com/lib/pq v1.12.3
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/net v0.58.0
 	golang.org/x/text v0.41.0
 	modernc.org/sqlite v1.57.0
