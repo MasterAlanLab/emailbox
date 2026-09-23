@@ -1,4 +1,3 @@
-import { EnvelopeSimple } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { jobApi, type RefreshStats } from "@/api/jobs";
@@ -16,7 +15,6 @@ import {
 import { AccountDrawer } from "@/components/mail/AccountDrawer";
 import { AccountFilterBar } from "@/components/mail/AccountFilterBar";
 import { AccountList } from "@/components/mail/AccountList";
-import { EmptyState } from "@/components/mail/EmptyState";
 import { ExportDialog } from "@/components/mail/ExportDialog";
 import { MailShell } from "@/components/mail/MailShell";
 import { MailSidebar } from "@/components/mail/MailSidebar";
@@ -24,7 +22,6 @@ import { MailStatusBar } from "@/components/mail/MailStatusBar";
 import { MailToolbar } from "@/components/mail/MailToolbar";
 import { MessageDetail } from "@/components/mail/MessageDetail";
 import { MessageList } from "@/components/mail/MessageList";
-import { SplitPane } from "@/components/mail/SplitPane";
 import { refKey } from "@/components/mail/messageRef";
 import { useSelectionStore } from "@/store/selectionStore";
 import { useTenantStore } from "@/store/tenantStore";
@@ -191,6 +188,70 @@ export default function MailPage({ scope }: MailPageProps = {}) {
   // 返回的路径分别是邮件栏的返回按钮和详情栏的关闭按钮。
   const pane = openMessage && activeAccount ? "detail" : activeAccount ? "messages" : "accounts";
   const paneClass = (self: string) => `${pane === self ? "flex" : "hidden"} md:flex`;
+  // 1280~1535px 时正文需要优先拿到空间，账号窄栏暂时折进层级导航；
+  // 超宽屏再把它留在最左侧，方便在读信时切换账号。
+  const accountVisibility =
+    activeAccount && openMessage ? "hidden 2xl:flex" : paneClass("accounts");
+  const accountWidth = activeAccount ? "md:w-64 md:flex-none xl:w-72" : "flex-1";
+  const messageWidth = openMessage ? "md:w-80 md:flex-none xl:w-96" : "flex-1";
+  const accountsPane = (
+    <section
+      className={`${accountVisibility} min-h-0 min-w-0 flex-col ${accountWidth} transition-[width] duration-200`}
+    >
+      <AccountFilterBar
+        groups={groups}
+        groupID={groupID}
+        onGroupChange={changeGroup}
+        status={status}
+        onStatusChange={changeStatus}
+        total={total}
+        compact={Boolean(activeAccount)}
+      />
+
+      {error && <p className="px-4 py-3 text-sm text-kumo-danger">{error}</p>}
+
+      <AccountList
+        accounts={accounts}
+        loading={loading}
+        activeID={activeAccount?.id ?? null}
+        onSelect={selectAccount}
+        onEdit={setEditAccount}
+        page={page}
+        perPage={perPage}
+        total={total}
+        onPageChange={setPage}
+        onPerPageChange={setPerPage}
+        compact={Boolean(activeAccount)}
+      />
+    </section>
+  );
+  const messagesPane = activeAccount ? (
+    <div
+      className={`${paneClass("messages")} min-h-0 min-w-0 flex-col border-l border-kumo-line ${messageWidth} transition-[width] duration-200`}
+    >
+      <MessageList
+        tenantID={tenantID}
+        accountID={activeAccount.id}
+        activeMessageKey={openMessage ? refKey(openMessage) : null}
+        onOpen={setOpenMessage}
+        onRemoved={onMessagesRemoved}
+        onClose={closeAccount}
+      />
+    </div>
+  ) : null;
+  const detailPane =
+    activeAccount && openMessage ? (
+      <div
+        className={`${paneClass("detail")} min-h-0 min-w-0 flex-1 flex-col border-l border-kumo-line`}
+      >
+        <MessageDetail
+          tenantID={tenantID}
+          accountID={activeAccount.id}
+          message={openMessage}
+          onClose={() => setOpenMessage(null)}
+        />
+      </div>
+    ) : null;
 
   return (
     <MailShell
@@ -202,6 +263,7 @@ export default function MailPage({ scope }: MailPageProps = {}) {
       {/* 左栏只在 ≥1280 时并列显示，再窄就折进筛选栏的下拉里（06 文档 §5.1）。 */}
       <MailSidebar
         tenantID={tenantID}
+        activeAccountID={activeAccount?.id ?? null}
         groups={groups}
         groupID={groupID}
         onGroupChange={changeGroup}
@@ -211,66 +273,9 @@ export default function MailPage({ scope }: MailPageProps = {}) {
         onGroupsChanged={reload}
       />
 
-      <section className={`${paneClass("accounts")} min-h-0 min-w-0 flex-1 flex-col`}>
-        <AccountFilterBar
-          groups={groups}
-          groupID={groupID}
-          onGroupChange={changeGroup}
-          status={status}
-          onStatusChange={changeStatus}
-          total={total}
-        />
-
-        {error && <p className="px-4 py-3 text-sm text-kumo-danger">{error}</p>}
-
-        <AccountList
-          accounts={accounts}
-          loading={loading}
-          activeID={activeAccount?.id ?? null}
-          onSelect={selectAccount}
-          onEdit={setEditAccount}
-          page={page}
-          perPage={perPage}
-          total={total}
-          onPageChange={setPage}
-          onPerPageChange={setPerPage}
-        />
-      </section>
-
-      {/* 右栏：邮件列表在上、详情在下，中间可拖。
-          之前详情是第四个并列列，三栏一起挤在 1440 宽里，每栏都不够读；
-          竖着切之后，列表和正文各自拿到整个右栏的宽度。 */}
-      {activeAccount && (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-kumo-line">
-          <SplitPane
-            storageKey="emailbox.mail.split"
-            topClassName={paneClass("messages")}
-            bottomClassName={paneClass("detail")}
-            top={
-              <MessageList
-                tenantID={tenantID}
-                accountID={activeAccount.id}
-                activeMessageKey={openMessage ? refKey(openMessage) : null}
-                onOpen={setOpenMessage}
-                onRemoved={onMessagesRemoved}
-                onClose={closeAccount}
-              />
-            }
-            bottom={
-              openMessage ? (
-                <MessageDetail
-                  tenantID={tenantID}
-                  accountID={activeAccount.id}
-                  message={openMessage}
-                  onClose={() => setOpenMessage(null)}
-                />
-              ) : (
-                <EmptyState icon={EnvelopeSimple} title="选择一封邮件以预览" />
-              )
-            }
-          />
-        </div>
-      )}
+      {accountsPane}
+      {messagesPane}
+      {detailPane}
 
       {exporting && (
         <ExportDialog

@@ -110,7 +110,7 @@ export function MessageDetail({ tenantID, accountID, message, onClose }: Message
       className={
         fullscreen
           ? "fixed inset-0 z-50 flex flex-col bg-kumo-base"
-          : // 不画边框：详情已经是右栏 SplitPane 的下段，上边界由分隔条自己提供，
+          : // 详情和邮件列表是并列面板，上边界由外层分隔线提供，
             // 再加一条 border 会变成两条紧挨着的线。
             "flex min-h-0 min-w-0 flex-1 flex-col"
       }

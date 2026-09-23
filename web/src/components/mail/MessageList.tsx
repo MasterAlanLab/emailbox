@@ -185,7 +185,7 @@ export function MessageList({
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex shrink-0 items-center gap-2 border-b border-kumo-line px-3">
+      <header className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-kumo-line px-3">
         <Button
           className="md:hidden"
           shape="square"
@@ -217,7 +217,7 @@ export function MessageList({
         />
       </header>
 
-      <div className="flex shrink-0 items-center gap-2 border-b border-kumo-line px-3 py-1.5">
+      <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-kumo-line px-3 py-1.5">
         <MessageFilterPills value={readFilter} onChange={setReadFilter} counts={counts} />
       </div>
 

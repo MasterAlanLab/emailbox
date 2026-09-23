@@ -16,6 +16,7 @@ interface AccountFilterBarProps {
   status: AccountStatus | "";
   onStatusChange: (status: AccountStatus | "") => void;
   total: number;
+  compact?: boolean;
 }
 
 // 这一栏只负责**过滤当前账号列表**。导入/导出/刷新和批量动作都在 MailToolbar 里——
@@ -28,13 +29,18 @@ export function AccountFilterBar({
   status,
   onStatusChange,
   total,
+  compact = false,
 }: AccountFilterBarProps) {
   return (
-    <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-kumo-line px-4 py-3">
+    <header
+      className={`flex shrink-0 flex-wrap items-center gap-3 border-b border-kumo-line px-4 py-3 ${
+        compact ? "flex-col items-stretch gap-2 px-2 py-2" : ""
+      }`}
+    >
       {/* 分组下拉只在窄屏出现：≥1280 时左侧有完整的分组列表，这里再放一个是重复的。
           768~1280 收起左栏是 06 文档定的响应式方案，但分组切换不能跟着一起消失。 */}
       <Select
-        className="w-40 xl:hidden"
+        className={compact ? "w-full xl:hidden" : "w-40 xl:hidden"}
         size="sm"
         aria-label="按分组筛选"
         items={groupSelectItems(groups, { allLabel: "全部分组", counts: true })}
@@ -42,7 +48,7 @@ export function AccountFilterBar({
         onValueChange={(value: string | null) => onGroupChange(value || null)}
       />
       <Select
-        className="w-32"
+        className={compact ? "w-full" : "w-32"}
         size="sm"
         aria-label="按状态筛选"
         items={STATUS_ITEMS}
@@ -51,7 +57,7 @@ export function AccountFilterBar({
           onStatusChange((value ?? "") as AccountStatus | "")
         }
       />
-      <span className="text-sm text-kumo-subtle">共 {total} 个账号</span>
+      <span className={compact ? "sr-only" : "text-sm text-kumo-subtle"}>共 {total} 个账号</span>
     </header>
   );
 }

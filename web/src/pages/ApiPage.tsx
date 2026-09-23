@@ -78,7 +78,7 @@ export default function ApiPage() {
     >
       {loadError && <p className="mb-4 text-sm text-kumo-danger">{loadError}</p>}
 
-      <div className="grid max-w-3xl gap-6">
+      <div className="grid max-w-5xl gap-6">
         <section className="rounded-lg border border-kumo-line bg-kumo-elevated p-5">
           <h2 className="text-lg font-medium">请求头</h2>
 

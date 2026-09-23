@@ -67,7 +67,7 @@ export default function UsagePage() {
         </Banner>
       )}
 
-      <div className="grid max-w-3xl gap-6 lg:grid-cols-2">
+      <div className="grid max-w-5xl gap-6 lg:grid-cols-2">
         <QuotaCard title="基础资源配额" items={counted} />
         {/* 令牌刷新没有额度：它是账号能不能用的前提，卡住它等于让账号批量失效。
             既然不受限，就不摆在「额度」里占位——用量页只讲有上限的东西。 */}

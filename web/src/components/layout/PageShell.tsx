@@ -6,7 +6,8 @@ import { NavLink } from "react-router-dom";
 // 令牌 96px、设置三页 224px、后台三页 32px，标题字号也有三档。
 // 在侧边栏布局里连着切几个页面，标题会横着跳近 200px 还变大小。
 //
-// 统一的做法是外层一律 `max-w-6xl` 居中：所有页面的标题因此落在同一条竖线上。
+// 统一的做法是外层一律 `max-w-7xl` 居中：所有页面的标题因此落在同一条竖线上，
+// 也不会在宽屏上把可用的表格空间浪费在两侧空白里。
 // 内容需要更窄（表单类页面读起来才舒服）的，在 children 里自己限宽，
 // **不要**去改外层——那样标题会跟着一起挪，问题就又回来了。
 
@@ -22,8 +23,10 @@ interface PageShellProps {
 
 export function PageShell({ title, description, actions, tabs, children }: PageShellProps) {
   return (
-    // 移动端收窄内边距：420px 的屏幕上两侧各留 32px 就吃掉近两成宽度。
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-8 sm:py-8">
+    // 应用页不是一张居中的小卡片：在宽屏上把可用空间还给表格和批量操作，
+    // 只有表单类页面才在 children 内自行限宽。移动端仍收窄内边距，避免 320px
+    // 屏幕被两侧留白吃掉。
+    <div className="mx-auto flex min-h-full w-full max-w-7xl flex-col px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
       <header className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">

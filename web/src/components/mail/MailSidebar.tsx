@@ -1,5 +1,5 @@
 import { Button } from "@cloudflare/kumo/components/button";
-import { CaretRight, Plus } from "@phosphor-icons/react";
+import { CaretLeft, CaretRight, Plus } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
 import {
   asScope,
@@ -11,6 +11,7 @@ import {
 import type { RefreshStats } from "@/api/jobs";
 import { tenantApi } from "@/api/tenant";
 import { useAsyncAction } from "@/lib/useAsyncAction";
+import { CompactMailFilters } from "./CompactMailFilters";
 import { GroupDeleteDialog } from "./GroupDeleteDialog";
 import { GroupFormDialog } from "./GroupFormDialog";
 import { GroupList } from "./GroupList";
@@ -48,6 +49,8 @@ type Dialog =
 
 interface MailSidebarProps {
   tenantID: TenantRef;
+  /** 当前正在查看的账号。选中后侧栏自动缩成图标列，给邮件列表让出空间。 */
+  activeAccountID?: string | null;
   groups: MailGroupNode[];
   groupID: string | null;
   onGroupChange: (groupID: string | null) => void;
@@ -61,6 +64,7 @@ interface MailSidebarProps {
 
 export function MailSidebar({
   tenantID,
+  activeAccountID = null,
   groups,
   groupID,
   onGroupChange,
@@ -69,6 +73,30 @@ export function MailSidebar({
   stats,
   onGroupsChanged,
 }: MailSidebarProps) {
+  const [storedCollapsed, toggleStoredCollapsed] = usePersistedOpen(
+    "emailbox.mail.sidebar.collapsed",
+    false,
+  );
+  // 自动折叠不覆盖用户的长期偏好：没有选中账号时回到 localStorage 里的状态；
+  // 正在看信时，用户仍可点一次箭头临时展开侧栏。用渲染期同步重置，避免 effect
+  // 晚一帧把上一个账号的「已展开」状态带到新账号上。
+  const [focusState, setFocusState] = useState<{
+    accountID: string | null;
+    manuallyExpanded: boolean;
+  }>(() => ({ accountID: activeAccountID, manuallyExpanded: false }));
+  let focusView = focusState;
+  if (focusState.accountID !== activeAccountID) {
+    focusView = { accountID: activeAccountID, manuallyExpanded: false };
+    setFocusState(focusView);
+  }
+  const collapsed = activeAccountID ? !focusView.manuallyExpanded : storedCollapsed;
+  const toggleCollapsed = () => {
+    if (activeAccountID) {
+      setFocusState((prev) => ({ ...prev, manuallyExpanded: !prev.manuallyExpanded }));
+    } else {
+      toggleStoredCollapsed();
+    }
+  };
   const [statusOpen, toggleStatus] = usePersistedOpen("emailbox.mail.sidebar.status");
   const [groupsOpen, toggleGroups] = usePersistedOpen("emailbox.mail.sidebar.groups");
   const [dialog, setDialog] = useState<Dialog | null>(null);
@@ -126,48 +154,79 @@ export function MailSidebar({
   return (
     // 背景用 base 而不是 canvas：左边紧挨着的全局导航栏已经是 canvas，
     // 两块同色面板贴在一起会糊成一片，看不出哪里是「导航」哪里是「这个页面的内容」。
-    <aside className="hidden w-(--ebx-sidebar-w) shrink-0 flex-col overflow-y-auto border-r border-kumo-line bg-kumo-base xl:flex">
-      <Section title="账号状态" open={statusOpen} onToggle={toggleStatus}>
-        {STATUS_ITEMS.map((item) => (
-          <SidebarRow
-            key={item.value || "all"}
-            label={item.label}
-            count={countOf(item.value)}
-            selected={refreshStatus === item.value}
-            onSelect={() => onRefreshStatusChange(item.value)}
-            leading={<StatusDot tone={item.tone} />}
-          />
-        ))}
-      </Section>
+    <aside
+      className={`hidden shrink-0 flex-col overflow-y-auto border-r border-kumo-line bg-kumo-base transition-[width] duration-200 xl:flex ${
+        collapsed ? "w-14" : "w-(--ebx-sidebar-w)"
+      }`}
+    >
+      <div className="flex h-11 shrink-0 items-center justify-end border-b border-kumo-line px-2">
+        <button
+          type="button"
+          aria-label={collapsed ? "展开邮箱侧栏" : "收起邮箱侧栏"}
+          aria-expanded={!collapsed}
+          title={collapsed ? "展开邮箱侧栏" : "收起邮箱侧栏"}
+          onClick={toggleCollapsed}
+          className="grid size-8 place-items-center rounded-lg text-kumo-subtle hover:bg-kumo-interact hover:text-kumo-strong"
+        >
+          {collapsed ? <CaretRight size={16} /> : <CaretLeft size={16} />}
+        </button>
+      </div>
 
-      <Section
-        title="邮箱分组"
-        open={groupsOpen}
-        onToggle={toggleGroups}
-        action={
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={Plus}
-            aria-label="新建分组"
-            disabled={full}
-            title={full ? `已达套餐上限 ${maxGroups} 个分组` : "新建分组"}
-            onClick={() => setDialog({ kind: "create" })}
-          />
-        }
-      >
-        <GroupList
+      {collapsed ? (
+        <CompactMailFilters
+          items={STATUS_ITEMS}
           groups={groups}
-          selectedID={groupID}
-          onSelect={onGroupChange}
-          actions={{
-            onEdit: (group) => setDialog({ kind: "edit", group }),
-            onDelete: (group) => setDialog({ kind: "delete", group }),
-            onMove: move,
-            pending,
-          }}
+          groupID={groupID}
+          onGroupChange={onGroupChange}
+          refreshStatus={refreshStatus}
+          onRefreshStatusChange={onRefreshStatusChange}
+          stats={stats}
         />
-      </Section>
+      ) : (
+        <>
+          <Section title="账号状态" open={statusOpen} onToggle={toggleStatus}>
+            {STATUS_ITEMS.map((item) => (
+              <SidebarRow
+                key={item.value || "all"}
+                label={item.label}
+                count={countOf(item.value)}
+                selected={refreshStatus === item.value}
+                onSelect={() => onRefreshStatusChange(item.value)}
+                leading={<StatusDot tone={item.tone} />}
+              />
+            ))}
+          </Section>
+
+          <Section
+            title="邮箱分组"
+            open={groupsOpen}
+            onToggle={toggleGroups}
+            action={
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={Plus}
+                aria-label="新建分组"
+                disabled={full}
+                title={full ? `已达套餐上限 ${maxGroups} 个分组` : "新建分组"}
+                onClick={() => setDialog({ kind: "create" })}
+              />
+            }
+          >
+            <GroupList
+              groups={groups}
+              selectedID={groupID}
+              onSelect={onGroupChange}
+              actions={{
+                onEdit: (group) => setDialog({ kind: "edit", group }),
+                onDelete: (group) => setDialog({ kind: "delete", group }),
+                onMove: move,
+                pending,
+              }}
+            />
+          </Section>
+        </>
+      )}
 
       {dialog?.kind === "create" && (
         <GroupFormDialog tenantID={tenantID} onClose={() => setDialog(null)} onSaved={saved} />
@@ -231,15 +290,15 @@ function Section({
 }
 
 // 折叠状态记在 localStorage，理由同 AppSidebar 的收起：它是很强的个人偏好。
-// 只用一两个分组的人会把分组段一直收着，每次进来都要再点一次很烦人。
-//
-// 默认展开，所以判的是 !== "false"：读不到（首次访问、隐私模式）都落回展开。
-function usePersistedOpen(key: string): [boolean, () => void] {
+// 只用一两个分组的人会把分组段一直收着；而窄版侧栏默认展开，首次进入仍能看到完整筛选。
+// defaultOpen 让同一个小钩子也能服务于侧栏整体（默认收起）和两个内容段（默认展开）。
+function usePersistedOpen(key: string, defaultOpen = true): [boolean, () => void] {
   const [open, setOpen] = useState(() => {
     try {
-      return localStorage.getItem(key) !== "false";
+      const saved = localStorage.getItem(key);
+      return saved === null ? defaultOpen : saved !== "false";
     } catch {
-      return true;
+      return defaultOpen;
     }
   });
 
