@@ -168,18 +168,18 @@ func TestRetriableFrom(t *testing.T) {
 		status  int
 		want    bool
 	}{
-		{"Graph OAuth 认证失败", ChannelGraph, ErrKindAuthFailed, 400, true},
+		{"IMAP OAuth OAuth 认证失败", ChannelIMAPNew, ErrKindAuthFailed, 400, true},
 		{"新版 IMAP OAuth 认证失败", ChannelIMAPNew, ErrKindAuthFailed, 400, true},
 		{"旧版 IMAP OAuth 认证失败", ChannelIMAPOld, ErrKindAuthFailed, 400, true},
-		{"Graph 本地缺凭据", ChannelGraph, ErrKindAuthFailed, 0, false},
+		{"IMAP OAuth 本地缺凭据", ChannelIMAPNew, ErrKindAuthFailed, 0, false},
 		{"新版 IMAP 登录失败", ChannelIMAPNew, ErrKindAuthFailed, 0, false},
 		{"密码 IMAP 登录失败", ChannelIMAP, ErrKindAuthFailed, 0, false},
-		// 被封才是越试越严的那一类，Graph 上也必须立即停手。
-		{"Graph 封禁", ChannelGraph, ErrKindBanned, 400, false},
-		{"Graph 权限不足", ChannelGraph, ErrKindConsentRequired, 403, true},
+		// 被封才是越试越严的那一类，IMAP OAuth 上也必须立即停手。
+		{"IMAP OAuth 封禁", ChannelIMAPNew, ErrKindBanned, 400, false},
+		{"IMAP OAuth 权限不足", ChannelIMAPNew, ErrKindConsentRequired, 403, true},
 		{"新版 IMAP 权限不足", ChannelIMAPNew, ErrKindConsentRequired, 400, true},
-		{"调用取消", ChannelGraph, ErrKindCanceled, 400, false},
-		{"Graph 网络错误", ChannelGraph, ErrKindNetwork, 0, true},
+		{"调用取消", ChannelIMAPNew, ErrKindCanceled, 400, false},
+		{"IMAP OAuth 网络错误", ChannelIMAPNew, ErrKindNetwork, 0, true},
 		{"IMAP 网络错误", ChannelIMAPNew, ErrKindNetwork, 0, true},
 	}
 	for _, c := range cases {
@@ -211,7 +211,7 @@ func TestRetriableWithAnotherProxy(t *testing.T) {
 }
 
 func TestErrorIsMatchesByKind(t *testing.T) {
-	err := fmt.Errorf("包一层: %w", newError(ErrKindBanned, ChannelGraph, "账号已被封禁", nil))
+	err := fmt.Errorf("包一层: %w", newError(ErrKindBanned, ChannelIMAPNew, "账号已被封禁", nil))
 	if !errors.Is(err, &Error{Kind: ErrKindBanned}) {
 		t.Error("按 Kind 匹配失败")
 	}
@@ -229,14 +229,14 @@ func TestErrorIsMatchesByKind(t *testing.T) {
 
 func TestErrorUnwrapKeepsCause(t *testing.T) {
 	cause := errors.New("底层原因")
-	err := newError(ErrKindNetwork, ChannelGraph, "连接失败", cause)
+	err := newError(ErrKindNetwork, ChannelIMAPNew, "连接失败", cause)
 	if !errors.Is(err, cause) {
 		t.Error("原始错误应当可以被 errors.Is 找到")
 	}
 	if err.Error() == "" {
 		t.Error("错误文本为空")
 	}
-	withDetail := newError(ErrKindNetwork, ChannelGraph, "连接失败", cause)
+	withDetail := newError(ErrKindNetwork, ChannelIMAPNew, "连接失败", cause)
 	withDetail.Detail = "dial tcp 1.2.3.4:993"
 	if withDetail.Error() == err.Error() {
 		t.Error("Detail 应当出现在错误文本里")

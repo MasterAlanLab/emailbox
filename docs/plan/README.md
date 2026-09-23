@@ -6,7 +6,7 @@
 | 文档 | 内容 |
 |------|------|
 | [03-data-model.md](03-data-model.md) | 数据库设计、迁移清单与 sqlc 的组织方式 |
-| [04-mail-protocol.md](04-mail-protocol.md) | 邮件协议层：Graph / IMAP / OAuth / 代理 / 回退链 |
+| [04-mail-protocol.md](04-mail-protocol.md) | 邮件协议层：IMAP / XOAUTH2 / OAuth / 代理 / 回退链 |
 | [05-api-design.md](05-api-design.md) | 后端 API：路由组、错误码、各端点契约 |
 | [06-frontend.md](06-frontend.md) | 前端信息架构、页面、状态管理与批量交互 |
 | [08-saas-admin.md](08-saas-admin.md) | 个人工作空间、平台管理员、配额体系 |
@@ -26,7 +26,7 @@
 一个**面向公众注册的多租户 SaaS**：普通用户注册即获得独立工作空间，托管自己的邮箱且与他人完全隔离；
 平台管理员可管理用户、并跨工作空间查看与操作全系统邮箱。
 
-业务主线：**分组 → 邮箱账号（批量导入）→ 邮件读取（Graph/IMAP 多通道回退）→
+业务主线：**分组 → 邮箱账号（批量导入）→ 邮件读取（IMAP 多通道回退）→
 批量运维（Token 刷新、代理、分组调整）→ 对外只读 API**。
 
 ## 几个已定的关键决策

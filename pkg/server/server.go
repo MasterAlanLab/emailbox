@@ -144,12 +144,19 @@ func buildServices(store *repo.Store, desktop bool) (*services, error) {
 	groupService := service.NewGroupService(store, cipher, quotaService)
 	accountService := service.NewAccountService(store, cipher, quotaService)
 	messageService := service.NewMessageService(store, cipher, quotaService, service.ChainOptions{
-		OAuthClientID: configs.AppConfig.OAuth.ClientID, OAuthClientSecret: configs.AppConfig.OAuth.ClientSecret,
+		OAuthClientID: configs.AppConfig.OAuth.Microsoft.ClientID, OAuthClientSecret: configs.AppConfig.OAuth.Microsoft.ClientSecret,
+		GoogleOAuthClientID: configs.AppConfig.OAuth.Google.ClientID, GoogleOAuthClientSecret: configs.AppConfig.OAuth.Google.ClientSecret,
 	})
 	oauthService := service.NewOAuthService(store, cipher, quotaService, messageService, service.OAuthOptions{
-		Enabled: configs.AppConfig.OAuth.Enabled, ClientID: configs.AppConfig.OAuth.ClientID,
-		ClientSecret: configs.AppConfig.OAuth.ClientSecret, Tenant: configs.AppConfig.OAuth.Tenant,
-		RedirectURI: configs.AppConfig.OAuth.RedirectURI,
+		Microsoft: service.OAuthProviderOptions{Enabled: configs.AppConfig.OAuth.Microsoft.Enabled, ClientID: configs.AppConfig.OAuth.Microsoft.ClientID,
+			ClientSecret: configs.AppConfig.OAuth.Microsoft.ClientSecret, Tenant: configs.AppConfig.OAuth.Microsoft.Tenant,
+			RedirectURI: configs.AppConfig.OAuth.Microsoft.RedirectURI, AuthorizeURL: configs.AppConfig.OAuth.Microsoft.AuthorizeURL,
+			TokenURL: configs.AppConfig.OAuth.Microsoft.TokenURL, IdentityURL: configs.AppConfig.OAuth.Microsoft.IdentityURL},
+		Google: service.OAuthProviderOptions{Enabled: configs.AppConfig.OAuth.Google.Enabled, ClientID: configs.AppConfig.OAuth.Google.ClientID,
+			ClientSecret: configs.AppConfig.OAuth.Google.ClientSecret, RedirectURI: configs.AppConfig.OAuth.Google.RedirectURI,
+			AuthorizeURL: configs.AppConfig.OAuth.Google.AuthorizeURL, TokenURL: configs.AppConfig.OAuth.Google.TokenURL,
+			IdentityURL: configs.AppConfig.OAuth.Google.IdentityURL},
+		ReturnURL: configs.AppConfig.OAuth.ReturnURL,
 	})
 	apiKeyService := service.NewAPIKeyService(store, cipher)
 
@@ -298,7 +305,7 @@ func closeDatabase() {
 // 桌面版的自动登录入口同样要收窄：nonce 一旦落进日志，
 // 任何能读到日志的人都可以拿它换一个完整会话。
 func sanitizedLogURI(uri string) string {
-	for _, prefix := range []string{"/api/v1/oauth/microsoft/callback", desktopSessionPath} {
+	for _, prefix := range []string{"/api/v1/oauth/callback", "/api/v1/oauth/microsoft/callback", desktopSessionPath} {
 		if strings.HasPrefix(uri, prefix+"?") {
 			return prefix
 		}

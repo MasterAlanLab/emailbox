@@ -83,15 +83,24 @@ type JobConfig struct {
 	EventRetentionDays int `json:"event_retention_days"`
 }
 
-// OAuthConfig 是平台托管的 Microsoft 应用配置。ClientSecret 只用于机密客户端；
-// 参考项目使用公共客户端，因此默认留空并依靠 PKCE。
-type OAuthConfig struct {
+// OAuthProviderConfig 是一个服务商的 OAuth 应用配置。ClientSecret 只用于机密客户端；
+// 公共客户端依靠 PKCE。
+type OAuthProviderConfig struct {
 	Enabled      bool   `json:"enabled"`
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"-"`
 	Tenant       string `json:"tenant"`
 	RedirectURI  string `json:"redirect_uri"`
-	ReturnURL    string `json:"return_url"`
+	AuthorizeURL string `json:"authorize_url"`
+	TokenURL     string `json:"token_url"`
+	IdentityURL  string `json:"identity_url"`
+}
+
+// OAuthConfig 同时承载 Microsoft IMAP OAuth 与 Gmail IMAP OAuth。
+type OAuthConfig struct {
+	Microsoft OAuthProviderConfig `json:"microsoft"`
+	Google    OAuthProviderConfig `json:"google"`
+	ReturnURL string              `json:"return_url"`
 }
 
 var AppConfig *Config
@@ -115,11 +124,24 @@ func Init() error {
 	if err != nil {
 		return err
 	}
-	oauthEnabled, err := getEnvBool("MICROSOFT_OAUTH_ENABLED", true)
+	microsoftOAuthEnabled, err := getEnvBool("MICROSOFT_OAUTH_ENABLED", true)
 	if err != nil {
 		return err
 	}
-	AppConfig = &Config{AppEnv: getEnv("APP_ENV", "development"), Server: ServerConfig{Port: getEnv("SERVER_PORT", "1323"), Host: getEnv("SERVER_HOST", "0.0.0.0"), CORSOrigins: origins, TrustProxy: trustProxy}, Database: DatabaseConfig{Driver: getEnv("DB_DRIVER", "sqlite"), Host: getEnv("DB_HOST", "localhost"), Port: getEnv("DB_PORT", "5432"), Username: getEnv("DB_USERNAME", "postgres"), Password: getEnv("DB_PASSWORD", ""), DBName: getEnv("DB_NAME", "emailbox"), SSLMode: getEnv("DB_SSLMODE", "disable"), Path: getEnv("DB_PATH", "app.db")}, Session: SessionConfig{ExpireHour: getEnvInt("SESSION_EXPIRE_HOUR", 24), CookieSecure: cookieSecure}, Crypto: CryptoConfig{Key: getEnv("ENCRYPTION_KEY", "")}, SaaS: SaaSConfig{RegistrationMode: getEnv("REGISTRATION_MODE", RegistrationOpen), BootstrapAdminUsername: strings.TrimSpace(getEnv("BOOTSTRAP_ADMIN_USERNAME", "")), BootstrapAdminPassword: getEnv("BOOTSTRAP_ADMIN_PASSWORD", ""), DefaultPlanCode: getEnv("DEFAULT_PLAN_CODE", "free")}, Job: JobConfig{Workers: getEnvInt("JOB_WORKERS", 8), AccountDelayMS: getEnvInt("JOB_ACCOUNT_DELAY_MS", 0), EventRetentionDays: getEnvInt("JOB_EVENT_RETENTION_DAYS", 7)}, OAuth: OAuthConfig{Enabled: oauthEnabled, ClientID: strings.TrimSpace(getEnv("MICROSOFT_OAUTH_CLIENT_ID", "9e5f94bc-e8a4-4e73-b8be-63364c29d753")), ClientSecret: getEnv("MICROSOFT_OAUTH_CLIENT_SECRET", ""), Tenant: strings.TrimSpace(getEnv("MICROSOFT_OAUTH_TENANT", "common")), RedirectURI: strings.TrimSpace(getEnv("MICROSOFT_OAUTH_REDIRECT_URI", "http://localhost:8080")), ReturnURL: strings.TrimSpace(getEnv("MICROSOFT_OAUTH_RETURN_URL", "http://localhost:5173/mail/tokens"))}}
+	googleOAuthEnabled, err := getEnvBool("GOOGLE_OAUTH_ENABLED", false)
+	if err != nil {
+		return err
+	}
+	returnURL := strings.TrimSpace(getEnv("OAUTH_RETURN_URL", ""))
+	if returnURL == "" {
+		// 兼容旧配置名，避免升级后已完成授权的部署丢失回跳地址。
+		returnURL = strings.TrimSpace(getEnv("MICROSOFT_OAUTH_RETURN_URL", "http://localhost:5173/mail/tokens"))
+	}
+	AppConfig = &Config{AppEnv: getEnv("APP_ENV", "development"), Server: ServerConfig{Port: getEnv("SERVER_PORT", "1323"), Host: getEnv("SERVER_HOST", "0.0.0.0"), CORSOrigins: origins, TrustProxy: trustProxy}, Database: DatabaseConfig{Driver: getEnv("DB_DRIVER", "sqlite"), Host: getEnv("DB_HOST", "localhost"), Port: getEnv("DB_PORT", "5432"), Username: getEnv("DB_USERNAME", "postgres"), Password: getEnv("DB_PASSWORD", ""), DBName: getEnv("DB_NAME", "emailbox"), SSLMode: getEnv("DB_SSLMODE", "disable"), Path: getEnv("DB_PATH", "app.db")}, Session: SessionConfig{ExpireHour: getEnvInt("SESSION_EXPIRE_HOUR", 24), CookieSecure: cookieSecure}, Crypto: CryptoConfig{Key: getEnv("ENCRYPTION_KEY", "")}, SaaS: SaaSConfig{RegistrationMode: getEnv("REGISTRATION_MODE", RegistrationOpen), BootstrapAdminUsername: strings.TrimSpace(getEnv("BOOTSTRAP_ADMIN_USERNAME", "")), BootstrapAdminPassword: getEnv("BOOTSTRAP_ADMIN_PASSWORD", ""), DefaultPlanCode: getEnv("DEFAULT_PLAN_CODE", "free")}, Job: JobConfig{Workers: getEnvInt("JOB_WORKERS", 8), AccountDelayMS: getEnvInt("JOB_ACCOUNT_DELAY_MS", 0), EventRetentionDays: getEnvInt("JOB_EVENT_RETENTION_DAYS", 7)}, OAuth: OAuthConfig{
+		Microsoft: OAuthProviderConfig{Enabled: microsoftOAuthEnabled, ClientID: strings.TrimSpace(getEnv("MICROSOFT_OAUTH_CLIENT_ID", "9e5f94bc-e8a4-4e73-b8be-63364c29d753")), ClientSecret: getEnv("MICROSOFT_OAUTH_CLIENT_SECRET", ""), Tenant: strings.TrimSpace(getEnv("MICROSOFT_OAUTH_TENANT", "common")), RedirectURI: strings.TrimSpace(getEnv("MICROSOFT_OAUTH_REDIRECT_URI", "http://localhost:8080"))},
+		Google:    OAuthProviderConfig{Enabled: googleOAuthEnabled, ClientID: strings.TrimSpace(getEnv("GOOGLE_OAUTH_CLIENT_ID", "")), ClientSecret: getEnv("GOOGLE_OAUTH_CLIENT_SECRET", ""), RedirectURI: strings.TrimSpace(getEnv("GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:8080"))},
+		ReturnURL: returnURL,
+	}}
 	if AppConfig.Database.Driver != "sqlite" && AppConfig.Database.Driver != "postgres" && AppConfig.Database.Driver != "postgresql" {
 		return fmt.Errorf("DB_DRIVER 仅支持 sqlite 或 postgres")
 	}
@@ -135,13 +157,23 @@ func Init() error {
 }
 
 func validateOAuth(c *Config) error {
-	if !c.OAuth.Enabled {
+	if !c.OAuth.Microsoft.Enabled && !c.OAuth.Google.Enabled {
 		return nil
 	}
-	if c.OAuth.ClientID == "" || c.OAuth.Tenant == "" {
+	if c.OAuth.Microsoft.Enabled && (c.OAuth.Microsoft.ClientID == "" || c.OAuth.Microsoft.Tenant == "") {
 		return fmt.Errorf("微软 OAuth 已启用，但 client_id 或 tenant 为空")
 	}
-	for name, raw := range map[string]string{"MICROSOFT_OAUTH_REDIRECT_URI": c.OAuth.RedirectURI, "MICROSOFT_OAUTH_RETURN_URL": c.OAuth.ReturnURL} {
+	if c.OAuth.Google.Enabled && c.OAuth.Google.ClientID == "" {
+		return fmt.Errorf("google OAuth 已启用，但 client_id 为空")
+	}
+	urls := map[string]string{"OAUTH_RETURN_URL": c.OAuth.ReturnURL}
+	if c.OAuth.Microsoft.Enabled {
+		urls["MICROSOFT_OAUTH_REDIRECT_URI"] = c.OAuth.Microsoft.RedirectURI
+	}
+	if c.OAuth.Google.Enabled {
+		urls["GOOGLE_OAUTH_REDIRECT_URI"] = c.OAuth.Google.RedirectURI
+	}
+	for name, raw := range urls {
 		u, err := url.Parse(raw)
 		if err != nil || u.Scheme == "" || u.Host == "" {
 			return fmt.Errorf("%s 含非法 URL %q", name, raw)

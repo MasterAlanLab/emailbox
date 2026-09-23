@@ -84,6 +84,8 @@ func SetupRoutes(
 	})
 	v1.POST("/auth/register", h.Auth.Register, authLimiter)
 	v1.POST("/auth/login", h.Auth.Login, authLimiter)
+	v1.GET("/oauth/callback", h.OAuth.Callback)
+	// 保留旧回调地址，已配置的 Microsoft 应用可平滑迁移到通用地址。
 	v1.GET("/oauth/microsoft/callback", h.OAuth.Callback)
 	protected := v1.Group("", auth.Require)
 	protected.POST("/auth/logout", h.Auth.Logout)

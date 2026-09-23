@@ -54,7 +54,7 @@ db/query/       sqlc 命名 SQL，两个方言各一份
 db/generated/   sqlc 生成代码，不手改
 pkg/crypto/     AES-256-GCM 凭据加解密
 pkg/quota/      配额计算与消耗
-pkg/mailer/     协议层：graph/、imapx/、回退链、代理、导入导出格式
+pkg/mailer/     协议层：imapx/、回退链、代理、导入导出格式
 pkg/job/        任务系统：Manager、worker pool、事件广播
 pkg/handler/    HTTP 处理器、审计中间件、SSE writer
 pkg/service/    业务逻辑

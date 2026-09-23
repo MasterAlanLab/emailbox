@@ -1,7 +1,7 @@
 import { Tabs } from "@cloudflare/kumo/components/tabs";
 import type { MailFolder } from "@/api/mail";
 
-// 文件夹取值用 Graph 的命名，IMAP 侧由 pkg/mailer/imapx/folders.go 映射到各服务商的实际名称，
+// 文件夹取值使用统一命名，IMAP 侧由 pkg/mailer/imapx/folders.go 映射到各服务商的实际名称，
 // 前端不需要知道那套映射。all 是服务层合成的（收件箱 + 垃圾箱归并），不对应真实文件夹。
 const FOLDERS: { value: MailFolder; label: string }[] = [
   { value: "inbox", label: "收件箱" },

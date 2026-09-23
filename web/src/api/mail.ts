@@ -141,7 +141,7 @@ export interface Limits {
 export type MailFolder = "inbox" | "junkemail" | "deleteditems" | "all";
 
 // IDMode 说明 id 是 IMAP 的 UID 还是序列号。详情与附件请求必须原样带回来，
-// 混用会取到错误的邮件。Graph 的 id 是全局唯一字符串，这里是空串。
+// 混用会取到错误的邮件。IMAP OAuth 与密码通道都使用 UID 或序列号。
 export type IDMode = "uid" | "sequence" | "";
 
 export interface Message {
@@ -174,7 +174,7 @@ export interface MessageDetail extends Message {
 
 export interface MessageListResponse {
   items: Message[];
-  // channel 是本次实际走通的通道（graph / imap_new / imap_old / imap）。
+  // channel 是本次实际走通的通道（imap_new / imap_old / imap_gmail / imap）。
   channel: string;
 }
 
@@ -227,7 +227,7 @@ const base = mailBase;
 const messageBase = (tenant: TenantRef, accountID: string) =>
   `${base(tenant)}/accounts/${accountID}/messages`;
 
-// 邮件端点每一个都要打上游（Graph / IMAP，可能还过代理），client.ts 的默认 10 秒
+// 邮件端点每一个都要打上游（IMAP，可能还过代理），client.ts 的默认 10 秒
 // 远远不够：一次 IMAP SELECT + FETCH 走代理十几秒是常态，回退链还可能连试三条通道。
 // 超时被前端掐断最糟的地方在于——配额已经在服务端扣掉了，用户却什么都没拿到。
 const MESSAGE_TIMEOUT = 120_000;

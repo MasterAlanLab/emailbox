@@ -71,7 +71,6 @@ func TestParseIMAPInfersProviderFromDomain(t *testing.T) {
 		"a@foxmail.com": {"qq", "imap.qq.com"},
 		"a@163.com":     {"163", "imap.163.com"},
 		"a@yahoo.co.jp": {"yahoo", "imap.mail.yahoo.com"},
-		"a@aliyun.com":  {"aliyun", "imap.aliyun.com"},
 	}
 	for email, want := range cases {
 		got, err := ParseLine(email+"----app-password", ImportOptions{Format: FormatIMAP})
@@ -88,6 +87,19 @@ func TestParseIMAPInfersProviderFromDomain(t *testing.T) {
 		if got.Password != "app-password" {
 			t.Errorf("%s: 密码 %q", email, got.Password)
 		}
+	}
+}
+
+func TestParseGmailOAuthDoesNotLookLikeCustomIMAP(t *testing.T) {
+	got, err := ParseLine("user@gmail.com--------1234567890.apps.googleusercontent.com----google-refresh", ImportOptions{Format: FormatAuto, ClientIDFirst: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Provider != "gmail" || got.AccountType != AccountTypeIMAP || got.RefreshToken != "google-refresh" || got.ClientID != "1234567890.apps.googleusercontent.com" {
+		t.Fatalf("Gmail OAuth 解析错误: %+v", got)
+	}
+	if got.IMAPHost != IMAPServerGmail {
+		t.Fatalf("Gmail OAuth 主机 = %q", got.IMAPHost)
 	}
 }
 

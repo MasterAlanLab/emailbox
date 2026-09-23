@@ -227,9 +227,9 @@ func (s *AccountService) buildImported(
 		account.SortOrder = existing.SortOrder
 	}
 
-	// IMAP 账号的授权码存进 imap_password_enc；OAuth 账号的登录密码存进 password_enc。
+	// 纯 IMAP 账号的授权码存进 imap_password_enc；OAuth 账号的登录密码存进 password_enc。
 	password, imapPassword := "", ""
-	if parsed.AccountType == mailer.AccountTypeIMAP {
+	if parsed.AccountType == mailer.AccountTypeIMAP && parsed.RefreshToken == "" {
 		imapPassword = parsed.Password
 	} else {
 		password = parsed.Password

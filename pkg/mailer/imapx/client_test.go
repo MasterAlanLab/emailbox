@@ -554,9 +554,10 @@ func TestEmptyBatchIsNoop(t *testing.T) {
 
 func TestChannelName(t *testing.T) {
 	cases := map[string]string{
-		"":                    mailer.ChannelIMAP,
-		mailer.ChannelIMAPNew: mailer.ChannelIMAPNew,
-		mailer.ChannelIMAPOld: mailer.ChannelIMAPOld,
+		"":                      mailer.ChannelIMAP,
+		mailer.ChannelIMAPNew:   mailer.ChannelIMAPNew,
+		mailer.ChannelIMAPOld:   mailer.ChannelIMAPOld,
+		mailer.ChannelIMAPGmail: mailer.ChannelIMAPGmail,
 	}
 	for in, want := range cases {
 		if got := New(Config{Channel: in}).Channel(); got != want {
@@ -580,6 +581,10 @@ func TestTokenEndpointPerChannel(t *testing.T) {
 	}
 	if scope != mailer.ScopeIMAP {
 		t.Errorf("新版通道 scope = %q", scope)
+	}
+	endpoint, scope = tokenEndpoint(mailer.ChannelIMAPGmail)
+	if endpoint != mailer.TokenURLGoogle || scope != mailer.ScopeGmailIMAP {
+		t.Errorf("Gmail 通道端点/scope = %q/%q", endpoint, scope)
 	}
 }
 

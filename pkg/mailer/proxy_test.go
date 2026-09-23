@@ -238,7 +238,7 @@ func TestNewHTTPClientIsolatesTransport(t *testing.T) {
 	}
 
 	if _, err := NewHTTPClient("http://proxy.example.com:8080", time.Second); err != nil {
-		t.Errorf("HTTP 代理对 Graph 通道是支持的：%v", err)
+		t.Errorf("HTTP 代理对 IMAP OAuth 通道是支持的：%v", err)
 	}
 	if _, err := NewHTTPClient("ftp://proxy:21", time.Second); KindOf(err) != ErrKindProxyFailed {
 		t.Errorf("未知协议应当报 proxy_failed，实际 %v", err)

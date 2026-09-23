@@ -115,7 +115,7 @@ func buildDetail(
 // Attachment 实现 mailer.Client。
 //
 // IMAP 的分段没有稳定 id，所以这里重新抓一次整封信再按序号取。
-// 比 Graph 的直接下载贵，但正确：按 BODYSTRUCTURE 的路径去 FETCH 单个分段，
+// 按 BODYSTRUCTURE 的路径去 FETCH 单个分段，
 // 在多层嵌套（转发带附件）的信上很容易取错分段。
 func (c *Client) Attachment(
 	ctx context.Context, cred mailer.Credential, folder mailer.Folder, msgID, idMode, attID string,

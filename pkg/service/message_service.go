@@ -61,7 +61,7 @@ func (s *MessageService) WithChainFactory(f func(*model.MailAccount) mailer.Clie
 // MessageListResult 是列表接口的响应体。
 type MessageListResult struct {
 	Items []mailer.Message `json:"items"`
-	// Channel 是本次实际走通的通道，前端用它显示「通过 Graph / IMAP 获取」。
+	// Channel 是本次实际走通的通道，前端用它显示具体 IMAP 认证通道。
 	Channel string `json:"channel"`
 }
 
@@ -269,7 +269,11 @@ func (s *MessageService) credential(
 		IMAPPort:    account.IMAPPort,
 		AuthChannel: account.AuthChannel,
 	}
-	if s.chainOptions.OAuthClientSecret != "" && account.ClientID == s.chainOptions.OAuthClientID {
+	if account.Provider == "gmail" {
+		if s.chainOptions.GoogleOAuthClientSecret != "" && account.ClientID == s.chainOptions.GoogleOAuthClientID {
+			cred.ClientSecret = s.chainOptions.GoogleOAuthClientSecret
+		}
+	} else if s.chainOptions.OAuthClientSecret != "" && account.ClientID == s.chainOptions.OAuthClientID {
 		cred.ClientSecret = s.chainOptions.OAuthClientSecret
 	}
 	for _, field := range []struct {

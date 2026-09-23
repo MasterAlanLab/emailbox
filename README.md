@@ -19,9 +19,9 @@
 ## 功能特性
 
 - 批量导入：粘贴文本即可导入账号，自动识别三种常见格式；错误按行返回，其余账号继续处理。
-- 统一收信：Microsoft Graph、IMAP 新版和旧版按回退链工作，可同时查询收件箱与垃圾箱。
+- 统一收信：Outlook 新旧 IMAP、Gmail XOAUTH2 IMAP 与普通 IMAP 统一接入，可同时查询收件箱与垃圾箱。
 - 令牌维护：支持全部刷新、失败账号刷新、分组刷新和定时刷新；失败原因区分过期、撤销、权限与配置问题。
-- OAuth 重新授权：Outlook 账号可直接重新完成 Microsoft OAuth，Graph 与 IMAP OAuth 共用通道回退。
+- OAuth 重新授权：Outlook 与 Gmail 账号可分别完成 Microsoft / Google OAuth，令牌验证后通过对应 IMAP 通道收信。
 - 分组代理：按分组配置 SOCKS5 / HTTP 代理，支持 `{mail}` 模板和主备代理切换。
 - 只读 API：为自动化脚本和 AI Agent 提供受限 API Key，并通过 `/llms.txt` 暴露接口说明。
 - 用户隔离：每位用户的账号、邮件、分组、任务和用量独立保存，平台管理员的跨用户操作留有审计记录。
@@ -85,7 +85,7 @@ docker run -d \
 
 登录后，左侧「API」页面会显示 API Key、工作空间 ID、可调用接口和 Agent 接入说明。API Key 只开放分组、账号与邮件读取权限，不允许修改账号或导出凭据。
 
-Microsoft OAuth 默认使用参考项目的应用配置。重新授权时，如果浏览器最终跳转到 `http://localhost:8080`，将地址栏中的完整 URL 粘贴回弹窗。生产环境的回调地址配置见 [配置说明](docs/configuration.md#microsoft-oauth-重新授权)。
+Microsoft OAuth 默认使用参考项目的应用配置。重新授权时，如果浏览器最终跳转到 `http://localhost:8080`，将地址栏中的完整 URL 粘贴回弹窗。生产环境的回调地址配置见 [配置说明](docs/configuration.md#oauth-重新授权)。
 
 ## 构建
 
@@ -126,13 +126,13 @@ make lint-desktop
 - 后端：Go、Echo v5、`database/sql`、sqlc。
 - 前端：React 19、TypeScript、Vite、Tailwind CSS v4、Cloudflare Kumo、Zustand。
 - 数据库：SQLite / PostgreSQL。
-- 邮件协议：Microsoft Graph、IMAP、OAuth 2.0。
+- 邮件协议：IMAP、XOAUTH2、OAuth 2.0。
 - 桌面端：Wails v3 与系统 WebView。
 - 部署：单二进制、Docker / GHCR、原生桌面包。
 
 ## 文档
 
-- [配置说明](docs/configuration.md)：环境变量、加密密钥、管理员引导与 Microsoft OAuth。
+- [配置说明](docs/configuration.md)：环境变量、加密密钥、管理员引导与 Microsoft / Google OAuth。
 - [Docker 部署](docs/docker.md)：GHCR 镜像、生产配置与已知限制。
 - [开发方案](docs/plan/README.md)：架构、数据模型、协议层、API 和前端设计。
 - [实施进度与踩过的坑](docs/plan/PROGRESS.md)：已完成工作和实现过程中的重要结论。

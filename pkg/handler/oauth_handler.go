@@ -89,5 +89,5 @@ func publicOAuthError(err error) string {
 	if errors.Is(err, service.ErrOAuthFlowInvalid) || errors.Is(err, repo.ErrNotFound) {
 		return service.ErrOAuthFlowInvalid.Error()
 	}
-	return "微软授权未完成，请重新发起"
+	return "OAuth 授权未完成，请重新发起"
 }

@@ -9,17 +9,19 @@ import (
 
 // ChannelOrder 返回该账号要依次尝试的通道名。
 //
-// 密码鉴权的普通 IMAP 账号只有一条通道；Outlook OAuth 账号有三条：
-// Graph → 新版 IMAP → 旧版 IMAP。若账号上记着 auth_channel（上次成功的通道），
-// 把它提到最前面——这能省掉大部分账号每次都从 Graph 重试一遍的开销，
-// 也是本方案把 auth_channel 存到具体通道（而非只存 graph|imap）的意义。
+// 密码鉴权的普通 IMAP 账号只有一条通道；Outlook OAuth 账号有两条：
+// 新版 IMAP → 旧版 IMAP；Gmail OAuth 账号使用 Gmail IMAP 通道。若账号上记着 auth_channel（上次成功的通道），
+// 把它提到最前面，减少账号每次从首个端点开始重试的开销。
 func ChannelOrder(cred Credential) []string {
+	if strings.EqualFold(strings.TrimSpace(cred.Provider), "gmail") && strings.TrimSpace(cred.RefreshToken) != "" {
+		return []string{ChannelIMAPGmail}
+	}
 	if cred.AccountType != AccountTypeOutlook {
 		return []string{ChannelIMAP}
 	}
-	order := []string{ChannelGraph, ChannelIMAPNew, ChannelIMAPOld}
+	order := []string{ChannelIMAPNew, ChannelIMAPOld}
 	last := strings.TrimSpace(cred.AuthChannel)
-	if last == "" || last == ChannelGraph {
+	if last == "" {
 		return order
 	}
 	out := make([]string, 0, len(order))

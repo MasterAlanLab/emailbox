@@ -68,7 +68,7 @@ func newError(kind ErrKind, channel, message string, cause error) *Error {
 	return &Error{Kind: kind, Channel: channel, Message: message, cause: cause}
 }
 
-// NewError 供 graph / imapx 等子包构造同一形态的错误。
+// NewError 供 imapx 等子包构造同一形态的错误。
 //
 // cause 必须传：Error 的 cause 字段不导出，子包自己 new 一个 Error 的话
 // errors.Is 就断在这里了——底层的 context.Canceled、net.Error 全都找不回来。
@@ -100,7 +100,7 @@ func KindOf(err error) ErrKind {
 //   - consent_required：当前通道的权限不足，重复请求同一权限没有意义
 //   - canceled：调用方主动取消或整体超时，继续试只会拖长响应
 //
-// 回退链请用 RetriableFrom：Graph 的授权与权限错误仍可能在 IMAP 通道成功。
+// 回退链请用 RetriableFrom：不同 OAuth IMAP 端点的授权错误仍可能在另一端点成功。
 func Retriable(err error) bool {
 	switch KindOf(err) {
 	case ErrKindBanned, ErrKindAuthFailed, ErrKindConsentRequired, ErrKindCanceled:
@@ -112,8 +112,8 @@ func Retriable(err error) bool {
 
 // RetriableFrom 判断**某条通道上**的失败是否值得换下一条通道重试。
 //
-// Graph 与 IMAP 使用不同的 token 端点和权限请求，新版 IMAP 申请 IMAP scope，
-// 旧版 login.live.com 请求省略 scope。某个 OAuth 端点拒绝当前通道，不代表其余通道都失效。
+// 新旧 Microsoft IMAP 通道使用不同的 token 端点，新版通道申请 IMAP scope，
+// 旧版 login.live.com 请求省略 scope。某个 OAuth 端点拒绝当前通道，不代表另一端点失效。
 // Error.StatusCode > 0 表示错误来自 HTTP token/API 响应；IMAP XOAUTH2 登录失败没有 HTTP 状态码。
 // 因此只放宽前者，密码/令牌缺失与 IMAP 登录失败仍立即停手。banned 与 canceled 永不放宽。
 func RetriableFrom(channel string, err error) bool {
@@ -121,7 +121,7 @@ func RetriableFrom(channel string, err error) bool {
 	if kind == ErrKindAuthFailed || kind == ErrKindConsentRequired {
 		var upstream *Error
 		switch channel {
-		case ChannelGraph, ChannelIMAPNew, ChannelIMAPOld:
+		case ChannelIMAPNew, ChannelIMAPOld, ChannelIMAPGmail:
 			return errors.As(err, &upstream) && upstream.StatusCode > 0
 		}
 	}

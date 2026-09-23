@@ -12,6 +12,7 @@ import (
 
 	"emailbox/configs"
 	"emailbox/pkg/crypto"
+	"emailbox/pkg/mailer"
 	"emailbox/pkg/model"
 	"emailbox/pkg/quota"
 	"emailbox/pkg/repo"
@@ -59,7 +60,7 @@ func oauthFixture(t *testing.T, identity string) (*service.OAuthService, *servic
 			_, _ = w.Write([]byte(`{"access_token":"verified","refresh_token":"rotated-refresh"}`))
 		case "/me":
 			if r.Header.Get("Authorization") != "Bearer access" {
-				t.Error("Graph /me 未使用交换得到的 access token")
+				t.Error("身份端点未使用交换得到的 access token")
 			}
 			_ = json.NewEncoder(w).Encode(map[string]string{"mail": identity})
 		default:
@@ -69,8 +70,8 @@ func oauthFixture(t *testing.T, identity string) (*service.OAuthService, *servic
 	t.Cleanup(provider.Close)
 	messages := service.NewMessageService(store, cipher, quota.NewService(store), service.ChainOptions{})
 	oauth := service.NewOAuthService(store, cipher, quota.NewService(store), messages, service.OAuthOptions{
-		Enabled: true, ClientID: "platform-client", RedirectURI: "http://localhost:8080",
-		AuthorizeURL: provider.URL + "/authorize", TokenURL: provider.URL + "/token", GraphBaseURL: provider.URL,
+		Microsoft: service.OAuthProviderOptions{Enabled: true, ClientID: "platform-client", RedirectURI: "http://localhost:8080",
+			AuthorizeURL: provider.URL + "/authorize", TokenURL: provider.URL + "/token", IdentityURL: provider.URL + "/me"},
 	})
 	return oauth, accountService, store, registered.Tenants[0].ID, registered.User.ID, account.ID, cipher
 }
@@ -124,7 +125,7 @@ func TestOAuthReauthorizationOnlyReplacesVerifiedCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.ClientID != "platform-client" || plain != "rotated-refresh" || after.AuthChannel != "graph" {
+	if after.ClientID != "platform-client" || plain != "rotated-refresh" || after.AuthChannel != "imap_new" {
 		t.Errorf("授权凭据写回错误: client=%q token=%q channel=%q", after.ClientID, plain, after.AuthChannel)
 	}
 	if after.Remark != "keep-remark" || after.LastRefreshStatus != model.RefreshSuccess || after.LastRefreshErrorKind != "" {
@@ -179,5 +180,90 @@ func TestOAuthReauthorizationRejectsPasswordIMAPAccount(t *testing.T) {
 	}
 	if _, err := oauth.Start(context.Background(), tenantID, imap.ID, userID); !errors.Is(err, service.ErrOAuthAccountType) {
 		t.Fatalf("密码 IMAP 账号不应进入 Microsoft OAuth: %v", err)
+	}
+}
+
+func TestGmailOAuthReauthorizationUsesGmailIMAP(t *testing.T) {
+	configs.AppConfig = &configs.Config{Session: configs.SessionConfig{ExpireHour: 24}}
+	store := testStore(t)
+	registered, _, err := service.NewAuthService(store).Register(context.Background(), model.RegisterRequest{
+		Username: "gmail-user", Email: "gmail-user@example.com", Password: "secret12",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cipher, err := crypto.New("0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	accounts := service.NewAccountService(store, cipher, quota.NewService(store))
+	account, err := accounts.Create(context.Background(), registered.Tenants[0].ID, model.CreateMailAccountRequest{
+		Email: "user@gmail.com", ClientID: "google-client.apps.googleusercontent.com", Remark: "keep",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			if err := r.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if r.Form.Get("grant_type") == "authorization_code" {
+				if r.Form.Get("code_verifier") == "" || !strings.Contains(r.Form.Get("scope"), "https://mail.google.com/") {
+					t.Error("Gmail 授权码交换参数不完整")
+				}
+				_, _ = w.Write([]byte(`{"access_token":"gmail-access","refresh_token":"gmail-refresh"}`))
+				return
+			}
+			if r.Form.Get("refresh_token") != "gmail-refresh" || r.Form.Get("scope") != mailer.ScopeGmailIMAP {
+				t.Errorf("Gmail 刷新参数错误: %v", r.Form)
+			}
+			_, _ = w.Write([]byte(`{"access_token":"gmail-access-2"}`))
+		case "/profile":
+			if r.Header.Get("Authorization") != "Bearer gmail-access" {
+				t.Error("Gmail 身份端点未使用 access token")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"emailAddress": "user@gmail.com"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer provider.Close()
+	messages := service.NewMessageService(store, cipher, quota.NewService(store), service.ChainOptions{})
+	oauth := service.NewOAuthService(store, cipher, quota.NewService(store), messages, service.OAuthOptions{
+		Google: service.OAuthProviderOptions{Enabled: true, ClientID: "google-client.apps.googleusercontent.com", RedirectURI: "http://localhost:8080",
+			AuthorizeURL: provider.URL + "/authorize", TokenURL: provider.URL + "/token", IdentityURL: provider.URL + "/profile"},
+	})
+	ctx := context.Background()
+	started, err := oauth.Start(ctx, registered.Tenants[0].ID, account.ID, registered.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorizeURL, err := url.Parse(started.AuthorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorizeURL.Query().Get("access_type") != "offline" || authorizeURL.Query().Get("prompt") == "" {
+		t.Fatalf("Gmail 授权链接缺少离线访问参数: %s", started.AuthorizationURL)
+	}
+	redirected := "http://localhost:8080/?code=gmail-code&state=" + url.QueryEscape(authorizeURL.Query().Get("state"))
+	if _, err := oauth.ExchangeRedirectedURL(ctx, redirected); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oauth.Complete(ctx, registered.Tenants[0].ID, account.ID, registered.User.ID, started.FlowID); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.GetMailAccount(ctx, registered.Tenants[0].ID, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.AuthChannel != mailer.ChannelIMAPGmail || stored.ClientID != "google-client.apps.googleusercontent.com" {
+		t.Fatalf("Gmail OAuth 写回错误: channel=%q client=%q", stored.AuthChannel, stored.ClientID)
+	}
+	refresh, err := cipher.Decrypt(stored.RefreshTokenEnc)
+	if err != nil || refresh != "gmail-refresh" {
+		t.Fatalf("Gmail refresh_token 写回错误: %q %v", refresh, err)
 	}
 }

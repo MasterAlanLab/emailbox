@@ -184,7 +184,7 @@ page=1&limit=50                       limit 上限 200
   "aliases": ["a@x.com"], "tags": [{"id":"..","name":"..","color":".."}],
   "last_refresh_status": "failed",
   "last_refresh_error": "[auth_failed] refresh_token 因长期未使用而过期，请重新授权（AADSTS700082）",
-  "auth_channel": "graph"
+  "auth_channel": "imap_new"
 }
 ```
 
@@ -272,7 +272,7 @@ POST /mail/accounts/export         权限 account:secret
 
 ## 6. Token 刷新与任务
 
-单个与批量刷新共用收信的 OAuth 通道顺序：优先上次成功通道，Graph 或 IMAP 的 OAuth
+单个与批量刷新共用收信的 OAuth 通道顺序：优先上次成功通道，Microsoft 或 Gmail IMAP OAuth
 令牌端点认证或权限失败时继续尝试其它 OAuth 通道。任一通道令牌交换成功，
 账号最近状态、任务明细与刷新日志均记成功；响应中非空且与当前值不同的
 refresh token 加密落库。刷新只请求令牌端点，不取件、不消费每日取件额度。
@@ -373,7 +373,7 @@ GET /mail/refresh/logs         → 分页，支持 status / account_id / 时间�
 | POST | `/mail/accounts/:accountID/oauth/complete` | 完成授权；也可提交 `{flow_id, redirected_url}` 兼容本地回调地址 |
 
 流程使用授权码 + PKCE。`state` 随机且一次性，流程 10 分钟过期；授权码、访问令牌与
-refresh token 都不会出现在业务接口响应里。换到令牌后先调用 Microsoft Graph `/me`
+refresh token 都不会出现在业务接口响应里。换到令牌后先调用服务商身份端点
 核对邮箱身份，再验证 refresh token；全部成功后才以窄 UPDATE 替换账号的
 `client_id` / `refresh_token` / `auth_channel` 与最近刷新状态，失败时保留旧凭据。
 

@@ -311,8 +311,8 @@ VirtualList.tsx      SplitPane.tsx         EmptyState.tsx
 
 `auth_failed` 的统一标签为「认证失败」，不等同于「令牌失效」；逐账号展示服务端的具体原因。
 过期、撤销、重新登录等账号侧问题归 `auth_failed`，客户端配置归 `provider_error`，
-权限不足归 `consent_required`。Graph 或 IMAP OAuth 任一通道刷新成功都显示成功。
-刷新失败面板展示服务端返回的 Outlook OAuth 失败账号，只有认证/权限问题提供重新授权动作，
+权限不足归 `consent_required`。Microsoft 或 Gmail IMAP OAuth 任一通道刷新成功都显示成功。
+刷新失败面板展示服务端返回的 Outlook / Gmail OAuth 失败账号，只有认证/权限问题提供重新授权动作，
 代理与应用配置问题按服务端提示处理。
 
 对应后端的 `scope`：`all` / `failed` / `group`（还有一个 `selected` 供别处调用）。
@@ -325,7 +325,7 @@ VirtualList.tsx      SplitPane.tsx         EmptyState.tsx
 与失败明细，明细超过 200 条截断。
 
 **格式示例分两处**：粘贴区的 placeholder 是当前所选格式的多行样例，随下拉切换；
-下面另有一张固定的示例表，覆盖 QQ·Foxmail / 163·126 / Gmail / Yahoo / 阿里 /
+下面另有一张固定的示例表，覆盖 QQ·Foxmail / 163·126 / Gmail / Yahoo / 2925 /
 Outlook·Hotmail / 其他域名。两处都要，是因为它们回答的是不同的问题——placeholder 答
 「这一格该怎么填」，示例表答「我的域名算哪一种、凭据从哪里来」。后者是后端
 `domainProvider`（`pkg/mailer/provider.go`）的用户可见版本，加服务商时两处都要改。
@@ -469,8 +469,8 @@ export function subscribeJob(base: string, jobID: string, lastEventID: string | 
 与后端 model 的 JSON 标签严格对应：
 
 ```ts
-export type MailProvider = "outlook" | "gmail" | "qq" | "163" | "126" | "yahoo" | "aliyun" | "2925" | "custom";
-export type AuthChannel = "" | "graph" | "imap_new" | "imap_old" | "imap";
+export type MailProvider = "outlook" | "gmail" | "qq" | "163" | "126" | "yahoo" | "2925" | "custom";
+export type AuthChannel = "" | "imap_new" | "imap_old" | "imap_gmail" | "imap";
 export type MailFolder  = "inbox" | "junkemail" | "deleteditems" | "all";
 export type RefreshStatus = "never" | "success" | "failed";
 export type ErrorKind = "auth_failed" | "banned" | "consent_required" | "proxy_failed"

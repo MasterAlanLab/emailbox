@@ -25,7 +25,7 @@ const FORMATS = [
   },
   {
     value: "outlook_oauth",
-    label: "Outlook OAuth（4 段）",
+    label: "OAuth（4 段）",
     hint: "邮箱----密码----client_id----refresh_token",
     placeholder: [
       "alice@outlook.com----密码----client_id----refresh_token",
@@ -64,8 +64,11 @@ const SAMPLES = [
   { label: "163 / 126", line: "li@163.com----授权码" },
   { label: "Gmail", line: "wang@gmail.com----应用专用密码" },
   { label: "Yahoo", line: "kate@yahoo.com----应用专用密码" },
-  { label: "阿里 / 2925", line: "zhao@aliyun.com----授权码" },
-  { label: "Outlook / Hotmail", line: "alice@outlook.com----密码----client_id----refresh_token" },
+  { label: "2925", line: "zhao@2925.com----授权码" },
+  {
+    label: "Outlook / Gmail OAuth",
+    line: "alice@outlook.com----密码----client_id----refresh_token",
+  },
   { label: "其他域名", line: "bob@example.com----密码----imap.example.com----993" },
 ];
 
@@ -215,13 +218,13 @@ function FormatSamples() {
       </div>
       <ul className="mt-4 space-y-1.5 text-xs text-kumo-subtle">
         <li>
-          QQ、163、126、Gmail、Yahoo、阿里填的是邮箱网页版「设置 → 账号 / POP3·IMAP」里开启 IMAP
+          QQ、163、126、Gmail、Yahoo 填的是邮箱网页版「设置 → 账号 / POP3·IMAP」里开启 IMAP
           服务后生成的授权码或应用专用密码，<strong className="font-medium">不是登录密码</strong>
           ；用登录密码会以「授权码错误，或未在邮箱设置中开启 IMAP 服务」失败。
         </li>
         <li>
-          Outlook / Hotmail 只能走 4 段 OAuth：微软已停用个人账号的邮箱密码登录，2
-          段写法导得进来也刷不动信。
+          Outlook / Hotmail 使用 4 段 OAuth；Gmail 也可使用 4 段 OAuth，或使用应用专用密码走普通
+          IMAP。
         </li>
         <li>
           域名不在上面这些里（企业自建域等），用最后一行的 4 段写法显式给出 IMAP 服务器与端口。

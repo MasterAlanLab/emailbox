@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Folder 是邮件夹。取值是 Graph 的命名，IMAP 侧由 folder 解析表映射到各服务商的实际名称。
+// Folder 是邮件夹。IMAP 侧由 folder 解析表映射到各服务商的实际名称。
 type Folder string
 
 const (
@@ -32,15 +32,15 @@ func ValidFolder(f Folder) bool {
 const (
 	IDModeUID      = "uid"
 	IDModeSequence = "sequence"
-	// IDModeNone 用于 Graph：它的 message id 是全局唯一字符串，没有这个概念。
+	// IDModeNone 保留给不使用 IMAP 编号的外部协议。
 	IDModeNone = ""
 )
 
 // 通道名。写回 mail_accounts.auth_channel，下次优先尝试。
 const (
-	ChannelGraph   = "graph"
-	ChannelIMAPNew = "imap_new"
-	ChannelIMAPOld = "imap_old"
+	ChannelIMAPNew   = "imap_new"
+	ChannelIMAPOld   = "imap_old"
+	ChannelIMAPGmail = "imap_gmail"
 	// ChannelIMAP 用于非 Outlook 的密码鉴权账号，它只有这一条通道。
 	ChannelIMAP = "imap"
 )
@@ -136,8 +136,7 @@ type TokenRefresher interface {
 	RefreshToken(ctx context.Context, cred Credential) error
 }
 
-// Client 是一个邮件通道。graph / imapx 各实现一份，chain 组合它们并实现回退，
-// 对外只暴露这一个接口。
+// Client 是一个邮件通道。imapx 按认证方式构造不同通道，chain 负责回退。
 //
 // 所有方法都收 context：超时由 service 层用 OverallTimeout 统一控制。
 // 只在单次调用上设超时是不够的——整条回退链（3 个通道各自超时）会累计到两分钟以上。

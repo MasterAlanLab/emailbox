@@ -42,12 +42,12 @@ func (s stubRefresher) RefreshToken(ctx context.Context, cred mailer.Credential)
 			return nil
 		}
 	case strings.HasPrefix(cred.Email, "banned"):
-		return mailer.NewError(mailer.ErrKindBanned, mailer.ChannelGraph, "账号已被封禁", nil)
+		return mailer.NewError(mailer.ErrKindBanned, mailer.ChannelIMAPNew, "账号已被封禁", nil)
 	case strings.HasPrefix(cred.Email, "authfail"):
-		return mailer.NewError(mailer.ErrKindAuthFailed, mailer.ChannelGraph,
+		return mailer.NewError(mailer.ErrKindAuthFailed, mailer.ChannelIMAPNew,
 			"当前通道的令牌交换未通过，请核对账号授权与 client_id", nil)
 	case strings.HasPrefix(cred.Email, "proxyfail"):
-		return mailer.NewError(mailer.ErrKindProxyFailed, mailer.ChannelGraph, "代理不可用", nil)
+		return mailer.NewError(mailer.ErrKindProxyFailed, mailer.ChannelIMAPNew, "代理不可用", nil)
 	default:
 		return nil
 	}
@@ -429,12 +429,12 @@ func TestSingleAccountRefresh(t *testing.T) {
 	}
 }
 
-// 使用真实的默认刷新器和本地 OAuth 桩：Graph 权限失败后 IMAP 成功，
+// 使用真实的默认刷新器和本地 OAuth 桩：IMAP OAuth 权限失败后 IMAP 成功，
 // 要同时更新页面依赖的状态、任务结果与日志，并保留轮换后的密文凭据。
 func TestIMAPTokenRefreshUpdatesAccountAndJobResults(t *testing.T) {
 	for _, channel := range []string{mailer.ChannelIMAPNew, mailer.ChannelIMAPOld} {
 		t.Run(channel, func(t *testing.T) {
-			var graphCalls, imapCalls atomic.Int32
+			var imapCalls atomic.Int32
 			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost || r.URL.Path != "/token" {
 					t.Error("令牌刷新访问了非令牌端点")
@@ -451,12 +451,6 @@ func TestIMAPTokenRefreshUpdatesAccountAndJobResults(t *testing.T) {
 				}
 				w.Header().Set("Content-Type", "application/json")
 				scope := r.Form.Get("scope")
-				if strings.Contains(scope, "graph.microsoft.com") {
-					graphCalls.Add(1)
-					w.WriteHeader(http.StatusBadRequest)
-					_, _ = w.Write([]byte(`{"error":"invalid_grant","error_codes":[65001]}`))
-					return
-				}
 				wantScope := mailer.ScopeIMAP
 				if channel == mailer.ChannelIMAPOld {
 					wantScope = ""
@@ -490,17 +484,12 @@ func TestIMAPTokenRefreshUpdatesAccountAndJobResults(t *testing.T) {
 			if status != http.StatusOK || !strings.Contains(body, "刷新成功") {
 				t.Fatalf("IMAP 单个刷新应返回成功：%d %s", status, body)
 			}
-			firstGraphCalls := graphCalls.Load()
-			if (channel == mailer.ChannelIMAPNew && firstGraphCalls == 0) ||
-				(channel == mailer.ChannelIMAPOld && firstGraphCalls != 0) {
-				t.Fatalf("首次刷新未遵循通道顺序：Graph 调用 %d 次", firstGraphCalls)
-			}
 			jobID := submitBatch(t, e, token, tenantID)
 			result := waitForJob(t, e, token, tenantID, jobID)
 			if result["status"] != model.JobStatusSucceeded || result["success_count"] != float64(1) || result["failed_count"] != float64(0) {
 				t.Fatalf("IMAP 批量刷新未记成功：%v", result)
 			}
-			if imapCalls.Load() != 2 || graphCalls.Load() != firstGraphCalls {
+			if imapCalls.Load() != 2 {
 				t.Fatal("后续刷新没有复用成功的 IMAP 通道")
 			}
 			account, err := store.GetMailAccount(ctx, tenantID, accountID)
@@ -543,7 +532,7 @@ func TestDetailedOAuthFailureFlowsToAccountJobAndRefreshLog(t *testing.T) {
 		providerSecret = "PRIVATE-PROVIDER-DETAIL"
 		wantMessage    = "邮箱账号需要完成多因素验证，请重新登录微软账号（AADSTS50076）"
 	)
-	var graphCalls, imapNewCalls, imapOldCalls atomic.Int32
+	var imapNewCalls, imapOldCalls atomic.Int32
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/token" {
 			t.Errorf("令牌刷新访问了非令牌端点：%s %s", r.Method, r.URL.Path)
@@ -556,12 +545,10 @@ func TestDetailedOAuthFailureFlowsToAccountJobAndRefreshLog(t *testing.T) {
 			return
 		}
 		scope := r.Form.Get("scope")
-		switch {
-		case strings.Contains(scope, "graph.microsoft.com"):
-			graphCalls.Add(1)
-		case scope == mailer.ScopeIMAP:
+		switch scope {
+		case mailer.ScopeIMAP:
 			imapNewCalls.Add(1)
-		case scope == "":
+		case "":
 			imapOldCalls.Add(1)
 		default:
 			t.Errorf("未知 OAuth scope：%q", scope)
@@ -586,9 +573,9 @@ func TestDetailedOAuthFailureFlowsToAccountJobAndRefreshLog(t *testing.T) {
 	if result["status"] != model.JobStatusFailed || result["success_count"] != float64(0) || result["failed_count"] != float64(1) {
 		t.Fatalf("OAuth 失败的任务聚合错误：%v", result)
 	}
-	if graphCalls.Load() != 1 || imapNewCalls.Load() != 1 || imapOldCalls.Load() != 1 {
-		t.Fatalf("OAuth 失败未走完三个不同端点：Graph/IMAP新/IMAP旧=%d/%d/%d",
-			graphCalls.Load(), imapNewCalls.Load(), imapOldCalls.Load())
+	if imapNewCalls.Load() != 1 || imapOldCalls.Load() != 1 {
+		t.Fatalf("OAuth 失败未走完两个 IMAP 端点：新版/旧版=%d/%d",
+			imapNewCalls.Load(), imapOldCalls.Load())
 	}
 
 	status, body := do(t, e, http.MethodGet,

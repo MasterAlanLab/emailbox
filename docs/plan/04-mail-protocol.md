@@ -1,5 +1,10 @@
 # 04 · 邮件协议层设计（`pkg/mailer`）
 
+> **当前实现（2026-09）**：Microsoft Graph 邮件通道已移除，`pkg/mailer/graph/` 不再存在。
+> Outlook 使用 `imap_new → imap_old` 两条 IMAP OAuth 通道；Gmail 使用
+> `imap_gmail`（Gmail XOAUTH2）；QQ、163、126、Yahoo、2925 与自定义邮箱使用 `imap`。
+> 下文早期 Graph 章节保留作历史记录，不应作为当前实现依据。
+
 本文档是整个方案里**必须严格照搬 outlookEmail 实战经验**的部分。
 这些常量、端点、scope、回退顺序、文件夹名，都是靠大量真实账号试出来的，
 凭常识重新设计几乎一定会踩坑。来源标注为 `outlookEmail/outlook_web/segments/*.py`。
@@ -34,7 +39,7 @@ type Credential struct {
 
 type Message struct {
     ID             string    // provider message id
-    IDMode         string    // uid | sequence | ""（Graph）
+    IDMode         string    // uid | sequence
     Folder         Folder
     Subject        string
     From           string
@@ -63,7 +68,7 @@ type Client interface {
     Delete(ctx context.Context, cred Credential, items []MessageRef) (BatchResult, error)
 }
 
-// 通道级实现：graph.Client / imapx.Client(new) / imapx.Client(old) / imapx.Client(password)
+// 通道级实现：imapx.Client(new) / imapx.Client(old) / imapx.Client(gmail) / imapx.Client(password)
 // chain.Client 组合它们并实现回退，对外只暴露一个 Client。
 ```
 
@@ -79,28 +84,21 @@ type Client interface {
 ```go
 const (
     TokenURLLive  = "https://login.live.com/oauth20_token.srf"                          // 旧版 IMAP
-    TokenURLGraph = "https://login.microsoftonline.com/common/oauth2/v2.0/token"        // Graph
     TokenURLIMAP  = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"     // 新版 IMAP
+    TokenURLGoogle = "https://oauth2.googleapis.com/token"                              // Gmail
 
     IMAPServerOld = "outlook.office365.com"
     IMAPServerNew = "outlook.live.com"
     IMAPPort      = 993
 
     ScopeIMAP  = "https://outlook.office.com/IMAP.AccessAsUser.All offline_access"
-    ScopeGraphDefault = "https://graph.microsoft.com/.default"
+    ScopeGmailIMAP = "https://mail.google.com/"
 
-    DefaultOAuthClientID    = "9e5f94bc-e8a4-4e73-b8be-63364c29d753"  // 公共客户端 ID
+    DefaultMicrosoftOAuthClientID = "9e5f94bc-e8a4-4e73-b8be-63364c29d753"
     DefaultOAuthRedirectURI = "http://localhost:8080"
 )
 
-var OAuthGraphScopes = []string{
-    "https://graph.microsoft.com/Mail.Read",
-    "https://graph.microsoft.com/Mail.ReadWrite",
-    "https://graph.microsoft.com/User.Read",
-}
-// 手动授权链接的 scope（含 offline_access）；
-// 注意：Graph 与 IMAP 的 scope 不能放进同一次授权，否则微软报 AADSTS70011。
-var OAuthAuthorizeScopes = append([]string{"offline_access"}, OAuthGraphScopes...)
+// Gmail 授权链接还会申请 openid email profile，以便核对账号身份。
 ```
 
 > **`login.live.com` 端点特殊性**：请求体里**不带 scope**，只有
@@ -119,7 +117,6 @@ var Providers = map[string]Provider{
     "163":     {Label: "163邮箱",     IMAPHost: "imap.163.com",       Port: 993, Type: "imap"},
     "126":     {Label: "126邮箱",     IMAPHost: "imap.126.com",       Port: 993, Type: "imap"},
     "yahoo":   {Label: "Yahoo",       IMAPHost: "imap.mail.yahoo.com",Port: 993, Type: "imap"},
-    "aliyun":  {Label: "阿里邮箱",    IMAPHost: "imap.aliyun.com",    Port: 993, Type: "imap"},
     "2925":    {Label: "2925邮箱",    IMAPHost: "imap.2925.com",      Port: 993, Type: "imap"},
     "custom":  {Label: "自定义 IMAP", IMAPHost: "",                   Port: 993, Type: "imap"},
 }
@@ -130,7 +127,7 @@ var DomainProvider = map[string]string{
     "qq.com": "qq", "foxmail.com": "qq",
     "163.com": "163", "126.com": "126",
     "yahoo.com": "yahoo", "yahoo.co.jp": "yahoo", "yahoo.co.uk": "yahoo",
-    "aliyun.com": "aliyun", "alimail.com": "aliyun",
+    // 阿里云域名不再由内置 provider 推断；需要时使用 custom IMAP 配置。
     "2925.com": "2925",
 }
 ```
@@ -183,14 +180,16 @@ var FolderMatchAliases = map[Folder][]string{
 对应 `03_mail_helpers.py` 各 `*_result` 函数与调用方的组合逻辑。
 
 ```
-账号 account_type == "imap"（Gmail/QQ/163/...）
+账号 provider == "gmail" 且有 refresh_token
+    → 单通道：Gmail IMAP + XOAUTH2
+
+账号 account_type == "imap"（QQ/163/126/Yahoo/2925/...）
     → 单通道：IMAP + 密码鉴权（LOGIN/PLAIN）
 
 账号 account_type == "outlook"（OAuth）
     → 通道顺序（若 auth_channel 有值则把它提到最前）：
-        1. graph      Graph API             （token: TokenURLGraph，scope 降级链）
-        2. imap_new   outlook.live.com      （token: TokenURLIMAP，  scope=ScopeIMAP）
-        3. imap_old   outlook.office365.com （token: TokenURLLive，  无 scope）
+        1. imap_new   outlook.live.com      （token: TokenURLIMAP，  scope=ScopeIMAP）
+        2. imap_old   outlook.office365.com （token: TokenURLLive，  无 scope）
     → 任一通道成功：把该通道写回 accounts.auth_channel，本次结果返回
     → 全部失败：返回最后一个通道的结构化错误 + 各通道失败摘要
 ```
@@ -247,7 +246,10 @@ refresh 请求不带 scope，成功响应会返回 refresh token 并要求更新
 [令牌生命周期](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens)、
 [旧版 Microsoft account OAuth（归档）](https://learn.microsoft.com/en-us/previous-versions/office/office-365-api/how-to/onenote-auth#get-a-new-access-token-after-it-expires-consumer-apps)。
 
-## 4. Graph 通道（`pkg/mailer/graph/`）
+## 4. 历史 Graph 通道（已移除）
+
+本节记录早期设计，当前版本不编译、不装配 Graph 客户端。邮件列表、详情、附件、已读与删除
+全部走 IMAP；Microsoft 与 Gmail 只在 XOAUTH2 令牌交换阶段使用各自服务商端点。
 
 ### 4.1 Token 获取与 scope 降级
 
@@ -483,7 +485,7 @@ const (
 
 type Error struct {
     Kind        ErrKind
-    Channel     string   // graph | imap_new | imap_old | imap
+    Channel     string   // imap_new | imap_old | imap_gmail | imap
     Message     string   // 面向用户的中文文案
     StatusCode  int
     Detail      string   // 已脱敏，供排障
@@ -511,7 +513,7 @@ OAuth 错误细分保留现有 `ErrKind`，用明确的中文 `message` 表达�
 | 层次 | 方法 |
 |---|---|
 | 纯函数 | provider 推断、`{mail}` 展开、导入解析、UTF-7 编解码、邮箱候选生成、scope 降级判定 → 普通单测，用 outlookEmail 的常量表做 golden case |
-| Graph 客户端 | `httptest.Server` 模拟 token 端点与 Graph 端点，覆盖：scope 三级降级、abuse mode、429 Retry-After、$batch |
+| OAuth IMAP 客户端 | `httptest.Server` 模拟 Microsoft/Gmail token 端点，覆盖 scope、refresh_token 轮换与 XOAUTH2 |
 | IMAP 客户端 | 起一个最小 IMAP 服务器桩（或用 `go-imap` 自带的 server 包）覆盖：XOAUTH2、ID、文件夹解析回退、UID/序列号、分页边界 |
 | 回退链 | 用可编程的假通道组合，断言：banned 不回退、network 回退、成功后写回 auth_channel |
 | 代理 | 起本地 SOCKS5 桩，验证 failover 顺序与"是否值得重试"判定 |

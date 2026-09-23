@@ -18,8 +18,9 @@ func TestProviderForEmail(t *testing.T) {
 		"a@163.com":         {"163", AccountTypeIMAP},
 		"a@126.com":         {"126", AccountTypeIMAP},
 		"a@yahoo.co.jp":     {"yahoo", AccountTypeIMAP},
-		"a@aliyun.com":      {"aliyun", AccountTypeIMAP},
 		"a@2925.com":        {"2925", AccountTypeIMAP},
+		"a@aliyun.com":      {ProviderCustom, AccountTypeIMAP},
+		"a@alimail.com":     {ProviderCustom, AccountTypeIMAP},
 		"A@OutLook.COM":     {"outlook", AccountTypeOutlook},
 		"a@ mail.163.com  ": {ProviderCustom, AccountTypeIMAP},
 		"a@unknown.tld":     {ProviderCustom, AccountTypeIMAP},
@@ -41,7 +42,7 @@ func TestProviderForEmail(t *testing.T) {
 	}
 }
 
-// 只有 Outlook 是 OAuth 账号，也只有它有三条通道。
+// Outlook 是内置的 OAuth 账号类型；Gmail OAuth 由 provider 与 refresh_token 共同决定。
 // 这个判断错了会让回退链形态整个跑偏。
 func TestOnlyOutlookIsOAuthAccount(t *testing.T) {
 	for code, p := range Providers {

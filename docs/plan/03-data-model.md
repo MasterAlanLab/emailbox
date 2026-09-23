@@ -107,9 +107,9 @@ CREATE TABLE mail_accounts (
     group_id                 TEXT NOT NULL REFERENCES mail_groups(id),
     email                    TEXT NOT NULL,
     email_normalized         TEXT NOT NULL,
-    provider                 TEXT NOT NULL DEFAULT 'outlook',  -- outlook/gmail/qq/163/126/yahoo/aliyun/2925/custom
+    provider                 TEXT NOT NULL DEFAULT 'outlook',  -- outlook/gmail/qq/163/126/yahoo/2925/custom
     account_type             TEXT NOT NULL DEFAULT 'outlook',  -- outlook | imap
-    auth_channel             TEXT NOT NULL DEFAULT '',         -- '' | graph | imap_new | imap_old  最近成功通道
+    auth_channel             TEXT NOT NULL DEFAULT '',         -- '' | imap_new | imap_old | imap_gmail | imap  最近成功通道
     password_enc             TEXT NOT NULL DEFAULT '',
     client_id                TEXT NOT NULL DEFAULT '',
     refresh_token_enc        TEXT NOT NULL DEFAULT '',
@@ -144,9 +144,8 @@ CREATE INDEX idx_mail_accounts_status     ON mail_accounts(tenant_id, status);
 > 已由 `000006_drop_unused` 连同账号筛选里的 `forward` 条件一并删除。
 > 上面的建表语句是清理后的最终形态。
 
-> **`auth_channel` 的取值比 outlookEmail 更细。** Python 只存 `graph|imap`，
-> 无法区分 IMAP 新旧服务器，回退链每次都要从 `outlook.live.com` 重试。
-> 这里存到具体通道，可直接命中上次成功的服务器。
+> **`auth_channel` 的取值比 outlookEmail 更细。** 当前实现存储 `imap_new|imap_old|imap_gmail|imap`，
+> 可区分 Outlook 的新旧 IMAP、Gmail XOAUTH2 与密码 IMAP，回退链可直接命中上次成功的服务器。
 
 **关于部分唯一索引**：SQLite 3.8+ 与 PostgreSQL 都支持 `CREATE UNIQUE INDEX ... WHERE`，
 两套迁移写法一致。若目标 SQLite 版本过老，退化为普通唯一索引 + 删除时物理删除。

@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"emailbox/pkg/mailer"
-	"emailbox/pkg/mailer/graph"
 	"emailbox/pkg/mailer/imapx"
 )
 
@@ -76,7 +75,7 @@ func parseFlags() options {
 	var opt options
 	flag.StringVar(&opt.email, "email", "", "邮箱地址（必填）")
 	flag.StringVar(&opt.provider, "provider", "", "服务商 code，留空按域名推断")
-	flag.StringVar(&opt.clientID, "client-id", "", "OAuth client_id，留空用公共 ID")
+	flag.StringVar(&opt.clientID, "client-id", "", "OAuth client_id（Gmail 必填；Outlook 留空使用默认 ID）")
 	flag.StringVar(&opt.refreshToken, "refresh-token", "", "OAuth refresh_token（或用 MAILPROBE_REFRESH_TOKEN）")
 	flag.StringVar(&opt.password, "imap-password", "", "IMAP 密码/授权码（或用 MAILPROBE_PASSWORD）")
 	flag.StringVar(&opt.imapHost, "imap-host", "", "IMAP 主机，留空按服务商推断")
@@ -133,7 +132,7 @@ func buildCredential(opt options) (mailer.Credential, error) {
 	if cred.AccountType == mailer.AccountTypeOutlook && cred.RefreshToken == "" {
 		return cred, errors.New("outlook 账号需要 -refresh-token")
 	}
-	if cred.AccountType == mailer.AccountTypeIMAP && cred.IMAPPassword == "" {
+	if cred.AccountType == mailer.AccountTypeIMAP && cred.RefreshToken == "" && cred.IMAPPassword == "" {
 		return cred, errors.New("IMAP 账号需要 -imap-password")
 	}
 	if cred.AccountType == mailer.AccountTypeIMAP && host == "" {
@@ -204,13 +203,15 @@ type namedChannel struct {
 
 func channelsFor(cred mailer.Credential, timeout time.Duration) []namedChannel {
 	if cred.AccountType != mailer.AccountTypeOutlook {
+		if cred.Provider == "gmail" && cred.RefreshToken != "" {
+			return []namedChannel{{name: "Gmail IMAP OAuth", client: imapx.New(imapx.Config{Channel: mailer.ChannelIMAPGmail, Timeout: timeout})}}
+		}
 		return []namedChannel{{
 			name:   "IMAP（密码鉴权）",
 			client: imapx.New(imapx.Config{Channel: mailer.ChannelIMAP, Timeout: timeout}),
 		}}
 	}
 	return []namedChannel{
-		{name: "Graph", client: graph.New(graph.Config{Timeout: timeout})},
 		{
 			name:   "IMAP 新版（outlook.live.com）",
 			client: imapx.New(imapx.Config{Channel: mailer.ChannelIMAPNew, Timeout: timeout}),

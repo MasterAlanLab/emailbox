@@ -35,8 +35,8 @@ func exportFields(a ParsedAccount) ([]string, error) {
 	}
 	if a.RefreshToken != "" {
 		clientID := a.ClientID
-		if clientID == "" {
-			clientID = DefaultOAuthClientID
+		if clientID == "" && a.Provider == "outlook" {
+			clientID = DefaultMicrosoftOAuthClientID
 		}
 		return []string{email, a.Password, clientID, a.RefreshToken}, nil
 	}

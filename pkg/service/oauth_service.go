@@ -17,7 +17,7 @@ import (
 
 	"emailbox/pkg/crypto"
 	"emailbox/pkg/mailer"
-	"emailbox/pkg/mailer/graph"
+	"emailbox/pkg/mailer/imapx"
 	"emailbox/pkg/model"
 	"emailbox/pkg/quota"
 	"emailbox/pkg/repo"
@@ -28,13 +28,14 @@ import (
 const oauthFlowTTL = 10 * time.Minute
 
 var (
-	ErrOAuthDisabled         = errors.New("微软 OAuth 重新授权未启用")
-	ErrOAuthAccountType      = errors.New("该账号不是 Outlook OAuth 账号")
+	ErrOAuthDisabled         = errors.New("该邮箱服务商的 OAuth 未启用")
+	ErrOAuthAccountType      = errors.New("该账号类型不支持 OAuth 重新授权")
 	ErrOAuthFlowInvalid      = errors.New("授权流程无效或已过期，请重新发起")
-	ErrOAuthIdentityMismatch = errors.New("微软返回的邮箱与当前账号不一致")
+	ErrOAuthIdentityMismatch = errors.New("OAuth 返回的邮箱与当前账号不一致")
 )
 
-type OAuthOptions struct {
+// OAuthProviderOptions 描述一个服务商的 OAuth 应用。
+type OAuthProviderOptions struct {
 	Enabled      bool
 	ClientID     string
 	ClientSecret string
@@ -42,8 +43,16 @@ type OAuthOptions struct {
 	RedirectURI  string
 	AuthorizeURL string
 	TokenURL     string
-	GraphBaseURL string
-	Timeout      time.Duration
+	IdentityURL  string
+	Scope        string
+}
+
+// OAuthOptions 同时承载 Microsoft IMAP OAuth 与 Gmail IMAP OAuth。
+type OAuthOptions struct {
+	Microsoft OAuthProviderOptions
+	Google    OAuthProviderOptions
+	ReturnURL string
+	Timeout   time.Duration
 }
 
 type OAuthService struct {
@@ -55,17 +64,34 @@ type OAuthService struct {
 }
 
 func NewOAuthService(store *repo.Store, cipher crypto.Cipher, q *quota.Service, messages *MessageService, opt OAuthOptions) *OAuthService {
-	if opt.Tenant == "" {
-		opt.Tenant = "common"
+	if opt.Microsoft.Tenant == "" {
+		opt.Microsoft.Tenant = "common"
 	}
-	if opt.AuthorizeURL == "" {
-		opt.AuthorizeURL = "https://login.microsoftonline.com/" + url.PathEscape(opt.Tenant) + "/oauth2/v2.0/authorize"
+	if opt.Microsoft.AuthorizeURL == "" {
+		opt.Microsoft.AuthorizeURL = "https://login.microsoftonline.com/" + url.PathEscape(opt.Microsoft.Tenant) + "/oauth2/v2.0/authorize"
 	}
-	if opt.TokenURL == "" {
-		opt.TokenURL = "https://login.microsoftonline.com/" + url.PathEscape(opt.Tenant) + "/oauth2/v2.0/token"
+	if opt.Microsoft.TokenURL == "" {
+		opt.Microsoft.TokenURL = "https://login.microsoftonline.com/" + url.PathEscape(opt.Microsoft.Tenant) + "/oauth2/v2.0/token"
 	}
-	if opt.GraphBaseURL == "" {
-		opt.GraphBaseURL = graph.DefaultBaseURL
+	if opt.Microsoft.Scope == "" {
+		opt.Microsoft.Scope = "openid profile email offline_access " + mailer.ScopeIMAP
+	}
+	if opt.Microsoft.IdentityURL == "" {
+		// OIDC 身份端点只用于核对邮箱，不读取邮件；邮件本身始终走 IMAP。
+		opt.Microsoft.IdentityURL = "https://graph.microsoft.com/oidc/userinfo"
+	}
+	if opt.Google.AuthorizeURL == "" {
+		opt.Google.AuthorizeURL = "https://accounts.google.com/o/oauth2/v2/auth"
+	}
+	if opt.Google.TokenURL == "" {
+		opt.Google.TokenURL = mailer.TokenURLGoogle
+	}
+	if opt.Google.Scope == "" {
+		opt.Google.Scope = "openid email profile " + mailer.ScopeGmailIMAP
+	}
+	if opt.Google.IdentityURL == "" {
+		// OIDC userinfo 只用于核对授权账号，不依赖 Gmail API 的额外 scope。
+		opt.Google.IdentityURL = "https://openidconnect.googleapis.com/v1/userinfo"
 	}
 	if opt.Timeout <= 0 {
 		opt.Timeout = 30 * time.Second
@@ -89,21 +115,39 @@ type OAuthCompleteResult struct {
 	Status    string `json:"status"`
 }
 
-func (s *OAuthService) Start(ctx context.Context, tenantID, accountID, actorUserID string) (*OAuthStartResult, error) {
-	if !s.opt.Enabled {
-		return nil, ErrOAuthDisabled
+func (s *OAuthService) providerOptions(account *model.MailAccount) (*OAuthProviderOptions, string, error) {
+	if strings.EqualFold(strings.TrimSpace(account.Provider), "gmail") {
+		if account.RefreshTokenEnc == "" && account.IMAPPasswordEnc != "" {
+			return nil, "", ErrOAuthAccountType
+		}
+		if !s.opt.Google.Enabled {
+			return nil, "", ErrOAuthDisabled
+		}
+		return &s.opt.Google, "gmail", nil
 	}
+	if strings.EqualFold(strings.TrimSpace(account.Provider), "outlook") || account.AccountType == string(mailer.AccountTypeOutlook) {
+		if !s.opt.Microsoft.Enabled {
+			return nil, "", ErrOAuthDisabled
+		}
+		return &s.opt.Microsoft, "outlook", nil
+	}
+	return nil, "", ErrOAuthAccountType
+}
+
+func (s *OAuthService) Start(ctx context.Context, tenantID, accountID, actorUserID string) (*OAuthStartResult, error) {
 	account, err := s.store.GetMailAccount(ctx, tenantID, accountID)
 	if err != nil {
 		return nil, err
 	}
-	if mailer.AccountType(account.AccountType) != mailer.AccountTypeOutlook {
-		return nil, ErrOAuthAccountType
+	cfg, provider, err := s.providerOptions(account)
+	if err != nil {
+		return nil, err
 	}
-	// 按租户顺手清理历史流程，既不需要一条漏 tenant_id 的全表清理 SQL，
-	// 也避免 PKCE verifier 密文与失败信息无限增长。
+	if cfg.ClientID == "" || cfg.RedirectURI == "" {
+		return nil, ErrOAuthDisabled
+	}
 	if _, err := s.store.DeleteExpiredOAuthAuthorizations(ctx, tenantID); err != nil {
-		slog.Warn("清理过期 OAuth 流程失败", "tenant_id", tenantID, "error", err)
+		return nil, fmt.Errorf("清理过期 OAuth 流程失败: %w", err)
 	}
 
 	flowID := uuid.NewString()
@@ -130,15 +174,21 @@ func (s *OAuthService) Start(ctx context.Context, tenantID, accountID, actorUser
 
 	challengeSum := sha256.Sum256([]byte(verifier))
 	q := url.Values{
-		"client_id": {s.opt.ClientID}, "response_type": {"code"}, "redirect_uri": {s.opt.RedirectURI},
-		"response_mode": {"query"}, "scope": {strings.Join(mailer.OAuthAuthorizeScopes, " ")},
-		"state": {state}, "code_challenge": {base64.RawURLEncoding.EncodeToString(challengeSum[:])},
-		"code_challenge_method": {"S256"}, "prompt": {"select_account"},
+		"client_id": {cfg.ClientID}, "response_type": {"code"}, "redirect_uri": {cfg.RedirectURI},
+		"response_mode": {"query"}, "scope": {cfg.Scope}, "state": {state},
+		"code_challenge":        {base64.RawURLEncoding.EncodeToString(challengeSum[:])},
+		"code_challenge_method": {"S256"},
 	}
-	return &OAuthStartResult{FlowID: flowID, AuthorizationURL: s.opt.AuthorizeURL + "?" + q.Encode(), ExpiresAt: expiresAt}, nil
+	if provider == "gmail" {
+		q.Set("access_type", "offline")
+		q.Set("prompt", "consent select_account")
+	} else {
+		q.Set("prompt", "select_account")
+	}
+	return &OAuthStartResult{FlowID: flowID, AuthorizationURL: cfg.AuthorizeURL + "?" + q.Encode(), ExpiresAt: expiresAt}, nil
 }
 
-// ExchangeRedirectedURL 兼容参考应用已注册的 localhost 回调：用户把地址栏里的最终地址粘贴回来。
+// ExchangeRedirectedURL 兼容 localhost 回调：用户把地址栏里的最终地址粘贴回来。
 func (s *OAuthService) ExchangeRedirectedURL(ctx context.Context, redirectedURL string) (*OAuthExchangeResult, error) {
 	if len(redirectedURL) == 0 || len(redirectedURL) > 16*1024 {
 		return nil, ErrOAuthFlowInvalid
@@ -151,27 +201,28 @@ func (s *OAuthService) ExchangeRedirectedURL(ctx context.Context, redirectedURL 
 	return s.ExchangeCallback(ctx, q.Get("state"), q.Get("code"), q.Get("error_description"))
 }
 
-// ExchangeCallback 校验一次性 state，用授权码换令牌并核对 `/me` 身份。
-// 它只把令牌密文写入短期流程，账号旧凭据要到 Complete 验证后才会更新。
+// ExchangeCallback 校验一次性 state，用授权码换令牌并核对身份。
+//
+//nolint:gocyclo // OAuth callback intentionally keeps validation, identity checks, and token persistence in one transaction boundary.
 func (s *OAuthService) ExchangeCallback(ctx context.Context, state, code, providerError string) (*OAuthExchangeResult, error) {
-	if !s.opt.Enabled {
-		return nil, ErrOAuthDisabled
-	}
 	flowID, tenantID, flow, err := s.callbackFlow(ctx, state)
 	if err != nil {
 		return nil, err
 	}
-	if providerError != "" {
-		s.recordOAuthFailure(ctx, tenantID, flowID, "用户未完成微软授权")
-		return nil, errors.New("微软授权未完成，请重新发起")
-	}
-	if code == "" || len(code) > 8*1024 {
-		return nil, ErrOAuthFlowInvalid
-	}
-
 	account, err := s.store.GetMailAccount(ctx, tenantID, flow.AccountID)
 	if err != nil {
 		return nil, err
+	}
+	cfg, provider, err := s.providerOptions(account)
+	if err != nil {
+		return nil, err
+	}
+	if providerError != "" {
+		s.recordOAuthFailure(ctx, tenantID, flowID, "用户未完成 OAuth 授权")
+		return nil, errors.New("授权未完成，请重新发起")
+	}
+	if code == "" || len(code) > 8*1024 {
+		return nil, ErrOAuthFlowInvalid
 	}
 	verifier, err := s.cipher.Decrypt(flow.CodeVerifierEnc)
 	if err != nil {
@@ -181,25 +232,32 @@ func (s *OAuthService) ExchangeCallback(ctx context.Context, state, code, provid
 	if err != nil {
 		return nil, err
 	}
-	token, err := s.exchangeCode(ctx, hc, code, verifier)
+	token, err := s.exchangeCode(ctx, hc, *cfg, code, verifier)
 	if err != nil {
 		s.recordOAuthFailure(ctx, tenantID, flowID, truncateError(err.Error()))
 		return nil, err
 	}
-	email, err := s.fetchIdentity(ctx, hc, token.AccessToken)
+	email, err := s.fetchIdentity(ctx, hc, *cfg, provider, token.AccessToken)
 	if err != nil {
-		s.recordOAuthFailure(ctx, tenantID, flowID, "Microsoft 账号身份校验失败")
+		s.recordOAuthFailure(ctx, tenantID, flowID, "OAuth 账号身份校验失败")
 		return nil, err
 	}
 	if !s.identityMatches(ctx, tenantID, account, email) {
-		s.recordOAuthFailure(ctx, tenantID, flowID, "Microsoft 账号身份不一致")
+		s.recordOAuthFailure(ctx, tenantID, flowID, "OAuth 账号身份不一致")
 		return nil, ErrOAuthIdentityMismatch
 	}
-	if token.RefreshToken == "" {
-		s.recordOAuthFailure(ctx, tenantID, flowID, "Microsoft 未返回 refresh token")
-		return nil, errors.New("微软未返回 refresh_token，请确认已授予 offline_access")
+	refreshToken := strings.TrimSpace(token.RefreshToken)
+	if refreshToken == "" && account.RefreshTokenEnc != "" {
+		refreshToken, err = s.cipher.Decrypt(account.RefreshTokenEnc)
+		if err != nil {
+			return nil, ErrCredentialUndecryptable
+		}
 	}
-	tokenEnc, err := s.cipher.Encrypt(token.RefreshToken)
+	if refreshToken == "" {
+		s.recordOAuthFailure(ctx, tenantID, flowID, "OAuth 未返回 refresh token")
+		return nil, errors.New("OAuth 未返回 refresh_token，请确认已授予离线访问权限")
+	}
+	tokenEnc, err := s.cipher.Encrypt(refreshToken)
 	if err != nil {
 		return nil, fmt.Errorf("加密 refresh token: %w", err)
 	}
@@ -223,10 +281,11 @@ func (s *OAuthService) callbackFlow(ctx context.Context, state string) (string, 
 
 func (s *OAuthService) recordOAuthFailure(ctx context.Context, tenantID, flowID, message string) {
 	if err := s.store.MarkOAuthAuthorizationFailed(context.WithoutCancel(ctx), tenantID, flowID, message); err != nil {
-		slog.Warn("记录 OAuth 流程失败状态失败", "tenant_id", tenantID, "flow_id", flowID, "error", err)
+		slog.Warn("记录 OAuth 失败状态失败", "tenant_id", tenantID, "flow_id", flowID, "error", err)
 	}
 }
 
+//nolint:gocyclo // Completion coordinates credential checks, protocol refresh, quota accounting, and narrow persistence.
 func (s *OAuthService) Complete(ctx context.Context, tenantID, accountID, actorUserID, flowID string) (*OAuthCompleteResult, error) {
 	flow, err := s.store.GetOAuthAuthorization(ctx, tenantID, flowID)
 	if err != nil {
@@ -239,8 +298,9 @@ func (s *OAuthService) Complete(ctx context.Context, tenantID, accountID, actorU
 	if err != nil {
 		return nil, err
 	}
-	if mailer.AccountType(account.AccountType) != mailer.AccountTypeOutlook {
-		return nil, ErrOAuthAccountType
+	cfg, provider, err := s.providerOptions(account)
+	if err != nil {
+		return nil, err
 	}
 	refreshToken, err := s.cipher.Decrypt(flow.RefreshTokenEnc)
 	if err != nil {
@@ -251,9 +311,15 @@ func (s *OAuthService) Complete(ctx context.Context, tenantID, accountID, actorU
 		return nil, err
 	}
 	latestToken := refreshToken
-	client := graph.New(graph.Config{TokenURL: s.opt.TokenURL, Timeout: s.opt.Timeout, OnTokenRefresh: func(_ string, rotated string) { latestToken = rotated }})
-	cred := mailer.Credential{Email: account.Email, AccountType: mailer.AccountTypeOutlook,
-		ClientID: s.opt.ClientID, ClientSecret: s.opt.ClientSecret, RefreshToken: refreshToken, Proxy: proxy}
+	channel := mailer.ChannelIMAPNew
+	if provider == "gmail" {
+		channel = mailer.ChannelIMAPGmail
+	}
+	client := imapx.New(imapx.Config{Channel: channel, TokenURL: cfg.TokenURL, Timeout: s.opt.Timeout,
+		OnTokenRefresh: func(_ string, rotated string) { latestToken = rotated }})
+	cred := mailer.Credential{Email: account.Email, Provider: provider,
+		AccountType: mailer.AccountType(account.AccountType), ClientID: cfg.ClientID,
+		ClientSecret: cfg.ClientSecret, RefreshToken: refreshToken, Proxy: proxy}
 	if err := s.quota.Record(ctx, tenantID, model.MetricTokenRefresh, 1); err != nil {
 		return nil, err
 	}
@@ -265,7 +331,7 @@ func (s *OAuthService) Complete(ctx context.Context, tenantID, accountID, actorU
 		return nil, fmt.Errorf("加密 refresh token: %w", err)
 	}
 	if err := s.store.WithTx(ctx, func(tx *repo.Store) error {
-		if err := tx.UpdateMailAccountAuthorization(ctx, tenantID, accountID, s.opt.ClientID, tokenEnc, mailer.ChannelGraph); err != nil {
+		if err := tx.UpdateMailAccountAuthorization(ctx, tenantID, accountID, cfg.ClientID, tokenEnc, channel); err != nil {
 			return err
 		}
 		return tx.ConsumeOAuthAuthorization(ctx, tenantID, flowID)
@@ -276,73 +342,75 @@ func (s *OAuthService) Complete(ctx context.Context, tenantID, accountID, actorU
 }
 
 type oauthTokenResponse struct {
-	AccessToken, RefreshToken string
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
 }
 
-func (s *OAuthService) exchangeCode(ctx context.Context, hc *http.Client, code, verifier string) (oauthTokenResponse, error) {
-	form := url.Values{"client_id": {s.opt.ClientID}, "grant_type": {"authorization_code"}, "code": {code},
-		"redirect_uri": {s.opt.RedirectURI}, "scope": {strings.Join(mailer.OAuthAuthorizeScopes, " ")}, "code_verifier": {verifier}}
-	if s.opt.ClientSecret != "" {
-		form.Set("client_secret", s.opt.ClientSecret)
+func (s *OAuthService) exchangeCode(ctx context.Context, hc *http.Client, cfg OAuthProviderOptions, code, verifier string) (oauthTokenResponse, error) {
+	form := url.Values{"client_id": {cfg.ClientID}, "grant_type": {"authorization_code"}, "code": {code},
+		"redirect_uri": {cfg.RedirectURI}, "code_verifier": {verifier}}
+	if cfg.Scope != "" {
+		form.Set("scope", cfg.Scope)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.opt.TokenURL, strings.NewReader(form.Encode()))
+	if cfg.ClientSecret != "" {
+		form.Set("client_secret", cfg.ClientSecret)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.TokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return oauthTokenResponse{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := hc.Do(req)
 	if err != nil {
-		return oauthTokenResponse{}, errors.New("连接 Microsoft 令牌服务失败")
+		return oauthTokenResponse{}, errors.New("连接 OAuth 令牌服务失败")
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return oauthTokenResponse{}, errors.New("读取 Microsoft 令牌响应失败")
+		return oauthTokenResponse{}, errors.New("读取 OAuth 令牌响应失败")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		_, message := mailer.ClassifyOAuthError(resp.StatusCode, string(body))
 		return oauthTokenResponse{}, errors.New(message)
 	}
-	var raw struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-	}
+	var raw oauthTokenResponse
 	if err := json.Unmarshal(body, &raw); err != nil || raw.AccessToken == "" {
-		return oauthTokenResponse{}, errors.New("微软令牌响应格式错误")
+		return oauthTokenResponse{}, errors.New("OAuth 令牌响应格式错误")
 	}
-	return oauthTokenResponse{AccessToken: raw.AccessToken, RefreshToken: raw.RefreshToken}, nil
+	return raw, nil
 }
 
-func (s *OAuthService) fetchIdentity(ctx context.Context, hc *http.Client, accessToken string) (string, error) {
-	endpoint := strings.TrimRight(s.opt.GraphBaseURL, "/") + "/me?$select=mail,userPrincipalName"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+func (s *OAuthService) fetchIdentity(ctx context.Context, hc *http.Client, cfg OAuthProviderOptions, provider, accessToken string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.IdentityURL, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	resp, err := hc.Do(req)
 	if err != nil {
-		return "", errors.New("连接 Microsoft Graph 失败")
+		return "", errors.New("连接 OAuth 身份服务失败")
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil || resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", errors.New("读取 Microsoft 账号身份失败")
+		return "", errors.New("读取 OAuth 账号身份失败")
 	}
 	var raw struct {
+		EmailAddress      string `json:"emailAddress"`
+		Email             string `json:"email"`
 		Mail              string `json:"mail"`
 		UserPrincipalName string `json:"userPrincipalName"`
+		PreferredUsername string `json:"preferred_username"`
 	}
 	if json.Unmarshal(body, &raw) != nil {
-		return "", errors.New("微软账号身份响应格式错误")
+		return "", fmt.Errorf("%s 账号身份响应格式错误", provider)
 	}
-	if strings.TrimSpace(raw.Mail) != "" {
-		return strings.TrimSpace(raw.Mail), nil
+	for _, candidate := range []string{raw.EmailAddress, raw.Email, raw.Mail, raw.UserPrincipalName, raw.PreferredUsername} {
+		if strings.TrimSpace(candidate) != "" {
+			return strings.TrimSpace(candidate), nil
+		}
 	}
-	if strings.TrimSpace(raw.UserPrincipalName) != "" {
-		return strings.TrimSpace(raw.UserPrincipalName), nil
-	}
-	return "", errors.New("微软账号身份中没有邮箱地址")
+	return "", errors.New("OAuth 账号身份中没有邮箱地址")
 }
 
 func (s *OAuthService) identityMatches(ctx context.Context, tenantID string, account *model.MailAccount, email string) bool {

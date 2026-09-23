@@ -84,12 +84,18 @@ func detectFormat(parts []string) ImportFormat {
 	if len(parts) < 4 {
 		return FormatIMAP
 	}
-	// 第 3 段不像 UUID 却像域名 → 自定义 IMAP（邮箱----密码----host----port）
+	// 第 3 段像域名且第 4 段是端口 → 自定义 IMAP（邮箱----密码----host----port）。
+	// Google client_id 同样含点号，但第 4 段是 refresh_token，不能按主机名误判。
 	third := strings.TrimSpace(parts[2])
-	if !isProbableClientID(third) && looksLikeHost(third) {
+	if !isProbableClientID(third) && looksLikeHost(third) && isPort(parts[3]) {
 		return FormatCustomIMAP
 	}
 	return FormatOutlookOAuth
+}
+
+func isPort(raw string) bool {
+	port, err := strconv.Atoi(strings.TrimSpace(raw))
+	return err == nil && port > 0 && port <= 65535
 }
 
 func parseIMAP(email string, parts []string) (*ParsedAccount, error) {
@@ -160,16 +166,23 @@ func parseOutlookOAuth(email string, parts []string, opts ImportOptions) (*Parse
 	if refreshToken == "" {
 		return nil, fmt.Errorf("refresh_token 为空")
 	}
-	if clientID == "" {
-		clientID = DefaultOAuthClientID
-	}
 	p := ProviderForEmail(email)
+	if clientID == "" && p.Code == "outlook" {
+		clientID = DefaultMicrosoftOAuthClientID
+	}
 	// 非 outlook 域名也可能走 OAuth（企业自建域），此时保留推断出的服务商标签，
 	// 但连接参数按 Outlook 处理。
 	host, port := IMAPServerNew, DefaultIMAPPort
 	provider := p.Code
 	if provider == ProviderCustom {
 		provider = "outlook"
+	}
+	if p.Code == "gmail" {
+		host, port = IMAPServerGmail, DefaultIMAPPort
+		return &ParsedAccount{
+			Email: email, Password: password, ClientID: clientID, RefreshToken: refreshToken,
+			IMAPHost: host, IMAPPort: port, Provider: provider, AccountType: AccountTypeIMAP,
+		}, nil
 	}
 	return &ParsedAccount{
 		Email: email, Password: password, ClientID: clientID, RefreshToken: refreshToken,

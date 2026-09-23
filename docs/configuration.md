@@ -134,16 +134,16 @@ TRUST_PROXY=false
 否则所有请求的来源 IP 都是代理地址，会被算作同一个客户端——
 一个人触发限流就会导致所有用户都无法登录。
 
-## Microsoft OAuth 重新授权
+## OAuth 重新授权
 
 ```env
 MICROSOFT_OAUTH_ENABLED=true
 MICROSOFT_OAUTH_CLIENT_ID=9e5f94bc-e8a4-4e73-b8be-63364c29d753
 MICROSOFT_OAUTH_TENANT=common
 MICROSOFT_OAUTH_REDIRECT_URI=http://localhost:8080
-MICROSOFT_OAUTH_RETURN_URL=http://localhost:5173/mail/tokens
 # 机密客户端才填写；公共客户端依靠 PKCE
 # MICROSOFT_OAUTH_CLIENT_SECRET=
+OAUTH_RETURN_URL=http://localhost:5173/mail/tokens
 ```
 
 默认 client ID 与 `http://localhost:8080` 沿用参考项目。该回调适合先把功能跑通：授权后
@@ -153,13 +153,27 @@ MICROSOFT_OAUTH_RETURN_URL=http://localhost:5173/mail/tokens
 正式部署建议在自己的 Microsoft 应用里注册：
 
 ```text
-https://YOUR_DOMAIN/api/v1/oauth/microsoft/callback
+https://YOUR_DOMAIN/api/v1/oauth/callback
 ```
 
-然后把它原样填入 `MICROSOFT_OAUTH_REDIRECT_URI`，并把 `MICROSOFT_OAUTH_RETURN_URL` 设成
+然后把它原样填入 `MICROSOFT_OAUTH_REDIRECT_URI`，并把 `OAUTH_RETURN_URL` 设成
 前端 Token 页的公开地址。两边必须与 Microsoft 应用注册值逐字一致。授权申请
-`offline_access`、`Mail.Read`、`Mail.ReadWrite`、`User.Read`；交换后先用 Graph `/me`
-核对账号主邮箱或已登记别名，验证新 refresh token 成功后才替换旧凭据。
+`offline_access` 与 `IMAP.AccessAsUser.All`，交换后通过身份端点核对账号主邮箱或已登记别名，
+再用 Microsoft IMAP 令牌端点验证新 refresh token。
+
+### Gmail IMAP OAuth
+
+```env
+GOOGLE_OAUTH_ENABLED=true
+GOOGLE_OAUTH_CLIENT_ID=YOUR_GOOGLE_CLIENT_ID
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8080
+# GOOGLE_OAUTH_CLIENT_SECRET=YOUR_GOOGLE_CLIENT_SECRET
+OAUTH_RETURN_URL=http://localhost:5173/mail/tokens
+```
+
+Google Cloud 中的 OAuth 客户端需要登记与环境一致的回调地址。Emailbox 申请
+`openid email profile https://mail.google.com/`，并使用 `access_type=offline` 保存
+refresh token；邮件连接使用 Gmail XOAUTH2，不调用 Microsoft Graph。
 
 ## 批量任务
 

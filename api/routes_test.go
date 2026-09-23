@@ -128,7 +128,7 @@ func newTestServerWithMailOptions(t *testing.T, mailOptions service.ChainOptions
 	handlers.Job = handler.NewJobHandler(service.NewJobService(store, jobManager), refreshService)
 	handlers.Refresh = handler.NewRefreshHandler(refreshService)
 	oauthService := service.NewOAuthService(store, testCipher(t), quota.NewService(store), messageService, service.OAuthOptions{
-		Enabled: true, ClientID: "test-client", RedirectURI: "http://localhost:8080",
+		Microsoft: service.OAuthProviderOptions{Enabled: true, ClientID: "test-client", RedirectURI: "http://localhost:8080"},
 	})
 	handlers.OAuth = handler.NewOAuthHandler(oauthService, "http://localhost:5173/mail/tokens")
 	handlers.Admin = handler.NewAdminHandler(

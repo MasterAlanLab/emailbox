@@ -15,7 +15,7 @@ import (
 // stubMailClient 是一个不联网的假通道，供路由与越权测试使用。
 type stubMailClient struct{}
 
-func (stubMailClient) Channel() string { return mailer.ChannelGraph }
+func (stubMailClient) Channel() string { return mailer.ChannelIMAPNew }
 
 func (stubMailClient) List(_ context.Context, _ mailer.Credential, opt mailer.ListOptions) ([]mailer.Message, error) {
 	return []mailer.Message{{
@@ -71,11 +71,11 @@ type failingMailClient struct{ kind mailer.ErrKind }
 const upstreamFailEmailMarker = "upstream-fail"
 
 func (c failingMailClient) fail() error {
-	return &mailer.Error{Kind: c.kind, Channel: mailer.ChannelGraph,
+	return &mailer.Error{Kind: c.kind, Channel: mailer.ChannelIMAPNew,
 		Message: "当前通道的认证未通过，请查看具体原因"}
 }
 
-func (failingMailClient) Channel() string { return mailer.ChannelGraph }
+func (failingMailClient) Channel() string { return mailer.ChannelIMAPNew }
 
 func (c failingMailClient) List(_ context.Context, _ mailer.Credential, _ mailer.ListOptions) ([]mailer.Message, error) {
 	return nil, c.fail()

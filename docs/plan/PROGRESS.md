@@ -8,6 +8,13 @@
 > 那几篇的内容在 git 历史里，仍然有效的规则已经并进 `AGENTS.md` 与其余设计文档。
 > 状态：`[ ]` 未开始 · `[~]` 进行中 · `[x]` 已完成
 
+## 2026-09 协议调整
+
+- 已移除 Microsoft Graph 邮件客户端；Outlook 仅保留新旧两条 IMAP OAuth 通道。
+- 已加入 Gmail IMAP XOAUTH2、Google OAuth 重新授权与 refresh token 刷新。
+- 已从内置服务商表移除阿里云个人/企业邮箱；需要时可通过自定义 IMAP 配置。
+- 迁移 `000018_mail_auth_channels` 将旧 `graph` 通道清空，并加入 `imap_gmail`。
+
 ## P0 · 地基改造（已完成）
 
 ### 1. 基础清理

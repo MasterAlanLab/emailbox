@@ -228,7 +228,7 @@ func (s *RefreshService) submit(
 
 // selectAccounts 按 scope 选出要刷新的账号。
 //
-// 四种 scope 都会再过一遍「Outlook OAuth、有 refresh_token 且没被停用」：
+// 四种 scope 都会再过一遍「Outlook/Gmail OAuth、有 refresh_token 且没被停用」：
 // IMAP 密码账号没有 OAuth 令牌可换，放进任务只会产出一堆注定失败的记录，
 // 既浪费配额也把失败率搅乱。
 func (s *RefreshService) selectAccounts(
@@ -260,7 +260,9 @@ func (s *RefreshService) selectAccounts(
 
 	out := make([]model.MailAccount, 0, len(accounts))
 	for _, account := range accounts {
-		if account.AccountType != string(mailer.AccountTypeOutlook) || account.RefreshTokenEnc == "" || account.Status != model.AccountStatusActive {
+		isOAuth := account.AccountType == string(mailer.AccountTypeOutlook) ||
+			(strings.EqualFold(account.Provider, "gmail") && account.AccountType == string(mailer.AccountTypeIMAP))
+		if !isOAuth || account.RefreshTokenEnc == "" || account.Status != model.AccountStatusActive {
 			continue
 		}
 		out = append(out, account)

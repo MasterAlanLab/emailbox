@@ -17,12 +17,12 @@ const defaultTimeout = 60 * time.Second
 
 // Config 是 IMAP 通道的配置。
 type Config struct {
-	// Channel 决定通道形态：imap（密码鉴权）/ imap_new / imap_old（两条 OAuth 通道）。
+	// Channel 决定通道形态：imap（密码鉴权）/ imap_new / imap_old / imap_gmail（OAuth）。
 	Channel string
 	// TokenURL 留空时按 Channel 选生产端点；测试用它覆盖。
 	TokenURL string
 	Timeout  time.Duration
-	// OnTokenRefresh 在微软返回新的 refresh_token 时调用。
+	// OnTokenRefresh 在服务商返回新的 refresh_token 时调用。
 	OnTokenRefresh func(email, refreshToken string)
 	// DialFunc 供测试注入进程内的 IMAP 服务器。留空时按代理配置真实拨号。
 	DialFunc func(ctx context.Context, host string, port int, proxyURL string) (net.Conn, error)

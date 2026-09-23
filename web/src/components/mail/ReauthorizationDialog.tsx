@@ -25,6 +25,7 @@ export function ReauthorizationDialog({
   onClose,
   onCompleted,
 }: ReauthorizationDialogProps) {
+  const providerName = account.provider === "gmail" ? "Google" : "Microsoft";
   const [flow, setFlow] = useState<OAuthStartResult | null>(null);
   const [redirectedURL, setRedirectedURL] = useState("");
   const { error, pending, run } = useAsyncAction();
@@ -49,7 +50,7 @@ export function ReauthorizationDialog({
     <DialogRoot open onOpenChange={(open) => !open && onClose()}>
       <Dialog size="lg" className="p-0">
         <div className="flex items-center justify-between border-b border-kumo-line px-6 py-4">
-          <DialogTitle className="text-lg font-semibold">重新授权 Microsoft 账号</DialogTitle>
+          <DialogTitle className="text-lg font-semibold">重新授权 {providerName} 账号</DialogTitle>
           <DialogClose
             render={(props) => (
               <Button
@@ -84,7 +85,7 @@ export function ReauthorizationDialog({
           ) : (
             <>
               <div className="flex flex-col gap-2">
-                <p className="text-sm">1. 在新标签页登录 Microsoft，并同意邮件权限。</p>
+                <p className="text-sm">1. 在新标签页登录 {providerName}，并同意邮件权限。</p>
                 <Button
                   variant="secondary"
                   icon={ArrowSquareOut}
@@ -92,7 +93,7 @@ export function ReauthorizationDialog({
                     window.open(flow.authorization_url, "_blank", "noopener,noreferrer")
                   }
                 >
-                  打开 Microsoft 授权页
+                  打开 {providerName} 授权页
                 </Button>
               </div>
 

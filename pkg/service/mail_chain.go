@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"emailbox/pkg/mailer"
-	"emailbox/pkg/mailer/graph"
 	"emailbox/pkg/mailer/imapx"
 	"emailbox/pkg/model"
 )
@@ -22,7 +21,9 @@ type ChainOptions struct {
 	OAuthClientID     string
 	OAuthClientSecret string
 	// TokenURL 供进程内协议桩覆盖；生产留空，各通道使用自己的 OAuth 端点。
-	TokenURL string
+	TokenURL                string
+	GoogleOAuthClientID     string
+	GoogleOAuthClientSecret string
 }
 
 // defaultChainFactory 返回「按账号构造回退链」的函数。
@@ -49,11 +50,6 @@ func newMailChain(s *MessageService, account *model.MailAccount, opt ChainOption
 	}
 
 	chain := mailer.NewChain(map[string]mailer.Client{
-		mailer.ChannelGraph: graph.New(graph.Config{
-			Timeout:        opt.Timeout,
-			TokenURL:       opt.TokenURL,
-			OnTokenRefresh: onRotate,
-		}),
 		mailer.ChannelIMAPNew: imapx.New(imapx.Config{
 			Channel:        mailer.ChannelIMAPNew,
 			Timeout:        opt.Timeout,
@@ -62,6 +58,12 @@ func newMailChain(s *MessageService, account *model.MailAccount, opt ChainOption
 		}),
 		mailer.ChannelIMAPOld: imapx.New(imapx.Config{
 			Channel:        mailer.ChannelIMAPOld,
+			Timeout:        opt.Timeout,
+			TokenURL:       opt.TokenURL,
+			OnTokenRefresh: onRotate,
+		}),
+		mailer.ChannelIMAPGmail: imapx.New(imapx.Config{
+			Channel:        mailer.ChannelIMAPGmail,
 			Timeout:        opt.Timeout,
 			TokenURL:       opt.TokenURL,
 			OnTokenRefresh: onRotate,

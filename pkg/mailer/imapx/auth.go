@@ -17,7 +17,7 @@ import (
 // xoauth2Client 实现 XOAUTH2。
 //
 // go-sasl 只有 OAUTHBEARER，微软要的是 XOAUTH2——两者不通用，所以自己实现。
-// 初始响应的格式来源：outlookEmail `outlook_mail_reader.py:157,263`：
+// 初始响应遵循 Gmail/Microsoft IMAP XOAUTH2 规范：
 //
 //	"user=" + email + "\x01auth=Bearer " + accessToken + "\x01\x01"
 type xoauth2Client struct {
@@ -49,6 +49,9 @@ func (c *xoauth2Client) Next([]byte) ([]byte, error) {
 // login.live.com 的请求体里**不能带 scope**，带了反而会失败——
 // 这是旧版 IMAP 通道专用的历史端点。来源：outlookEmail `outlook_mail_reader.py:113-119`。
 func tokenEndpoint(channel string) (endpoint, scope string) {
+	if channel == mailer.ChannelIMAPGmail {
+		return mailer.TokenURLGoogle, mailer.ScopeGmailIMAP
+	}
 	if channel == mailer.ChannelIMAPOld {
 		return mailer.TokenURLLive, ""
 	}
@@ -66,6 +69,8 @@ func imapServer(channel string, cred mailer.Credential) (string, int) {
 		return mailer.IMAPServerNew, port
 	case mailer.ChannelIMAPOld:
 		return mailer.IMAPServerOld, port
+	case mailer.ChannelIMAPGmail:
+		return mailer.IMAPServerGmail, port
 	}
 	if host != "" {
 		return host, port
@@ -85,14 +90,18 @@ type tokenResponse struct {
 
 // fetchAccessToken 用 refresh_token 换 IMAP 用的 access token。
 //
-// 与 Graph 通道不同，IMAP 的 scope 是固定的，没有降级空间：
+// IMAP OAuth 的 scope 是固定的，没有降级空间：
 // 拿不到就是拿不到，降级只会多打两次 token 端点。
 func (c *Client) fetchAccessToken(
 	ctx context.Context, hc *http.Client, cred mailer.Credential,
 ) (string, error) {
 	clientID := strings.TrimSpace(cred.ClientID)
 	if clientID == "" {
-		clientID = mailer.DefaultOAuthClientID
+		if cred.Provider == "gmail" {
+			return "", newError(c.cfg.Channel, mailer.ErrKindProviderError,
+				"Gmail OAuth 账号缺少 client_id", nil)
+		}
+		clientID = mailer.DefaultMicrosoftOAuthClientID
 	}
 	if strings.TrimSpace(cred.RefreshToken) == "" {
 		return "", newError(c.cfg.Channel, mailer.ErrKindAuthFailed,

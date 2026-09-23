@@ -141,7 +141,7 @@ export function GroupFormDialog({ tenantID, group, onClose, onSaved }: GroupForm
           />
 
           <p className="mt-2 text-xs text-kumo-subtle">
-            支持 socks5://、socks5h://、http://。注意：http:// 仅对 Graph 通道生效。
+            邮件读取支持 socks5://、socks5h://；http:// 和 https:// 仅用于 OAuth 令牌交换。
           </p>
         </div>
 

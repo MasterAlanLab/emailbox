@@ -388,7 +388,7 @@ func TestOAuthAuthorizationParity(t *testing.T) {
 			t.Fatalf("%s: %v", e.name, err)
 		}
 		if err := e.store.WithTx(ctx, func(tx *repo.Store) error {
-			if err := tx.UpdateMailAccountAuthorization(ctx, tenantID, accountID, "new-client", "rotated", "graph"); err != nil {
+			if err := tx.UpdateMailAccountAuthorization(ctx, tenantID, accountID, "new-client", "rotated", "imap_new"); err != nil {
 				return err
 			}
 			return tx.ConsumeOAuthAuthorization(ctx, tenantID, flow.ID)
