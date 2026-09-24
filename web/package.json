@@ -20,7 +20,7 @@
     "@tailwindcss/vite": "^4.1.10",
     "@tanstack/react-virtual": "^3.14.10",
     "axios": "^1.19.0",
-    "dompurify": "^3.4.14",
+    "dompurify": "^3.4.15",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.18.3",
