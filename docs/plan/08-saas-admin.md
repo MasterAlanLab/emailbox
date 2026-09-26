@@ -131,7 +131,11 @@ CREATE INDEX idx_users_platform_role ON users(platform_role) WHERE platform_role
 只需在 `middleware/session.go` 的鉴权路径上加一条：**用户 status 非 active 时会话立即无效**。
 这一条目前模板没做，是 P0 必补项。
 
-## 4. 配额体系（不含计费）
+## 4. 配额体系与套餐来源
+
+本节定义额度计算与管理员覆盖；订阅价格、Waffo 产品同步、订阅状态机和支付 Webhook 见
+[09-billing.md](09-billing.md)。`tenant_quotas` 仍是 `pkg/quota` 读取生效额度的唯一入口，
+订阅只是套餐来源之一。
 
 ### 4.1 数据模型
 
@@ -155,6 +159,8 @@ CREATE TABLE tenant_quotas (
     max_accounts        INTEGER,
     max_groups          INTEGER,
     daily_mail_fetch    INTEGER,
+    plan_source          TEXT NOT NULL DEFAULT 'admin', -- admin | subscription
+    subscription_id      TEXT REFERENCES tenant_subscriptions(id),
     note                TEXT NOT NULL DEFAULT '',   -- 管理员备注为什么调额
     updated_by          TEXT REFERENCES users(id),
     updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP

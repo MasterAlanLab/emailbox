@@ -1,9 +1,8 @@
 # 04 · 邮件协议层设计（`pkg/mailer`）
 
-> **当前实现（2026-09）**：Microsoft Graph 邮件通道已移除，`pkg/mailer/graph/` 不再存在。
-> Outlook 使用 `imap_new → imap_old` 两条 IMAP OAuth 通道；Gmail 使用
-> `imap_gmail`（Gmail XOAUTH2）；QQ、163、126、Yahoo、2925 与自定义邮箱使用 `imap`。
-> 下文早期 Graph 章节保留作历史记录，不应作为当前实现依据。
+> **当前实现（2026-09）**：Microsoft Graph 邮件通道已恢复，实现在 `pkg/mailer/graph/`。
+> Outlook 按 `graph → imap_new → imap_old` 回退；Gmail 使用 `imap_gmail`（Gmail XOAUTH2）；
+> QQ、163、126、Yahoo、2925 与自定义邮箱使用 `imap`。
 
 本文档是整个方案里**必须严格照搬 outlookEmail 实战经验**的部分。
 这些常量、端点、scope、回退顺序、文件夹名，都是靠大量真实账号试出来的，
@@ -188,8 +187,9 @@ var FolderMatchAliases = map[Folder][]string{
 
 账号 account_type == "outlook"（OAuth）
     → 通道顺序（若 auth_channel 有值则把它提到最前）：
-        1. imap_new   outlook.live.com      （token: TokenURLIMAP，  scope=ScopeIMAP）
-        2. imap_old   outlook.office365.com （token: TokenURLLive，  无 scope）
+        1. graph      graph.microsoft.com   （token: TokenURLGraph，Graph scopes）
+        2. imap_new   outlook.live.com      （token: TokenURLIMAP，  scope=ScopeIMAP）
+        3. imap_old   outlook.office365.com （token: TokenURLLive，  无 scope）
     → 任一通道成功：把该通道写回 accounts.auth_channel，本次结果返回
     → 全部失败：返回最后一个通道的结构化错误 + 各通道失败摘要
 ```
@@ -246,10 +246,10 @@ refresh 请求不带 scope，成功响应会返回 refresh token 并要求更新
 [令牌生命周期](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens)、
 [旧版 Microsoft account OAuth（归档）](https://learn.microsoft.com/en-us/previous-versions/office/office-365-api/how-to/onenote-auth#get-a-new-access-token-after-it-expires-consumer-apps)。
 
-## 4. 历史 Graph 通道（已移除）
+## 4. Microsoft Graph 通道（`pkg/mailer/graph/`）
 
-本节记录早期设计，当前版本不编译、不装配 Graph 客户端。邮件列表、详情、附件、已读与删除
-全部走 IMAP；Microsoft 与 Gmail 只在 XOAUTH2 令牌交换阶段使用各自服务商端点。
+Graph 通道参与 Outlook 回退链。邮件列表、详情、附件、已读与删除均使用 Graph API；
+Graph 失败后才按错误分类回退到两条 IMAP OAuth 通道。
 
 ### 4.1 Token 获取与 scope 降级
 
@@ -485,7 +485,7 @@ const (
 
 type Error struct {
     Kind        ErrKind
-    Channel     string   // imap_new | imap_old | imap_gmail | imap
+    Channel     string   // graph | imap_new | imap_old | imap_gmail | imap
     Message     string   // 面向用户的中文文案
     StatusCode  int
     Detail      string   // 已脱敏，供排障

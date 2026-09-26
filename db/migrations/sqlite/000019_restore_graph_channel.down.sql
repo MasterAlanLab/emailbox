@@ -1,5 +1,5 @@
 -- migrate:no-transaction
--- 保留 Microsoft Graph，并增加 Gmail IMAP OAuth 通道。
+-- 取消 Graph 通道，并增加 Gmail IMAP OAuth 通道。
 PRAGMA foreign_keys = OFF;
 BEGIN;
 
@@ -14,7 +14,7 @@ CREATE TABLE mail_accounts_new (
     account_type             TEXT NOT NULL DEFAULT 'outlook'
                              CHECK (account_type IN ('outlook', 'imap')),
     auth_channel             TEXT NOT NULL DEFAULT ''
-                             CHECK (auth_channel IN ('', 'graph', 'imap_new', 'imap_old', 'imap_gmail', 'imap')),
+                             CHECK (auth_channel IN ('', 'imap_new', 'imap_old', 'imap_gmail', 'imap')),
     password_enc             TEXT NOT NULL DEFAULT '',
     client_id                TEXT NOT NULL DEFAULT '',
     refresh_token_enc        TEXT NOT NULL DEFAULT '',
@@ -47,7 +47,7 @@ INSERT INTO mail_accounts_new (
     refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind
 )
 SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type,
-       auth_channel,
+       CASE WHEN auth_channel = 'graph' THEN '' ELSE auth_channel END,
        password_enc, client_id, refresh_token_enc, imap_host, imap_port,
        imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1,
        fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error,

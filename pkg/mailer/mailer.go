@@ -38,6 +38,7 @@ const (
 
 // 通道名。写回 mail_accounts.auth_channel，下次优先尝试。
 const (
+	ChannelGraph     = "graph"
 	ChannelIMAPNew   = "imap_new"
 	ChannelIMAPOld   = "imap_old"
 	ChannelIMAPGmail = "imap_gmail"

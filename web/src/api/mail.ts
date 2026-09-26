@@ -174,7 +174,7 @@ export interface MessageDetail extends Message {
 
 export interface MessageListResponse {
   items: Message[];
-  // channel 是本次实际走通的通道（imap_new / imap_old / imap_gmail / imap）。
+  // channel 是本次实际走通的通道（graph / imap_new / imap_old / imap_gmail / imap）。
   channel: string;
 }
 

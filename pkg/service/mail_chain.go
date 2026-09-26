@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"emailbox/pkg/mailer"
+	"emailbox/pkg/mailer/graph"
 	"emailbox/pkg/mailer/imapx"
 	"emailbox/pkg/model"
 )
@@ -50,6 +51,11 @@ func newMailChain(s *MessageService, account *model.MailAccount, opt ChainOption
 	}
 
 	chain := mailer.NewChain(map[string]mailer.Client{
+		mailer.ChannelGraph: graph.New(graph.Config{
+			Timeout:        opt.Timeout,
+			TokenURL:       opt.TokenURL,
+			OnTokenRefresh: onRotate,
+		}),
 		mailer.ChannelIMAPNew: imapx.New(imapx.Config{
 			Channel:        mailer.ChannelIMAPNew,
 			Timeout:        opt.Timeout,

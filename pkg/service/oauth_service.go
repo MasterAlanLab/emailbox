@@ -17,6 +17,7 @@ import (
 
 	"emailbox/pkg/crypto"
 	"emailbox/pkg/mailer"
+	"emailbox/pkg/mailer/graph"
 	"emailbox/pkg/mailer/imapx"
 	"emailbox/pkg/model"
 	"emailbox/pkg/quota"
@@ -74,7 +75,9 @@ func NewOAuthService(store *repo.Store, cipher crypto.Cipher, q *quota.Service, 
 		opt.Microsoft.TokenURL = "https://login.microsoftonline.com/" + url.PathEscape(opt.Microsoft.Tenant) + "/oauth2/v2.0/token"
 	}
 	if opt.Microsoft.Scope == "" {
-		opt.Microsoft.Scope = "openid profile email offline_access " + mailer.ScopeIMAP
+		// Outlook 重新授权要让 Graph 取件拿到同一组委托权限；IMAP 是
+		// 回退通道，若该账号只同意了 IMAP，回退链会按通道继续尝试。
+		opt.Microsoft.Scope = "openid profile email " + strings.Join(mailer.OAuthAuthorizeScopes, " ")
 	}
 	if opt.Microsoft.IdentityURL == "" {
 		// OIDC 身份端点只用于核对邮箱，不读取邮件；邮件本身始终走 IMAP。
@@ -311,12 +314,16 @@ func (s *OAuthService) Complete(ctx context.Context, tenantID, accountID, actorU
 		return nil, err
 	}
 	latestToken := refreshToken
-	channel := mailer.ChannelIMAPNew
+	channel := mailer.ChannelGraph
+	var client mailer.TokenRefresher
 	if provider == "gmail" {
 		channel = mailer.ChannelIMAPGmail
+		client = imapx.New(imapx.Config{Channel: channel, TokenURL: cfg.TokenURL, Timeout: s.opt.Timeout,
+			OnTokenRefresh: func(_ string, rotated string) { latestToken = rotated }})
+	} else {
+		client = graph.New(graph.Config{TokenURL: cfg.TokenURL, Timeout: s.opt.Timeout,
+			OnTokenRefresh: func(_ string, rotated string) { latestToken = rotated }})
 	}
-	client := imapx.New(imapx.Config{Channel: channel, TokenURL: cfg.TokenURL, Timeout: s.opt.Timeout,
-		OnTokenRefresh: func(_ string, rotated string) { latestToken = rotated }})
 	cred := mailer.Credential{Email: account.Email, Provider: provider,
 		AccountType: mailer.AccountType(account.AccountType), ClientID: cfg.ClientID,
 		ClientSecret: cfg.ClientSecret, RefreshToken: refreshToken, Proxy: proxy}

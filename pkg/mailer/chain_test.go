@@ -67,9 +67,9 @@ func TestChannelOrder(t *testing.T) {
 		want []string
 	}{
 		{"密码鉴权账号只有一条通道", Credential{Email: "u@qq.com", Provider: "qq", AccountType: AccountTypeIMAP}, []string{ChannelIMAP}},
-		{"Outlook 未记录通道", outlookCred(""), []string{ChannelIMAPNew, ChannelIMAPOld}},
-		{"Outlook 上次新版优先", outlookCred(ChannelIMAPNew), []string{ChannelIMAPNew, ChannelIMAPOld}},
-		{"Outlook 上次旧版优先", outlookCred(ChannelIMAPOld), []string{ChannelIMAPOld, ChannelIMAPNew}},
+		{"Outlook 未记录通道", outlookCred(""), []string{ChannelGraph, ChannelIMAPNew, ChannelIMAPOld}},
+		{"Outlook 上次新版优先", outlookCred(ChannelIMAPNew), []string{ChannelIMAPNew, ChannelGraph, ChannelIMAPOld}},
+		{"Outlook 上次旧版优先", outlookCred(ChannelIMAPOld), []string{ChannelIMAPOld, ChannelGraph, ChannelIMAPNew}},
 		{"Gmail OAuth 使用 Gmail IMAP", Credential{Email: "u@gmail.com", Provider: "gmail", AccountType: AccountTypeIMAP, RefreshToken: "refresh"}, []string{ChannelIMAPGmail}},
 	}
 	for _, c := range cases {

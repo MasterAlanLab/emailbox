@@ -158,8 +158,8 @@ https://YOUR_DOMAIN/api/v1/oauth/callback
 
 然后把它原样填入 `MICROSOFT_OAUTH_REDIRECT_URI`，并把 `OAUTH_RETURN_URL` 设成
 前端 Token 页的公开地址。两边必须与 Microsoft 应用注册值逐字一致。授权申请
-`offline_access` 与 `IMAP.AccessAsUser.All`，交换后通过身份端点核对账号主邮箱或已登记别名，
-再用 Microsoft IMAP 令牌端点验证新 refresh token。
+`offline_access`、`Mail.Read`、`Mail.ReadWrite` 与 `User.Read`，交换后通过身份端点核对账号主邮箱或已登记别名，
+再用 Microsoft Graph 令牌端点验证新 refresh token；收信失败时服务端仍会回退到两条 IMAP OAuth 通道。
 
 ### Gmail IMAP OAuth
 
@@ -173,7 +173,7 @@ OAUTH_RETURN_URL=http://localhost:5173/mail/tokens
 
 Google Cloud 中的 OAuth 客户端需要登记与环境一致的回调地址。Emailbox 申请
 `openid email profile https://mail.google.com/`，并使用 `access_type=offline` 保存
-refresh token；邮件连接使用 Gmail XOAUTH2，不调用 Microsoft Graph。
+refresh token；邮件连接使用 Gmail XOAUTH2。Outlook 取件优先使用 Microsoft Graph，失败后回退到 IMAP OAuth。
 
 ## 批量任务
 

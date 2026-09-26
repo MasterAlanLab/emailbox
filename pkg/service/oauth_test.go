@@ -125,7 +125,7 @@ func TestOAuthReauthorizationOnlyReplacesVerifiedCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.ClientID != "platform-client" || plain != "rotated-refresh" || after.AuthChannel != "imap_new" {
+	if after.ClientID != "platform-client" || plain != "rotated-refresh" || after.AuthChannel != "graph" {
 		t.Errorf("授权凭据写回错误: client=%q token=%q channel=%q", after.ClientID, plain, after.AuthChannel)
 	}
 	if after.Remark != "keep-remark" || after.LastRefreshStatus != model.RefreshSuccess || after.LastRefreshErrorKind != "" {

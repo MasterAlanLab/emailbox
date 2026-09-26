@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"emailbox/pkg/mailer"
+	"emailbox/pkg/mailer/graph"
 	"emailbox/pkg/mailer/imapx"
 )
 
@@ -212,6 +213,10 @@ func channelsFor(cred mailer.Credential, timeout time.Duration) []namedChannel {
 		}}
 	}
 	return []namedChannel{
+		{
+			name:   "Microsoft Graph",
+			client: graph.New(graph.Config{Timeout: timeout}),
+		},
 		{
 			name:   "IMAP 新版（outlook.live.com）",
 			client: imapx.New(imapx.Config{Channel: mailer.ChannelIMAPNew, Timeout: timeout}),

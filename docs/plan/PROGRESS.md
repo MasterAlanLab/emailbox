@@ -10,10 +10,16 @@
 
 ## 2026-09 协议调整
 
-- 已移除 Microsoft Graph 邮件客户端；Outlook 仅保留新旧两条 IMAP OAuth 通道。
+- 已恢复 Microsoft Graph 邮件客户端；Outlook 按 `graph → imap_new → imap_old` 回退，Gmail 使用 IMAP XOAUTH2。
 - 已加入 Gmail IMAP XOAUTH2、Google OAuth 重新授权与 refresh token 刷新。
 - 已从内置服务商表移除阿里云个人/企业邮箱；需要时可通过自定义 IMAP 配置。
-- 迁移 `000018_mail_auth_channels` 将旧 `graph` 通道清空，并加入 `imap_gmail`。
+- 迁移 `000018_mail_auth_channels` 保留 `graph` 通道并加入 `imap_gmail`；`000019_restore_graph_channel`
+  为已经执行过 000018 的数据库恢复 `graph` 约束。
+
+## 2026-09 Waffo 订阅设计
+
+- [~] 新增 `docs/plan/09-billing.md`：采用 Go 直接调用 Waffo HTTP API，覆盖支付开关、套餐价格、
+      checkout、Webhook 验签、订阅状态与配额绑定；当前完成设计，尚未落地迁移、API 和前端。
 
 ## 2026-09 前端布局修正
 

@@ -19,9 +19,9 @@
 ## 功能特性
 
 - 批量导入：粘贴文本即可导入账号，自动识别三种常见格式；错误按行返回，其余账号继续处理。
-- 统一收信：Outlook 新旧 IMAP、Gmail XOAUTH2 IMAP 与普通 IMAP 统一接入，可同时查询收件箱与垃圾箱。
+- 统一收信：Outlook Graph（失败回退到新旧 IMAP）、Gmail XOAUTH2 IMAP 与普通 IMAP 统一接入，可同时查询收件箱与垃圾箱。
 - 令牌维护：支持全部刷新、失败账号刷新、分组刷新和定时刷新；失败原因区分过期、撤销、权限与配置问题。
-- OAuth 重新授权：Outlook 与 Gmail 账号可分别完成 Microsoft / Google OAuth，令牌验证后通过对应 IMAP 通道收信。
+- OAuth 重新授权：Outlook 与 Gmail 账号可分别完成 Microsoft / Google OAuth，令牌验证后通过对应协议通道收信。
 - 分组代理：按分组配置 SOCKS5 / HTTP 代理，支持 `{mail}` 模板和主备代理切换。
 - 只读 API：为自动化脚本和 AI Agent 提供受限 API Key，并通过 `/llms.txt` 暴露接口说明。
 - 用户隔离：每位用户的账号、邮件、分组、任务和用量独立保存，平台管理员的跨用户操作留有审计记录。

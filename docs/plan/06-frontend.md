@@ -472,7 +472,7 @@ export function subscribeJob(base: string, jobID: string, lastEventID: string | 
 
 ```ts
 export type MailProvider = "outlook" | "gmail" | "qq" | "163" | "126" | "yahoo" | "2925" | "custom";
-export type AuthChannel = "" | "imap_new" | "imap_old" | "imap_gmail" | "imap";
+export type AuthChannel = "" | "graph" | "imap_new" | "imap_old" | "imap_gmail" | "imap";
 export type MailFolder  = "inbox" | "junkemail" | "deleteditems" | "all";
 export type RefreshStatus = "never" | "success" | "failed";
 export type ErrorKind = "auth_failed" | "banned" | "consent_required" | "proxy_failed"

@@ -10,9 +10,10 @@
 | [05-api-design.md](05-api-design.md) | 后端 API：路由组、错误码、各端点契约 |
 | [06-frontend.md](06-frontend.md) | 前端信息架构、页面、状态管理与批量交互 |
 | [08-saas-admin.md](08-saas-admin.md) | 个人工作空间、平台管理员、配额体系 |
+| [09-billing.md](09-billing.md) | Waffo 订阅、支付开关、价格、Webhook 与配额绑定 |
 | [PROGRESS.md](PROGRESS.md) | **实施记录与踩过的坑**——这份清单是这里最有价值的部分 |
 
-> 编号不连续是因为 01、02、07、09、10 已经删掉了：它们是实施前的分析与计划
+> 编号不连续是因为 01、02、07、10 已经删掉了：它们是实施前的分析与计划
 > （老项目分析、目标架构、分阶段路线图）和两次改版的过程记录，实现完成后就不再更新，
 > 留着只会让人照着一份过期的设计写代码。其中仍然有效的规则已经并进
 > `AGENTS.md` 与上面这几篇；真要考古，git 历史里都在。
@@ -36,7 +37,7 @@
 | 隔离单位 | 保留 `tenants`，注册自动创建 `kind='personal'` 的个人工作空间 | 复用全套租户中间件与权限代码；将来做团队版无需数据迁移。UI 上对普通用户隐藏 |
 | 前端组件库 | Cloudflare **Kumo**（`@cloudflare/kumo`） | React + Base UI + Tailwind v4；页面实现优先用现成组件，仅虚拟列表 / 邮件正文 / 纵向分栏三处自建 |
 | 双引擎 SQL | **两个引擎各写各的 SQL**，不追求写法一致 | SQLite 与 PostgreSQL 在变长 IN、大小写敏感、排序参数化上都不同；repo 层方法签名统一，靠跨引擎对照测试防漂移 |
-| 计费 | **做配额、不做计费** | `plans` + `tenant_quotas` + `usage_counters` 足以限住用量；收钱是另一件事 |
+| 计费 | **Waffo 订阅 + 本地配额权益** | Waffo 负责收款与订阅事件，`plans` + `tenant_quotas` + `usage_counters` 负责额度计算；实现边界见 [09-billing.md](09-billing.md) |
 
 ## 明确不做的事（2026-08-21 移出范围）
 
@@ -48,7 +49,9 @@
 - 租户键值设置表 `tenant_settings` 与 `/mail/settings` 接口
 - 邮件分享链接与公开只读页
 - 本地邮件保留（`mail_retained_messages`）
-- 临时邮箱、项目账号领取、邀请码 / 邮箱验证、WebDAV 备份、多实例、计费、浏览器扩展
+- 临时邮箱、项目账号领取、邀请码 / 邮箱验证、WebDAV 备份、多实例、浏览器扩展
+
+订阅计费不再属于排除项，按 [09-billing.md](09-billing.md) 的 Waffo 直连方案实施；当前仍处于设计阶段。
 
 当初为它们预埋的字段、权限常量、路由与配置项已于 2026-08-25 随 `000006_drop_unused`
 清理干净。删除的动机不只是省几列：`plans` 的三个 `allow_*` 开关在后台是可点的，

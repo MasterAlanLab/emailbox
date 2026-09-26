@@ -1,28 +1,86 @@
 <svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="1200" height="630" fill="#F8FAFC"/>
-  <rect x="40" y="40" width="1120" height="550" rx="24" fill="white" stroke="#E2E8F0" stroke-width="2"/>
+  <title>Emailbox · 批量邮箱托管平台</title>
+  <desc>导入、托管、统一收信，集中管理第三方邮箱账号。</desc>
+  <defs>
+    <linearGradient id="brand" x1="112" y1="104" x2="208" y2="200" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F6821F"/>
+      <stop offset="1" stop-color="#FBAD41"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="866" y1="112" x2="1112" y2="474" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF7ED"/>
+      <stop offset="1" stop-color="#F5F5F4"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" stroke="#D6D3D1" stroke-opacity="0.34"/>
+    </pattern>
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#292524" flood-opacity="0.10"/>
+    </filter>
+  </defs>
 
-  <!-- Logo area -->
-  <rect x="100" y="180" width="80" height="80" rx="16" fill="#6366F1"/>
-  <text x="140" y="232" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="bold" fill="white" text-anchor="middle">M</text>
+  <rect width="1200" height="630" fill="#F5F5F4"/>
+  <rect x="32" y="32" width="1136" height="566" rx="28" fill="#FAFAF9" stroke="#E7E5E4" stroke-width="2"/>
+  <rect x="32" y="32" width="1136" height="566" rx="28" fill="url(#grid)"/>
+  <path d="M32 112C232 64 390 70 570 122C778 182 925 184 1168 104V32H32V112Z" fill="#FFF7ED" fill-opacity="0.72"/>
+  <circle cx="1090" cy="92" r="86" fill="#F6821F" fill-opacity="0.08"/>
+  <circle cx="1090" cy="92" r="54" fill="#F6821F" fill-opacity="0.06"/>
 
-  <!-- Title -->
-  <text x="200" y="220" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="bold" fill="#1E293B">MDZZ Toolbox</text>
-  <text x="200" y="270" font-family="system-ui, -apple-system, sans-serif" font-size="24" fill="#64748B">Free Online Image Tools</text>
+  <!-- Brand mark -->
+  <rect x="104" y="104" width="96" height="96" rx="24" fill="url(#brand)"/>
+  <path d="M127 132.5C127 127.253 131.253 123 136.5 123H167.5C172.747 123 177 127.253 177 132.5V171.5C177 176.747 172.747 181 167.5 181H136.5C131.253 181 127 176.747 127 171.5V132.5Z" stroke="white" stroke-width="5"/>
+  <path d="M129.5 132L152 151L174.5 132" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M130 171L145 157.5M174 171L159 157.5" stroke="white" stroke-width="5" stroke-linecap="round"/>
 
-  <!-- Features -->
-  <rect x="100" y="320" width="300" height="60" rx="12" fill="#EEF2FF"/>
-  <text x="250" y="358" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="600" fill="#4F46E5" text-anchor="middle">Watermark Remover</text>
+  <!-- Wordmark and promise -->
+  <text x="228" y="158" fill="#1C1917" font-family="Noto Sans SC, PingFang SC, system-ui, sans-serif" font-size="56" font-weight="750" letter-spacing="-1.5">Emailbox</text>
+  <text x="106" y="280" fill="#1C1917" font-family="Noto Sans SC, PingFang SC, system-ui, sans-serif" font-size="50" font-weight="750" letter-spacing="-1.5">批量邮箱托管平台</text>
+  <text x="108" y="328" fill="#57534E" font-family="Noto Sans SC, PingFang SC, system-ui, sans-serif" font-size="25" font-weight="450">导入 · 托管 · 统一收信</text>
+  <text x="108" y="376" fill="#78716C" font-family="Noto Sans SC, PingFang SC, system-ui, sans-serif" font-size="21" font-weight="450">把第三方邮箱账号、令牌与收件箱集中到一个清晰的工作台</text>
 
-  <rect x="420" y="320" width="300" height="60" rx="12" fill="#EEF2FF"/>
-  <text x="570" y="358" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="600" fill="#4F46E5" text-anchor="middle">Image Translator</text>
+  <!-- Feature tags -->
+  <g font-family="Noto Sans SC, PingFang SC, system-ui, sans-serif" font-size="18" font-weight="650">
+    <rect x="108" y="430" width="178" height="48" rx="12" fill="#FFFFFF" stroke="#D6D3D1"/>
+    <circle cx="132" cy="454" r="5" fill="#F6821F"/>
+    <text x="148" y="461" fill="#44403C">多服务商接入</text>
+    <rect x="300" y="430" width="178" height="48" rx="12" fill="#FFFFFF" stroke="#D6D3D1"/>
+    <circle cx="324" cy="454" r="5" fill="#3B82F6"/>
+    <text x="340" y="461" fill="#44403C">令牌自动维护</text>
+    <rect x="492" y="430" width="178" height="48" rx="12" fill="#FFFFFF" stroke="#D6D3D1"/>
+    <circle cx="516" cy="454" r="5" fill="#22C55E"/>
+    <text x="532" y="461" fill="#44403C">租户数据隔离</text>
+  </g>
 
-  <rect x="740" y="320" width="300" height="60" rx="12" fill="#EEF2FF"/>
-  <text x="890" y="358" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="600" fill="#4F46E5" text-anchor="middle">100% Free</text>
+  <!-- Inbox illustration -->
+  <g filter="url(#cardShadow)">
+    <rect x="746" y="144" width="330" height="346" rx="22" fill="url(#glow)" stroke="#E7E5E4" stroke-width="2"/>
+    <rect x="774" y="174" width="274" height="44" rx="12" fill="#FFFFFF" stroke="#E7E5E4"/>
+    <circle cx="797" cy="196" r="8" fill="#F6821F"/>
+    <rect x="816" y="188" width="104" height="8" rx="4" fill="#A8A29E"/>
+    <rect x="932" y="188" width="82" height="8" rx="4" fill="#E7E5E4"/>
 
-  <!-- Tagline -->
-  <text x="600" y="480" font-family="system-ui, -apple-system, sans-serif" font-size="28" fill="#475569" text-anchor="middle">AI-powered image processing. No registration required.</text>
+    <rect x="774" y="240" width="274" height="76" rx="14" fill="#FFFFFF" stroke="#E7E5E4"/>
+    <rect x="798" y="262" width="30" height="30" rx="9" fill="#FFF1E6"/>
+    <path d="M806 269.5C806 267.567 807.567 266 809.5 266H816.5C818.433 266 820 267.567 820 269.5V284.5C820 286.433 818.433 288 816.5 288H809.5C807.567 288 806 286.433 806 284.5V269.5Z" stroke="#F6821F" stroke-width="2"/>
+    <path d="M807 270L813 275L819 270" stroke="#F6821F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="846" y="258" width="132" height="8" rx="4" fill="#44403C"/>
+    <rect x="846" y="276" width="166" height="7" rx="3.5" fill="#D6D3D1"/>
+    <rect x="846" y="291" width="76" height="7" rx="3.5" fill="#E7E5E4"/>
+    <circle cx="1021" cy="278" r="7" fill="#22C55E"/>
 
-  <!-- URL -->
-  <text x="600" y="540" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="600" fill="#6366F1" text-anchor="middle">mdzz.uk</text>
+    <rect x="774" y="334" width="274" height="76" rx="14" fill="#FFFFFF" stroke="#E7E5E4"/>
+    <rect x="798" y="356" width="30" height="30" rx="9" fill="#EFF6FF"/>
+    <path d="M806 363.5C806 361.567 807.567 360 809.5 360H816.5C818.433 360 820 361.567 820 363.5V378.5C820 380.433 818.433 382 816.5 382H809.5C807.567 382 806 380.433 806 378.5V363.5Z" stroke="#3B82F6" stroke-width="2"/>
+    <path d="M807 364L813 369L819 364" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="846" y="352" width="148" height="8" rx="4" fill="#44403C"/>
+    <rect x="846" y="370" width="122" height="7" rx="3.5" fill="#D6D3D1"/>
+    <rect x="846" y="385" width="92" height="7" rx="3.5" fill="#E7E5E4"/>
+    <circle cx="1021" cy="372" r="7" fill="#F6821F"/>
+
+    <rect x="774" y="428" width="274" height="34" rx="10" fill="#292524"/>
+    <rect x="796" y="442" width="104" height="6" rx="3" fill="#A8A29E"/>
+    <rect x="926" y="442" width="96" height="6" rx="3" fill="#57534E"/>
+  </g>
+
+  <text x="108" y="548" fill="#A8A29E" font-family="system-ui, sans-serif" font-size="17" font-weight="600" letter-spacing="2.4">EMAILBOX</text>
+  <text x="1092" y="548" fill="#A8A29E" font-family="Noto Sans SC, PingFang SC, system-ui, sans-serif" font-size="16" font-weight="500" text-anchor="end">WEB · DOCKER · DESKTOP</text>
 </svg>
