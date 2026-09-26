@@ -1,4 +1,4 @@
-import { Folder } from "@phosphor-icons/react";
+import { Folder, GearSix } from "@phosphor-icons/react";
 import type { RefreshStats } from "@/api/jobs";
 import type { MailGroupNode, RefreshStatus } from "@/api/mail";
 import { GroupDot } from "./GroupDot";
@@ -18,6 +18,7 @@ interface CompactMailFiltersProps {
   refreshStatus: RefreshStatus | "";
   onRefreshStatusChange: (status: RefreshStatus | "") => void;
   stats: RefreshStats | null;
+  onManageGroups: () => void;
 }
 
 // 工作台侧栏收起后的窄版筛选。文字和低频管理动作收起来，筛选仍保留为图标，
@@ -30,6 +31,7 @@ export function CompactMailFilters({
   refreshStatus,
   onRefreshStatusChange,
   stats,
+  onManageGroups,
 }: CompactMailFiltersProps) {
   return (
     <div className="flex flex-col items-center gap-1 px-2 py-2">
@@ -83,6 +85,16 @@ export function CompactMailFilters({
           <GroupDot color={group.color} />
         </button>
       ))}
+      <div className="my-1 h-px w-8 bg-kumo-line" />
+      <button
+        type="button"
+        aria-label="管理分组"
+        title="管理分组"
+        onClick={onManageGroups}
+        className="grid size-9 place-items-center rounded-lg text-kumo-subtle hover:bg-kumo-interact hover:text-kumo-strong"
+      >
+        <GearSix size={15} />
+      </button>
     </div>
   );
 }

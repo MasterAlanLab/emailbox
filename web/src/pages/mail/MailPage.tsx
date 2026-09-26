@@ -199,6 +199,7 @@ export default function MailPage({ scope }: MailPageProps = {}) {
       className={`${accountVisibility} min-h-0 min-w-0 flex-col ${accountWidth} transition-[width] duration-200`}
     >
       <AccountFilterBar
+        tenantID={tenantID}
         groups={groups}
         groupID={groupID}
         onGroupChange={changeGroup}
@@ -206,6 +207,7 @@ export default function MailPage({ scope }: MailPageProps = {}) {
         onStatusChange={changeStatus}
         total={total}
         compact={Boolean(activeAccount)}
+        onGroupsChanged={reload}
       />
 
       {error && <p className="px-4 py-3 text-sm text-kumo-danger">{error}</p>}

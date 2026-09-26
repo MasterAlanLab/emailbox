@@ -107,6 +107,20 @@ export function MailSidebar({
   const scopeTenantID = scope.tenantID;
   const scopeAdmin = scope.admin ?? false;
 
+  // 收起状态下仍要给低频管理动作留一个入口。展开侧栏而不是在窄栏里
+  // 再做一套编辑面板，既复用现有行内菜单，也避免把筛选图标变成含义不明的
+  // 双击/右键操作。
+  const openGroupManager = () => {
+    if (collapsed) {
+      if (activeAccountID) {
+        setFocusState((prev) => ({ ...prev, manuallyExpanded: true }));
+      } else {
+        toggleStoredCollapsed();
+      }
+    }
+    if (!groupsOpen) toggleGroups();
+  };
+
   useEffect(() => {
     // 管理员看别人的租户时拿不到配额：/tenants/:id/quota 是成员接口，
     // 他不是那个租户的成员。上限未知就不提前禁用，真超了后端还会拦。
@@ -181,6 +195,7 @@ export function MailSidebar({
           refreshStatus={refreshStatus}
           onRefreshStatusChange={onRefreshStatusChange}
           stats={stats}
+          onManageGroups={openGroupManager}
         />
       ) : (
         <>

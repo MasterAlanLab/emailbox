@@ -113,15 +113,14 @@ Kumo 提供约 30 个组件。下表是本项目每个界面元素的落位，**
 | 需求 | 方案 |
 |---|---|
 | **虚拟滚动列表** | Kumo `Table` 面向常规数据量，不含虚拟化。账号列表/邮件列表另建 `VirtualList`（`@tanstack/react-virtual`），行内元素仍用 Kumo 的 `Checkbox`/`Badge`/`Text`/`Button` |
-| **可拖拽分隔的布局** | 自建 `SplitPane`，用 CSS grid + 拖拽把手，尺寸存 localStorage（2026-08 改版后用在右栏的纵向切分上） |
 | **邮件正文渲染** | 自建 `MessageBody`（sandbox iframe + DOMPurify，见 §6） |
 | **右键上下文菜单** | Kumo 有 `DropdownMenu` 但无 ContextMenu 触发器。用 `onContextMenu` 手动定位一个 `Popover` |
 
 新增前端依赖因此为：`@tanstack/react-virtual`、`dompurify`、`date-fns`（时间格式化）。
 
-原本这里还有一行「三级分组树：无 `Tree` 组件，自建 `GroupTree`」。分组 2026-08-27 压平成
-一层之后不需要树了：左栏的 `GroupList` 和管理页的列表都是平铺的行，直接复用 `SidebarRow`
-与 `DropdownMenu`。
+原本这里还有分组树 `GroupTree` 和可拖拽分隔 `SplitPane`。分组 2026-08-27 压成一层后，
+左栏的 `GroupList` 直接复用 `SidebarRow` 与 `DropdownMenu`；工作台改成逐级展开布局后，
+右栏不再纵向分割，`SplitPane` 也已移除。
 
 ### 2.2 关于 Table vs 虚拟列表的分工
 
@@ -225,10 +224,11 @@ interface SelectionState {
 
 ## 5. 核心页面
 
-### 5.1 `/mail` 三栏工作台（右栏纵向再切）
+### 5.1 `/mail` 自适应分栏工作台
 
-> 2026-08 改版过一次。原先四栏并列、详情占第四列——
-> 三栏挤在 1440 宽里每栏都不够读，现在详情移到右栏下段。
+> 2026-09 布局改为按阅读阶段逐步展开：先看账号，再看邮件列表，最后看正文。
+> 选中账号后左侧邮箱侧栏自动缩成图标列；打开正文时，1280～1535px 隐藏账号栏，
+> ≥1536px 才让账号、邮件、正文同时并列。旧版的纵向 `SplitPane` 已移除。
 
 整页是**应用外壳**：撑满视口、自身不滚动、没有 Footer，滚动由各面板自负。
 路由用 `handle.shell` 声明这一形态（`src/router/handle.ts`），`Layout` 据此分流。
@@ -237,30 +237,31 @@ interface SelectionState {
 侧栏导航项统一使用相同间距，邮箱、令牌与用量等入口之间不额外插入分组留白。
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│ MailToolbar：导入/导出/刷新 ‖ 启用/停用/删除(批量)             │ 52px
-├──────────────┬───────────────────┬────────────────────────────┤
-│ MailSidebar  │ 账号列表          │ 邮件列表                    │
-│  账号状态段  │  AccountFilterBar │  FolderTabs(underline)      │
-│  分组列表    │  VirtualList      │  + 已读筛选(segmented)      │
-│              │  @container 列    ├────────────────────────────┤ ← SplitPane
-│              │  Pagination       │ 邮件详情 sandbox iframe     │   可拖拽
-├──────────────┴───────────────────┴────────────────────────────┤
-│ MailStatusBar：账号/成功/失败/未登录 + 时钟                    │ 30px
-└───────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│ MailToolbar：导入/导出/刷新 ‖ 启用/停用/删除(批量)                          │
+├──────────────┬───────────────────┬───────────────────┬─────────────────────┤
+│ MailSidebar  │ 账号列表          │ 邮件列表          │ 邮件详情            │
+│ 状态/分组    │ AccountFilterBar  │ FolderTabs        │ sandbox iframe      │
+│ 图标或完整栏 │ VirtualList       │ MessageList       │ MessageDetail       │
+├──────────────┴───────────────────┴───────────────────┴─────────────────────┤
+│ MailStatusBar：账号/成功/失败/未登录 + 时钟                                 │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 左栏是**两个并列维度**而不是嵌套：状态段筛 `refresh_status`，分组段筛分组，两者可叠加。
 
-右边两栏是**点邮箱地址才出现**的：点列表里的邮箱名打开它的收件箱，
+邮件栏是**点邮箱地址才出现**的，详情栏是点邮件才出现的：点列表里的邮箱名打开它的收件箱，
 再点一次同一个邮箱就收起（列表行用 `aria-expanded` 表达这个状态），
 邮件栏右上角也有一个关闭按钮。移动端那个位置换成「返回账号列表」。
 
 响应式（AGENTS.md §6.6）：
 
-- `≥1280px`：三栏并列，右栏 SplitPane 可拖
-- `768~1280px`：两栏（左栏折叠进筛选栏的 `Select`）
-- `<768px`：单栏 + 层级导航（账号 → 邮件 → 详情），SplitPane 退化成层级切换、不可拖
+- `≥1280px`：选中账号后邮箱侧栏自动收起，收起态仍保留状态/分组筛选图标，
+  底部的「管理分组」入口会展开侧栏并打开分组段；打开正文时，1280～1535px 暂藏账号栏，
+  ≥1536px 才并列显示全部内容栏
+- `768~1280px`：两栏（左栏折叠进筛选栏的 `Select`），分组下拉旁保留「管理分组」按钮
+- `<768px`：单栏 + 层级导航（账号 → 邮件 → 详情）；
+  分组下拉旁的管理按钮打开分组管理面板
 
 账号列表的列数按**容器**宽度切换（`@container`）而不是视口：这一栏夹在中间，
 1440 视口下它自己只有 ~570px，按视口断点算会让列宽溢出、画到右栏上去。
@@ -270,12 +271,13 @@ interface SelectionState {
 
 ```
 MailShell.tsx        MailToolbar.tsx       MailStatusBar.tsx
-MailSidebar.tsx      SidebarRow.tsx        StatusDot.tsx
-GroupList.tsx        GroupDot.tsx          GroupFormDialog.tsx    GroupDeleteDialog.tsx
+MailSidebar.tsx      CompactMailFilters.tsx SidebarRow.tsx        StatusDot.tsx
+GroupList.tsx        GroupManagerDialog.tsx GroupDot.tsx           GroupFormDialog.tsx
+GroupDeleteDialog.tsx
 AccountList.tsx      AccountFilterBar.tsx  AccountDrawer.tsx      ExportDialog.tsx
 MessageList.tsx      MessageRow.tsx        FolderTabs.tsx         MessageFilterPills.tsx
 MessageDetail.tsx    MessageBody.tsx       AttachmentList.tsx     MessageBatchBar.tsx
-VirtualList.tsx      SplitPane.tsx         EmptyState.tsx
+VirtualList.tsx      EmptyState.tsx
 ```
 
 账号的批量动作（启用/停用/删除）不在这里，它们和导入/导出/刷新一起收在

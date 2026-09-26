@@ -4,14 +4,14 @@ import { ArrowDown, ArrowUp, DotsThree, Folder, PencilSimple, Trash } from "@pho
 import type { MailGroupNode } from "@/api/mail";
 import { SidebarRow } from "./SidebarRow";
 
-// 左栏的分组列表。分组是平的一层，所以这里没有展开/折叠，也没有缩进——
-// 一行就是一个分组，点它就是按它筛选。
+// 分组是平的一层，所以这里没有展开/折叠，也没有缩进——
+// 侧栏里点行用于筛选；窄屏管理面板复用行样式，点行直接编辑。
 //
 // 行的外观复用左栏的 SidebarRow：分组行和上面的状态行长得一模一样，
 // 用户才会把两段读成「同一层级的两组筛选」，而不是「一个是导航一个是筛选」。
 //
-// 管理动作（改名改色、排序、删除）挂在每行悬停才显形的 ⋯ 菜单里：
-// 它们是低频动作，常显会把「筛选」这个高频用途淹掉。
+// 侧栏里的管理动作挂在悬停才显形的 ⋯ 菜单里，避免淹没高频筛选；
+// 管理面板在触屏上使用，菜单持续可见。
 
 export interface GroupActions {
   onEdit: (group: MailGroupNode) => void;
@@ -24,23 +24,41 @@ export interface GroupActions {
 
 interface GroupListProps {
   groups: MailGroupNode[];
-  selectedID: string | null;
+  /** undefined 表示只用于管理面板，不突出任何筛选项。 */
+  selectedID?: string | null;
   onSelect: (groupID: string | null) => void;
   className?: string;
+  /** 管理面板只列出实际分组，不显示用于筛选的「全部账号」行。 */
+  showAll?: boolean;
+  /** 管理面板在触屏上没有 hover，操作菜单要一直显示。 */
+  actionsAlwaysVisible?: boolean;
+  /** 弹层宿主。嵌套在管理面板时必须留在同一个 stacking context 内。 */
+  menuContainer?: HTMLElement | null;
   /** 不传就是纯筛选列表（管理员看别人租户时用不到这些动作）。 */
   actions?: GroupActions;
 }
 
-export function GroupList({ groups, selectedID, onSelect, className, actions }: GroupListProps) {
+export function GroupList({
+  groups,
+  selectedID,
+  onSelect,
+  className,
+  showAll = true,
+  actionsAlwaysVisible = false,
+  menuContainer,
+  actions,
+}: GroupListProps) {
   return (
     <nav className={className} aria-label="邮箱分组">
-      <SidebarRow
-        label="全部账号"
-        count={groups.reduce((sum, g) => sum + g.account_count, 0)}
-        selected={selectedID === null}
-        onSelect={() => onSelect(null)}
-        leading={<Folder size={14} className="shrink-0 text-kumo-subtle" />}
-      />
+      {showAll && (
+        <SidebarRow
+          label="全部账号"
+          count={groups.reduce((sum, g) => sum + g.account_count, 0)}
+          selected={selectedID === null}
+          onSelect={() => onSelect(null)}
+          leading={<Folder size={14} className="shrink-0 text-kumo-subtle" />}
+        />
+      )}
       {groups.map((group, index) => (
         <SidebarRow
           key={group.id}
@@ -49,9 +67,16 @@ export function GroupList({ groups, selectedID, onSelect, className, actions }: 
           selected={selectedID === group.id}
           onSelect={() => onSelect(group.id)}
           leading={<Folder size={14} className="shrink-0 text-kumo-subtle" />}
+          alwaysShowTrailing={actionsAlwaysVisible}
           trailing={
             actions && (
-              <GroupRowMenu group={group} index={index} total={groups.length} actions={actions} />
+              <GroupRowMenu
+                group={group}
+                index={index}
+                total={groups.length}
+                actions={actions}
+                menuContainer={menuContainer}
+              />
             )
           }
         />
@@ -65,11 +90,13 @@ function GroupRowMenu({
   index,
   total,
   actions,
+  menuContainer,
 }: {
   group: MailGroupNode;
   index: number;
   total: number;
   actions: GroupActions;
+  menuContainer?: HTMLElement | null;
 }) {
   return (
     <DropdownMenu>
@@ -84,7 +111,10 @@ function GroupRowMenu({
           />
         }
       />
-      <DropdownMenu.Content>
+      {/* Kumo 的 className 会落在内层 MenuPopup，不能改变 portal 外层
+          MenuPositioner 的层级。这里同时给 positioner 传 z-index，否则菜单
+          虽然已经挂进管理面板，仍会被面板自己的 LayerCard 盖住。 */}
+      <DropdownMenu.Content className="z-[60]" style={{ zIndex: 60 }} container={menuContainer}>
         <DropdownMenu.Item icon={PencilSimple} onClick={() => actions.onEdit(group)}>
           编辑
         </DropdownMenu.Item>

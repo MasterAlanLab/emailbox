@@ -3,6 +3,7 @@ import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mailApi, type Limits, type MailGroupNode } from "@/api/mail";
 import { tenantApi } from "@/api/tenant";
+import { AccountFilterBar } from "./AccountFilterBar";
 import { MailSidebar } from "./MailSidebar";
 
 // 分组管理原本是独立的一页（/mail/groups），现在收进了邮箱工作台的左栏。
@@ -243,5 +244,68 @@ describe("MailSidebar 的折叠", () => {
       fireEvent.click(screen.getByRole("button", { name: "展开邮箱侧栏" }));
     });
     expect(screen.getByText("授权失效")).toBeTruthy();
+  });
+
+  it("收起后仍能从管理入口展开分组段", async () => {
+    localStorage.setItem("emailbox.mail.sidebar.groups", "false");
+    await mount([group("a", "客户 A")], () => {}, "account-1");
+
+    expect(screen.getByRole("button", { name: "管理分组" })).toBeTruthy();
+    expect(screen.queryByText("客户 A")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "管理分组" }));
+    });
+
+    expect(screen.getByText("客户 A")).toBeTruthy();
+  });
+});
+
+describe("窄屏分组管理入口", () => {
+  beforeEach(() => {
+    mockQuota(20);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("分组筛选旁能打开管理面板并编辑分组", async () => {
+    vi.spyOn(mailApi, "groupProxy").mockResolvedValue({
+      code: 0,
+      message: "",
+      data: { proxy_url: "" },
+    });
+    await act(async () => {
+      render(
+        <AccountFilterBar
+          tenantID="t1"
+          groups={[group("a", "客户 A")]}
+          groupID={null}
+          onGroupChange={() => {}}
+          status=""
+          onStatusChange={() => {}}
+          total={0}
+          onGroupsChanged={() => {}}
+        />,
+      );
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "管理分组" }));
+    });
+    expect(screen.getByRole("heading", { name: "管理分组" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "客户 A 更多操作" })).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "客户 A 更多操作" }));
+    });
+    const menu = document.querySelector('[role="menu"]');
+    expect(menu?.classList.contains("z-[60]")).toBe(true);
+    expect(menu?.closest("[data-group-manager-dialog]")).not.toBeNull();
+    expect(menu?.parentElement?.getAttribute("style")).toContain("z-index: 60");
+    await act(async () => {
+      fireEvent.click(screen.getByText("编辑"));
+    });
+    expect(screen.getByRole("heading", { name: "编辑分组" })).toBeTruthy();
   });
 });

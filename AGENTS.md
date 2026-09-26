@@ -224,9 +224,10 @@ Key 认证通过后被塞成一个只读的虚拟租户角色 `model.TenantRoleA
 页面在 `src/pages/`，跨页面复用的在 `src/components/`（按域分子目录，如 `mail/`、`admin/`、`layout/`）。
 组件文件 PascalCase，文件超过 ~200 行就拆。
 
-**Kumo 没有的三样要自建**：虚拟列表（`VirtualList`，基于 `@tanstack/react-virtual`）、
-邮件正文渲染（`MessageBody`）、纵向分栏（`SplitPane`）。曾经还有第四样 Tree（`GroupTree`）——
-分组在 2026-08-27 压平成一层之后不再需要树，左栏的 `GroupList` 直接复用 `SidebarRow`。
+**Kumo 没有的两样要自建**：虚拟列表（`VirtualList`，基于 `@tanstack/react-virtual`）、
+邮件正文渲染（`MessageBody`）。旧版纵向分栏 `SplitPane` 已随逐级展开布局移除；
+曾经还有 Tree（`GroupTree`）——分组在 2026-08-27 压平成一层之后不再需要树，
+左栏的 `GroupList` 直接复用 `SidebarRow`。
 自建组件跟随 Kumo 的 `forwardRef` / `displayName` / `cn()` 约定。
 
 Kumo 这个版本**有** `DropdownMenu`（`@cloudflare/kumo/components/dropdown`），
@@ -324,7 +325,8 @@ DOMPurify 净化 + `sandbox` iframe 双层隔离（**不给** `allow-scripts`、
 - `shellRoute` → 侧边栏 + **不滚**内容区（`/mail`，滚动由内部面板各自负责）
 
 移动优先，用 Tailwind 标准断点。`/mail` 的分栏按 [06 文档 §5.1](docs/plan/06-frontend.md)：
-≥1280 三栏并列（右栏再纵向 split）、768~1280 左栏折进筛选栏的 `Select`、<768 单栏层级导航。
+≥1280 左栏可缩成图标列、账号/邮件/正文按阅读阶段并列，768~1280 左栏折进筛选栏的
+`Select`、<768 单栏层级导航。
 导航栏在 <768 强制收成 56px 图标条。
 
 **断点判断优先用 CSS，不用 `matchMedia`**：JS 里再写一个 768 就多一个真源，
