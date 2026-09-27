@@ -322,6 +322,7 @@ func (s *AccountService) Update(ctx context.Context, tenantID, accountID string,
 	if err != nil {
 		return nil, err
 	}
+	before := *account
 	if err := s.applyScalarUpdates(ctx, tenantID, account, req); err != nil {
 		return nil, err
 	}
@@ -341,6 +342,11 @@ func (s *AccountService) Update(ctx context.Context, tenantID, accountID string,
 		if e := tx.UpdateMailAccount(ctx, account); e != nil {
 			return e
 		}
+		if loginInputsChanged(&before, account, req) {
+			if e := tx.ResetMailAccountHealth(ctx, tenantID, accountID); e != nil {
+				return e
+			}
+		}
 		if req.Aliases == nil {
 			return nil
 		}
@@ -350,6 +356,19 @@ func (s *AccountService) Update(ctx context.Context, tenantID, accountID string,
 		return nil, err
 	}
 	return s.Get(ctx, tenantID, accountID)
+}
+
+// loginInputsChanged 判断这次编辑是否动了「能不能登录邮箱」的输入。
+//
+// 动了就要把健康状态退回 unknown：用户刚补好授权码的账号若还挂着 invalid，
+// 下一次「删除失效账号」会把它删掉。只改备注、分组、代理则保留原结论——
+// 代理不算，是因为 invalid 只收账号自身的失败，与出口无关。
+// 密文字段每次加密的 nonce 都不同，无法比较密文，因此以「提交了新值」为准；
+// 前端只在用户实际输入时才提交凭据字段。
+func loginInputsChanged(before, after *model.MailAccount, req model.UpdateMailAccountRequest) bool {
+	return req.Password != nil || req.RefreshToken != nil || req.IMAPPassword != nil ||
+		before.ClientID != after.ClientID || before.IMAPHost != after.IMAPHost ||
+		before.IMAPPort != after.IMAPPort || before.Status != after.Status
 }
 
 // applyScalarUpdates 应用非凭据字段。指针为 nil 表示该字段未提供，保持原值。

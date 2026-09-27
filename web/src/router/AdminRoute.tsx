@@ -2,7 +2,7 @@ import { Navigate } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
 import { ProtectedRoute } from "./RouteGuards";
 
-// AdminRoute 只负责「别把后台入口摆在普通用户面前」。
+// AdminRoute 只负责「别把管理入口摆在普通用户面前」。
 //
 // 它不是安全边界：任何人都能改本地 state 让这个判断通过。真正的拦截在服务端的
 // RequirePlatformAdmin，每个 /admin/* 端点都有一条 403 测试守着（api/admin_test.go）。

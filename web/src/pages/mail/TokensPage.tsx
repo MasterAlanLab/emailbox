@@ -7,26 +7,15 @@ import { useEffect, useState } from "react";
 import { isTerminal, jobApi, type RefreshStats } from "@/api/jobs";
 import { mailApi, type MailGroupNode, type MailScope, type TenantRef } from "@/api/mail";
 import { PageShell } from "@/components/layout/PageShell";
+import { AccountHealthPanel } from "@/components/mail/AccountHealthPanel";
+import { errorKindLabel } from "@/components/mail/errorKinds";
 import { groupSelectItems } from "@/components/mail/groupOptions";
 import { ReauthorizationPanel } from "@/components/mail/ReauthorizationPanel";
 import { RefreshSchedulePanel } from "@/components/mail/RefreshSchedulePanel";
+import { StatTile } from "@/components/mail/StatTile";
 import { useAsyncAction } from "@/lib/useAsyncAction";
 import { useJobStore } from "@/store/jobStore";
 import { useTenantStore } from "@/store/tenantStore";
-
-// 分类用于汇总，具体处置看逐账号原因：同为 auth_failed，
-// 可能是令牌过期，也可能是重新登录要求，分类本身不等于已确认过期。
-const ERROR_KIND_LABEL: Record<string, string> = {
-  banned: "账号被封禁",
-  auth_failed: "认证失败",
-  consent_required: "权限不足",
-  proxy_failed: "代理不可用",
-  network: "网络不可达",
-  rate_limited: "被限流",
-  folder_unavailable: "邮箱文件夹不可用",
-  provider_error: "服务商或应用配置错误",
-  canceled: "已取消",
-};
 
 interface TokensPageProps {
   scope?: MailScope;
@@ -63,7 +52,7 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
         // 页面刚打开就接上仍在跑的那个任务：用户刷新过页面、或者从别的页面
         // 回来时，进度必须还在——这正是把事件落库的意义。
         if (resp.data.last_job && !isTerminal(resp.data.last_job.status)) {
-          useJobStore.getState().watch(tenant, resp.data.last_job.id);
+          useJobStore.getState().watch(tenant, resp.data.last_job.id, "token_refresh");
         }
         setLoadError("");
       } catch (e) {
@@ -108,7 +97,7 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
         scope: scopeName,
         group_ids: scopeName === "group" && groupIDs.length > 0 ? groupIDs : undefined,
       });
-      useJobStore.getState().watch(tenant, resp.data.id);
+      useJobStore.getState().watch(tenant, resp.data.id, "token_refresh");
     });
 
   const stop = () =>
@@ -123,7 +112,7 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
   return (
     <PageShell
       title="令牌刷新"
-      description="批量检测托管账号的 OAuth 凭据有效性，并在服务商轮换 Refresh Token 时自动加密持久化。"
+      description="批量刷新托管账号的 OAuth 令牌并检测邮箱是否可用，服务商轮换 Refresh Token 时自动加密持久化。"
     >
       {(error || loadError) && (
         <p className="mb-4 text-sm text-kumo-danger">{error || loadError}</p>
@@ -195,7 +184,9 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
       {job.jobID && (
         <LayerCard className="mb-6 p-4">
           <Meter
-            label={running ? "正在刷新" : "本次结果"}
+            label={
+              running ? (job.jobType === "account_check" ? "正在检测" : "正在刷新") : "本次结果"
+            }
             value={job.progress.total > 0 ? (job.progress.done / job.progress.total) * 100 : 0}
             customValue={`${job.progress.done} / ${job.progress.total}`}
           />
@@ -229,7 +220,7 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
                   )}
                   {item.status === "failed" && (
                     <span className="shrink-0 text-kumo-danger">
-                      {ERROR_KIND_LABEL[item.errorKind] ?? (item.errorKind || "失败")}
+                      {errorKindLabel(item.errorKind, "失败")}
                     </span>
                   )}
                 </div>
@@ -238,6 +229,8 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
           )}
         </LayerCard>
       )}
+
+      <AccountHealthPanel tenant={tenant} tenantKey={tenantKey} groups={groups} running={running} />
 
       <RefreshSchedulePanel
         tenant={tenant}
@@ -260,7 +253,7 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
               .sort((a, b) => b[1] - a[1])
               .map(([kind, count]) => (
                 <div key={kind} className="flex items-center gap-3 text-sm">
-                  <span className="min-w-48">{ERROR_KIND_LABEL[kind] ?? (kind || "未分类")}</span>
+                  <span className="min-w-48">{errorKindLabel(kind)}</span>
                   <span className="text-kumo-subtle">{count}</span>
                 </div>
               ))}
@@ -268,28 +261,5 @@ export default function TokensPage({ scope }: TokensPageProps = {}) {
         </LayerCard>
       )}
     </PageShell>
-  );
-}
-
-function StatTile({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone?: "success" | "danger";
-}) {
-  const color =
-    tone === "success"
-      ? "text-kumo-success"
-      : tone === "danger"
-        ? "text-kumo-danger"
-        : "text-kumo-strong";
-  return (
-    <div className="rounded-lg border border-kumo-line bg-kumo-base p-4">
-      <p className="text-xs tracking-wide text-kumo-subtle uppercase">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold ${color}`}>{value}</p>
-    </div>
   );
 }

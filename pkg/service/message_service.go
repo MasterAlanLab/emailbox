@@ -356,16 +356,25 @@ func (s *MessageService) clientFor(
 ) (mailer.Client, func(error)) {
 	client := s.chainFor(account)
 	record := func(callErr error) {
-		s.recordResult(ctx, tenantID, account, callErr)
+		s.writeResult(ctx, tenantID, account, callErr, true)
 	}
 	return client, record
 }
 
-// recordResult 写回本次访问的成败。
-//
-// 写回失败只记日志：拉信本身已经成功了，不能因为记账失败就把结果丢掉。
+// recordResult 写回一次令牌刷新的成败。
 func (s *MessageService) recordResult(
 	ctx context.Context, tenantID string, account *model.MailAccount, callErr error,
+) {
+	s.writeResult(ctx, tenantID, account, callErr, false)
+}
+
+// writeResult 写回本次访问的成败，reachedMailbox 表示这次调用是否真正登录了邮箱。
+//
+// 令牌刷新只证明令牌换得出来：它的成功不能把账号记成可用（那正是这个字段要纠正的误判），
+// 只有「确定失效」的结论才允许写进健康状态。
+// 写回失败只记日志：拉信本身已经成功了，不能因为记账失败就把结果丢掉。
+func (s *MessageService) writeResult(
+	ctx context.Context, tenantID string, account *model.MailAccount, callErr error, reachedMailbox bool,
 ) {
 	status, message, errorKind := string(model.RefreshSuccess), "", ""
 	if callErr != nil {
@@ -373,7 +382,18 @@ func (s *MessageService) recordResult(
 		message = truncateError(callErr.Error())
 		errorKind = string(mailer.KindOf(callErr))
 	}
-	if err := s.store.UpdateMailAccountRefreshResult(ctx, tenantID, account.ID, status, message, errorKind); err != nil {
+	health, healthKind, verdict := healthOf(callErr)
+	if !reachedMailbox && health != model.HealthInvalid {
+		verdict = false
+	}
+	var err error
+	if verdict {
+		err = s.store.UpdateMailAccountAccessResult(ctx, tenantID, account.ID,
+			status, message, errorKind, string(health), healthKind)
+	} else {
+		err = s.store.UpdateMailAccountRefreshResult(ctx, tenantID, account.ID, status, message, errorKind)
+	}
+	if err != nil {
 		slog.Warn("写回账号访问结果失败", "account_id", account.ID, "error", err)
 	}
 

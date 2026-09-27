@@ -1,6 +1,6 @@
 # Waffo 订阅与计费设计
 
-**状态：方案已确认，尚未进入代码实施**
+**状态：代码与测试已完成（2026-09-27），待在 Waffo 测试环境做真实支付验收（§10 第 5 步）**
 
 本文定义 Emailbox 通过 Waffo Pancake 提供订阅支付、套餐价格管理与额度权益绑定的实现边界。
 现有配额计算仍由 `pkg/quota` 负责；Waffo 只负责收款、订阅生命周期与支付事件通知。
@@ -66,21 +66,18 @@ Waffo 具体字段集中在 `pkg/waffo`，业务层只接收项目自己的领�
 ### 3.1 环境变量
 
 ```text
-WAFFO_ENABLED=false                 # 启动默认值；最终开关以 billing_settings.enabled 为准
-WAFFO_ENV=test                      # test | prod，API Key 本身也绑定环境
-WAFFO_API_BASE_URL=https://api.waffo.ai
-WAFFO_MERCHANT_ID=MERCHANT_ID
-WAFFO_STORE_ID=STORE_ID
-WAFFO_PRIVATE_KEY_BASE64=BASE64_PRIVATE_KEY
-WAFFO_WEBHOOK_TEST_PUBLIC_KEY=PEM_PUBLIC_KEY
-WAFFO_WEBHOOK_PROD_PUBLIC_KEY=PEM_PUBLIC_KEY
+WAFFO_MERCHANT_ID=MER_xxx
+WAFFO_STORE_ID=STO_xxx
+WAFFO_PRIVATE_KEY=BASE64_PRIVATE_KEY   # 一行 Base64，或用引号括起的多行 PEM
+WAFFO_ENV=test                         # test | prod，API Key 本身也绑定环境
 ```
 
-- 私钥优先使用 secret manager 注入的 Base64 或 PEM 字符串；启动时解码并校验 RSA 密钥。
-- Webhook 公钥按 `mode` 选择。Waffo Dashboard 为 Test / Production 各提供一把平台级公钥，配置与事件环境匹配。
+- 三项凭据要么都不配（支付不可用，服务照常启动），要么都配且能解析；配一半或私钥无效时启动失败。
+- 支付开关只在后台（`billing_settings.enabled`），环境变量里没有开关。
+- Webhook 公钥是平台级的，内置于 `pkg/waffo/platform_keys.go`（取自官方 SDK，与 Dashboard 核对一致），
+  `WAFFO_WEBHOOK_{TEST,PROD}_PUBLIC_KEY` 仅用于 Waffo 轮换公钥时覆盖。
+- 付款回跳地址按发起结账的请求域名推导，仅 https 时携带；`WAFFO_SUCCESS_URL` 仅用于固定地址。
 - Merchant ID、Store ID 与 API Key 仅由服务端使用，浏览器只收到一次性 checkout URL。
-- `WAFFO_ENABLED` 用作配置就绪提示，不作为运行时业务开关。管理员开关保存于数据库并可审计。
-- 付款关闭时允许服务启动而无需 Waffo 密钥；管理员打开开关或执行产品同步时，再执行完整配置检查。
 - 需求中给出的测试凭据只用于本地 / 测试环境配置示例，文档和代码均使用占位符。若该私钥曾用于非临时测试，应在 Waffo 控制台轮换。
 
 ### 3.2 请求签名
@@ -103,7 +100,7 @@ X-Signature: <base64 signature>
 
 ## 4. 数据模型与迁移
 
-新增 `000019_billing`，SQLite 与 PostgreSQL 各维护一份 SQL，字段和约束保持同一语义；所有查询带 `tenant_id`，Webhook 事件查询除外且必须以 `store_id + mode` 收敛。
+新增 `000020_billing`，SQLite 与 PostgreSQL 各维护一份 SQL，字段和约束保持同一语义；所有查询带 `tenant_id`，Webhook 事件查询除外且必须以 `store_id + mode` 收敛。
 
 ### 4.1 `billing_settings`
 
@@ -151,11 +148,11 @@ cancel_at_period_end  last_event_at        created_at / updated_at
 
 ### 4.4 `billing_checkout_sessions`
 
-保存一次 checkout 意图：`id`、`tenant_id`、`plan_price_id`、`merchant_external_id`、`provider_session_id`、`idempotency_key`、`status`、`expires_at`、时间字段。`idempotency_key` 唯一，重复点击返回同一未过期 checkout URL 或重新生成已过期意图。
+保存一次 checkout 意图：`id`、`tenant_id`、`plan_price_id`、`merchant_external_id`、`provider_session_id`、`idempotency_key`、`status`、`expires_at`、时间字段。`(tenant_id, idempotency_key)` 唯一（不是全局唯一：别的租户用同一个键不该撞上）。同一个键重复提交且会话仍有效时复用会话、重新签发顾客令牌；已失败或过期则返回 409，由前端换新键重来——那个键在 Waffo 侧还缓存着旧会话（24 小时），不能原地重建。`checkout_url` 只存 Waffo 返回的裸地址，**顾客令牌不落库**。
 
 ### 4.5 `billing_webhook_events`
 
-保存 `event_id`、`event_type`、`store_id`、`mode`、`payload_sha256`、`status`、`error`、接收与处理时间。`event_id + mode` 唯一；原始 payload 只在受控排障存储中保留，应用日志记录摘要和 request ID，避免支付地址与邮箱进入普通日志。
+保存 `event_id`、`event_type`、`store_id`、`mode`、`payload_sha256`、`status`、`error`、接收与处理时间。`(event_type, event_id, mode)` 唯一——Waffo 的 `eventId` 按事件类型指向不同实体，同一笔付款的 `subscription.activated` 与 `subscription.payment_succeeded` 共用一个 eventId，只按 eventId 去重会把后到的静默丢掉；原始 payload 只在受控排障存储中保留，应用日志记录摘要和 request ID，避免支付地址与邮箱进入普通日志。
 
 ### 4.6 `tenant_quotas` 的套餐来源
 
@@ -166,7 +163,7 @@ plan_source       admin | subscription
 subscription_id   nullable FK tenant_subscriptions(id)
 ```
 
-订阅激活时写入 `plan_source=subscription`；管理员手工调整时写入 `admin`。取消或到期只回收由该订阅授予的套餐，管理员覆盖值与管理员手工套餐保持原样。这样可以避免 Webhook 把后台刚调整的额度覆盖掉。
+订阅激活时写入 `plan_source=subscription`；管理员手工换套餐（`UpdateTenantPlan`）时写回 `admin` 并清空 `subscription_id`。取消或到期只回收由该订阅授予的套餐，管理员覆盖值与管理员手工套餐保持原样。这样可以避免 Webhook 把后台刚调整的额度覆盖掉。
 
 ## 5. 关键业务流程
 
@@ -188,10 +185,11 @@ subscription_id   nullable FK tenant_subscriptions(id)
 
 1. 用户请求 `plan_price_id`，service 通过当前 `tenant_id` 查询价格，检查支付开关、模式、价格状态和订阅状态。
 2. 创建本地 checkout 意图，生成 `merchant_external_id`，并在事务中登记幂等键。
-3. Go 客户端调用 `POST /v1/actions/auth/issue-session-token` 生成一次性 buyer session token，`buyerIdentity` 使用租户 ID；随后调用 `POST /v1/actions/checkout/create-session`。
+3. 按官方 SDK 的 authenticated checkout 做法：商户签名调用 `POST /v1/actions/checkout/create-session` 建会话，另调 `POST /v1/actions/auth/issue-session-token`（`productId` + `buyerIdentity=租户 ID`）签发顾客令牌。`buyerIdentity` 会以 `merchantProvidedBuyerIdentity` 出现在该订单之后的每个 Webhook 里。
 4. checkout 请求中的 `productId`、`currency`、`buyerEmail`、`successUrl`、`orderMerchantExternalId` 和 `metadata` 全部由服务端根据数据库生成。metadata 至少包含 `tenant_id`、`plan_id`、`plan_price_id`、`checkout_id`。
-5. token 仅拼入 Waffo 要求的 URL fragment，不进入日志、数据库、query string 或前端状态；返回 checkout URL 后前端用新标签页打开。
-6. 成功回跳页只显示“支付处理中 / 已收到结果”，由订阅查询和 Webhook 最终刷新套餐。付款完成前，额度维持原套餐。
+5. 返回给浏览器的地址是 `{checkoutUrl}?test=true#token=...`（生产环境不带 `test=true`）。token 只在片段里：结账页首屏读取后从地址栏抹掉，不进服务器日志与 Referer。token 不进入日志、数据库、query string 或前端状态。前端**同页跳转**：`await` 之后的 `window.open` 已不算用户手势，会被浏览器拦截。
+6. `successUrl` 只在是 `https` 时才发：非 https 的值创建会话时不报错，却会在买家付款那一步被支付渠道拒掉（`[A0003] successRedirectUrl is invalid`）。会话有效期 30 分钟，结账页语言 `zh-Hans`。
+7. 成功回跳页只显示“支付处理中 / 已收到结果”，由订阅查询和 Webhook 最终刷新套餐。付款完成前，额度维持原套餐。
 
 ### 5.4 Webhook 验证与处理
 
@@ -200,7 +198,7 @@ Waffo HTTP Webhook 使用 `X-Waffo-Signature: t=<timestamp>,v1=<signature>` 与 
 处理顺序：
 
 1. 路由读取**原始 body**，限制请求体大小；解析 signature 的 `t` / `v1`。
-2. 使用 `timestamp + "." + rawBody` 做 RSA-SHA256 验签；按 `mode` 选择 Test / Production 公钥，并校验时间窗口（默认 45 分钟）。
+2. 使用 `timestamp + "." + rawBody` 做 RSA-SHA256 验签；Waffo 的 `timestamp` 是毫秒时间戳，按 `mode` 选择 Test / Production 公钥，并校验 45 分钟重试窗口。
 3. 校验 `storeId`、事件模式、`eventType`、`eventId`，再以 `event_id + mode` 插入去重表。
 4. 已处理事件直接返回 2xx；新事件写入 `pending`，交给事务处理器，HTTP 端在 10 秒内返回。
 5. 事务按 `eventType` 更新订阅、当前周期与 `tenant_quotas`；事件乱序时以事件时间和当前状态保护旧事件，重复投递保持幂等。
@@ -211,16 +209,16 @@ Waffo HTTP Webhook 使用 `X-Waffo-Signature: t=<timestamp>,v1=<signature>` 与 
 |---|---|
 | `subscription.activated` | 建立订阅，切换到价格对应套餐 |
 | `subscription.renewed` / `subscription.recovered` | 更新周期，保持订阅套餐 |
-| `subscription.payment_succeeded` | 记录付款事件，与 `orderId + periodNumber` 关联续期 |
+| `subscription.payment_succeeded` | 只登记：它只描述一次扣款，周期滚动由 `renewed` 负责 |
 | `subscription.plan_changed` | 立即生效的变更切换套餐 |
 | `subscription.plan_change_scheduled` | 只记录预定变更，当前周期继续使用旧套餐 |
 | `subscription.plan_change_failed` | 保持旧套餐并记录失败 |
 | `subscription.canceling` / `subscription.uncanceled` | 标记或撤销周期末取消，周期内保留权益 |
 | `subscription.past_due` | 标记逾期；按配置保留宽限期 |
 | `subscription.canceled` | 到期回收订阅套餐，恢复默认 / 管理员套餐 |
-| `refund.succeeded` / `refund.failed` | 记录退款结果；权益策略由 service 的退款规则统一执行 |
+| `refund.succeeded` / `refund.failed` | 只登记，**不自动回收权益**。回收只跟着 `subscription.canceled` 走；需要立即停权的退款由管理员在 Waffo 侧取消订阅触发——一笔部分退款就把用户降级，比「多用几天」严重得多 |
 
-无效签名、错误环境、错误 Store ID 返回 4xx 并记安全审计；数据库暂时故障返回 5xx，让 Waffo 重试。普通日志只记录事件 ID、类型、模式和处理结果。
+无效签名、错误环境、错误 Store ID 返回 401 并按 IP 记日志（请求没有可信身份，挂不进审计表）；数据库暂时故障返回 5xx，让 Waffo 重试；重试也救不回来的事件（找不到租户或价格、租户归属各路来源互相矛盾）记为 `failed` 并回 2xx，让 Waffo 停手。普通日志只记录事件 ID、类型、模式和处理结果。
 
 ## 6. HTTP API 设计
 
@@ -244,6 +242,7 @@ Waffo HTTP Webhook 使用 `X-Waffo-Signature: t=<timestamp>,v1=<signature>` 与 
 | `GET` | `/api/v1/tenants/:tenantID/billing/plans` | 可购买价格与额度 |
 | `GET` | `/api/v1/tenants/:tenantID/billing/subscription` | 当前订阅、周期、取消状态 |
 | `POST` | `/api/v1/tenants/:tenantID/billing/checkout` | 创建或复用 checkout 意图，返回 URL |
+| `POST` | `/api/v1/tenants/:tenantID/billing/sync` | 向 Waffo 核对未确认的结账并返回当前订阅（见 §11 对账） |
 | `POST` | `/api/v1/tenants/:tenantID/billing/cancel` | 请求周期末取消 |
 | `POST` | `/api/v1/tenants/:tenantID/billing/uncancel` | 撤销周期末取消 |
 
@@ -257,7 +256,7 @@ Waffo HTTP Webhook 使用 `X-Waffo-Signature: t=<timestamp>,v1=<signature>` 与 
 
 - `/settings/usage` 改成“套餐与用量”：当前套餐、三项额度、月 / 年切换、价格、订阅状态、周期末取消提示。
 - 已有套餐卡继续使用 Kumo `LayerCard`、`Button variant="secondary"`，购买按钮仅在支付开关与价格同步状态满足时出现。
-- 购买动作打开 Waffo checkout 新标签页；回跳后刷新 `subscription` 与 `quota`，不在 URL 中保存 token 或私密字段。
+- 购买动作同页跳转到 Waffo 结账页（见 §5.3 第 5 条）；回跳后刷新 `subscription` 与 `quota`，不在 URL 中保存 token 或私密字段。
 - `AdminPlansPage` 增加页面级支付开关、模式提示、币种和价格输入、Waffo 产品 ID / 同步状态；私钥字段永远不进入表单。
 - 错误以内联红字展示：配置未就绪、价格同步失败、已有活动订阅、Webhook 尚未确认分别给出对应处理动作。
 
@@ -302,3 +301,84 @@ Waffo HTTP Webhook 使用 `X-Waffo-Signature: t=<timestamp>,v1=<signature>` 与 
 - Webhook 能从公网 HTTPS 到达当前版本，签名与去重测试通过；
 - 免费套餐、管理员覆盖、订阅取消恢复均有回滚路径；
 - 审计查询能定位开关、价格、checkout、事件和权益变更。
+
+## 11. 实施记录（2026-09-27）
+
+实现位置：`pkg/waffo`（签名、验签、密钥解析）、`pkg/service/billing_{service,checkout,webhook}.go`、
+`pkg/handler/billing_handler.go`、`web/src/components/billing/BillingCard.tsx`、
+`web/src/components/admin/BillingAdminPanel.tsx`。以下几条是对照 Waffo 文档与官方 SDK
+（`@waffo/pancake-ts` 0.25）核实后与上文初稿不同、或初稿没写到的地方。
+
+**Webhook 负载**
+
+- `currentPeriodStart / End` 是 `2026-03-10` 这样的纯日期，不是 RFC3339。直接解进 `time.Time`
+  会让所有订阅事件解析失败，因此按字符串读、两种格式都认。
+- 负载里**没有 `productId`**，按产品 ID 反查价格走不通。价格按「结账记录 > `orderMetadata` >
+  `productMetadata` > 已有订阅」的顺序取；同步产品时把 `plan_price_id` 写进产品 metadata，
+  它随 `productMetadata` 出现在每个订阅事件里。
+- 结账页「自愈」重建会话时会丢掉 `orderMetadata` 与 `orderMerchantExternalId`，
+  此时租户靠 `merchantProvidedBuyerIdentity`（authenticated checkout 的 buyerIdentity）找回。
+- 时间窗与 SDK 一致：过去 45 分钟（重试原样重放签名头）、未来 1 分钟。
+
+**订阅状态机**
+
+- 换套餐在 Waffo 是「旧单取消 + 新单创建」。只有 `activated` / `plan_changed` 能把租户切到新订单；
+  旧单迟到的 `renewed`、`canceled` 一律不影响新单。
+- 同一订单里，事件时间早于已记录最后事件时间的视为旧事件丢弃。用户在本站点取消 / 恢复时
+  `last_event_at` 记为当时，随后到达的更早事件不会把用户刚做的选择翻回去。
+- 套餐只在订阅开始或换到新订单时写入 `tenant_quotas`；续费、恢复不重写，
+  管理员在订阅期间手工换的套餐不会被续费覆盖，也不会在取消时被回收。
+
+**请求与配置**
+
+- 配置收敛为三个必填变量（见 §3.1）：去掉 `WAFFO_ENABLED`（开关只在后台，它只会造成「写了 true 却没生效」），
+  Webhook 公钥内置，回跳地址按请求域名推导。
+
+- 2xx 响应里带 `errors` 同样视为失败（SDK 的 `unwrapAction` 也这样判）。同步失败时 Waffo 的
+  错误文案写进 `sync_error`，管理员能看到「Store is not active」之类的具体原因。
+- 私钥与公钥接受多行 PEM、`\n` 转义的单行 PEM、去掉头尾的 Base64、整段 PEM 再 Base64。
+- 支付环境不由管理员选：API Key 创建时就绑定了 test / prod，`billing_settings.mode` 跟着 `WAFFO_ENV`。
+  后台显示当前环境与「打开支付前还缺什么」。
+- 产品同步在请求内同步完成（不是初稿写的异步）：管理员保存价格时直接看到同步结果；
+  建产品的幂等键绑定本地价格 ID，超时重试不会建出第二个产品。
+
+**测试**：`pkg/waffo`（签名覆盖实际 body、错误信封、时间窗、密钥格式）；
+`pkg/service/billing_test.go`（令牌不落库与会话复用、激活 / 取消、同 eventId 不同类型、
+换套餐乱序、同单旧事件、管理员套餐不被回收、外来 / 伪造事件、归属冲突、价格规则），
+其中乱序与旧事件两条做过变异验证；`api/` 的管理员越权表、租户隔离、未签名 Webhook、支付关闭时的结账；
+`pkg/repo` 的计费 ON CONFLICT 语句跨引擎对照；前端 `BillingCard` 两条。
+
+**对账：Webhook 之外的第二条入账路径**（2026-09-27 补上）
+
+本地测试时 Waffo 付款成功，套餐却没变：Webhook 推不到 `localhost`，而入账只有 Webhook 一条路。
+§5.3 本来就写了「由订阅查询和 Webhook 最终刷新套餐」，查询这一半一直没做。现在：
+
+- `SyncCheckouts` 取租户最近 24 小时内仍为 `pending` 的结账（最多 5 条），用结账时写入的
+  `orderMerchantExternalId` 调 Waffo 只读 GraphQL（`subscriptionOrders`）查订单；订单为
+  active / canceling / past_due 就按一次 `subscription.activated` 入账，走与 Webhook 完全相同的
+  状态机与乱序保护（事件时间取订单创建时间，之后到达的真实 Webhook 都比它新）。
+- 订单生效后结账一律标为 `completed`，包括 Webhook 已先入账、这次被乱序保护跳过的情况；
+  `changed` 比较的是对账前后的订阅本身。两处都做错过：前者让结账永远留在待对账列表，
+  后者让前端每次都重取、再对账，循环不停。
+- 会话过期 5 分钟后仍查不到订单的结账标为 `expired`，之后不再查询。没有待确认结账时不请求 Waffo。
+- 用量页每次打开都调一次；**发起结账前也先对账**。测试中出现过：第一笔已付款但本地未入账，
+  「已有订阅」的检查放行了第二笔，同一个用户在 Waffo 上背着两份订阅。
+- 调用方除租户身份外不提供任何输入，查到的是 Waffo 自己的订单状态，因此与读订阅同一权限、不记审计。
+
+**默认套餐不能标价、不能购买**：它是每个人注册即有、订阅结束后回落的那一档。
+创建价格时拒绝；可购列表在 SQL 里排除默认套餐（覆盖此前已标过价的旧数据）；
+直接拿旧价格 ID 调结账接口同样拒绝。
+
+**本地开发的实际表现**：付款完成后不会自动回到控制台——Waffo 目前没有自动跳转，买家要在成功页点
+「完成」；而本地是 http，回跳地址本就不会带上（Waffo 付款时拒绝非 https）。付完手动回到用量页，
+对账会把订阅入账。续费、取消等后续事件仍需要 Webhook：本地要测这些，用 https 隧道把
+`/api/v1/webhooks/waffo` 暴露出去，并在 Waffo Dashboard 填上该地址。
+
+**待测试环境验收时确认**（文档没有写清、只能实测）：
+
+1. 生产环境的产品：`publish-product` 文档说产品只能从测试环境发布到生产、且只能发布一次。
+   用生产 API Key 直接 `create-product` 是否可行，或必须先在测试环境建好再发布，需要实测后
+   决定是否在后台加「发布到生产」动作。
+2. 新购会话是否需要 `?test=true`：文档只在换套餐一节写明必需，SDK 的新购路径不加。
+   目前测试环境一律加上（文档称它让首屏与回退路径停在测试环境，无副作用）。
+3. 已结束订阅的租户再次订阅时，Waffo 是否要求同一 buyerIdentity 走换套餐流程而不是新购。

@@ -18,8 +18,10 @@
 
 ## 2026-09 Waffo 订阅设计
 
-- [~] 新增 `docs/plan/09-billing.md`：采用 Go 直接调用 Waffo HTTP API，覆盖支付开关、套餐价格、
-      checkout、Webhook 验签、订阅状态与配额绑定；当前完成设计，尚未落地迁移、API 和前端。
+- [x] Waffo 订阅代码与测试完成（2026-09-27）：Go HTTP 签名客户端、双引擎 `000020_billing`、
+      支付开关、价格与产品同步、authenticated checkout、Webhook 验签 / 去重、订阅状态机与配额绑定、
+      后台与用量页。实现与初稿的差异及待验收项见 09 文档 §11。
+- [ ] 在 Waffo 测试环境注册 HTTPS Webhook，用测试卡跑首购、续费、取消、恢复、失败、退款（09 文档 §10 第 5 步）
 
 ## 2026-09 前端布局修正
 
@@ -389,6 +391,31 @@ tenants / tenant_members / sessions / audit_logs 四张表都有外键指着它�
 有数据时才翻车的那类操作。
 
 ## 过程中发现的坑
+
+- **付款成功、套餐没变，用户还能再买一份**（2026-09-27，本地测试发现）：入账只有 Webhook 一条路，
+  而 Waffo 推不到 localhost；「已有订阅」的检查只看本地库，于是第二次购买被放行，
+  同一个租户在 Waffo 上有两份生效订阅在扣费。补上了设计里本来就有的「订阅查询」：
+  用量页打开时与发起结账前都向 Waffo 对账（09 文档 §11）。
+
+- **`.env` 解析失败会让整份配置静默失效**（2026-09-27）：多行 PEM 没加引号时 `godotenv.Load` 报错、
+  一行都不加载，而 `configs.Init` 把任何错误都当成「未找到 .env」继续启动。表现是后台说 Waffo 的
+  三个变量全没配，其实数据库、加密密钥也都退回了默认值。现在文件存在却解析失败就启动失败并报行号；
+  报错不转述 godotenv 的原文——它会把出错位置之后的整段内容（常是私钥）带出来。
+
+- **照着设计稿写的 Waffo 集成，真实事件一个都处理不了**（2026-09-27）：对照官方文档与 SDK 后发现
+  ① `currentPeriodStart/End` 是纯日期，解进 `time.Time` 让所有订阅事件解析失败；
+  ② `eventId` 按事件类型复用，只按它去重会吞掉同一笔付款的 `payment_succeeded`；
+  ③ 负载里没有 `productId`，按产品反查价格永远落空；④ 换套餐是「旧单取消 + 新单创建」，
+  按租户处理 `canceled` 会把刚付完新单的用户降回免费。第三方回调的字段形状只能以对方文档与
+  SDK 为准，设计稿里的推测要逐条核对。详见 09 文档 §11。
+
+- **令牌有效不等于账号可用**（2026-09-27）：线上 14 个 Outlook 账号令牌刷新任务回回成功，
+  取信却一律 502——XOAUTH2 之后微软回 `NO User is authenticated but not connected.`，
+  新旧两个 IMAP 端点都一样，同 client_id 下另外 1242 个账号正常。两处叠加让它藏了起来：
+  ① `ClassifyIMAPAuthError` 靠 `contains("auth")` 兜底，`authenticated` 被吞成
+  `auth_failed`，文案还叫人去查授权码；② 刷新与收信共用 `last_refresh_status`，
+  下一次刷新任务又把它改回 success。现在归 `account_unavailable`（409、不回退），
+  可用性另存 `health_*`，见 05 文档 §6.3。
 
 - **令牌刷新与收信曾使用不同通道策略**：刷新只检查 Graph，收信却可走 IMAP OAuth，
   导致「刷新失败但照常收信」。刷新应复用同一通道链，IMAP 刷新只请求 OAuth 端点，
@@ -1122,3 +1149,27 @@ Chromium（+150MB）。Wails 用系统自带的 WebView（WKWebView / WebView2 /
 - **对 `srcdoc` 做子串断言是错的**：`expect(srcDoc).not.toContain('src="https://…"')` 永远
   判不对，因为被拦下的图片会把原地址留在 `data-blocked-src="https://…"` 上，
   而 `src="` 正好是 `data-blocked-src="` 的后缀。改成解析 DOM 再取属性。
+
+### 账号有效性检测与失效账号清理（2026-09-27，用户要求）
+
+起因见坑列表第一条。改动：
+
+- `mailer.ErrKindAccountUnavailable`：匹配排在 `"auth"` 兜底之前；HTTP 映射 409
+- 000021：`mail_accounts` 加 `health_status / health_error_kind / health_error / health_checked_at`。
+  存量回填两类已能下结论的：`status=banned`，以及错误原文里带 `authenticated but not connected` 的
+- 健康结论只由真正登录邮箱的调用写入（与 `last_refresh_*` 同一条 UPDATE，不多一次往返）；
+  令牌刷新只能写 `invalid`。换凭据、改 client_id / IMAP 主机端口 / 状态、覆盖导入、OAuth 重新授权
+  都把它退回 `unknown`——否则刚修好的账号会被下一次清理删掉
+- `account_check` 任务（`HealthService`）与 `/mail/account-health`、`/mail/accounts/batch/delete-invalid`
+- 前端令牌页新增「账号检测」面板，账号列表状态列加「失效」徽标
+
+**没做**：原计划里「按 client_id 跳过 Graph」。默认 client_id 是有意使用的，
+Graph 刚在 `ba53d14` 恢复；http 代理只有 Graph 通道能用，经 OAuth 重新授权的账号也可能持有 Graph
+权限。记下 `auth_channel` 之后 Graph 只在 IMAP 可回退失败时才会被试到，那恰是正确的回退，
+所谓浪费只剩新导入账号的第一次，而那一次正是发现 Graph 可用账号的途径。
+
+测试：`api/account_health_test.go` 五条，`pkg/repo/parity_test.go` 加健康筛选与
+`TestAccountHealthParity`。两条关键判断做了变异验证：去掉「令牌刷新不能写 ok」→
+`TestTokenRefreshDoesNotReviveInvalidAccount` 红；把 `network` 并进 invalid →
+`TestAccountCheckClassifiesHealth` 与 `TestDeleteInvalidAccounts` 红；还原后复绿。
+PostgreSQL 侧对照本地没跑（本机 Docker 未启动），交给 CI 的 PG service。

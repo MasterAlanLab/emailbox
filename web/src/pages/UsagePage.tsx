@@ -2,7 +2,9 @@ import { Badge } from "@cloudflare/kumo/components/badge";
 import { Banner } from "@cloudflare/kumo/components/banner";
 import { Meter } from "@cloudflare/kumo/components/meter";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { tenantApi, type QuotaUsage } from "@/api/tenant";
+import { BillingCard } from "@/components/billing/BillingCard";
 import { PageShell } from "@/components/layout/PageShell";
 import { useTenantStore } from "@/store/tenantStore";
 
@@ -15,6 +17,9 @@ export default function UsagePage() {
   const tenantID = useTenantStore((s) => s.activeTenant?.id) ?? "";
   const [data, setData] = useState<QuotaUsage | null>(null);
   const [error, setError] = useState("");
+  // 订阅变化（付款回跳、取消、恢复）后要同时重取配额与订阅，用一个自增键驱动两边。
+  const [reloadKey, setReloadKey] = useState(0);
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
     if (!tenantID) return undefined;
@@ -30,7 +35,7 @@ export default function UsagePage() {
     return () => {
       ignore = true;
     };
-  }, [tenantID]);
+  }, [tenantID, reloadKey]);
 
   if (error) {
     return (
@@ -73,6 +78,12 @@ export default function UsagePage() {
             既然不受限，就不摆在「额度」里占位——用量页只讲有上限的东西。 */}
         <QuotaCard title={`每日调用配额（每日 ${data.day} 自动重置）`} items={daily} />
       </div>
+      <BillingCard
+        tenantID={tenantID}
+        reloadKey={reloadKey}
+        returnedFromCheckout={searchParams.get("billing") === "success"}
+        onRefresh={() => setReloadKey((k) => k + 1)}
+      />
     </PageShell>
   );
 }

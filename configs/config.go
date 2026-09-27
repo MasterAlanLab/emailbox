@@ -31,6 +31,7 @@ type Config struct {
 	SaaS     SaaSConfig     `json:"saas"`
 	Job      JobConfig      `json:"job"`
 	OAuth    OAuthConfig    `json:"oauth"`
+	Waffo    WaffoConfig    `json:"waffo"`
 }
 type ServerConfig struct {
 	Port        string   `json:"port"`
@@ -103,14 +104,31 @@ type OAuthConfig struct {
 	ReturnURL string              `json:"return_url"`
 }
 
+// WaffoConfig 是服务端直连 Waffo Pancake 的运行时配置。
+// 私钥与 Webhook 公钥永远不进入 JSON、日志或数据库。
+//
+// 必填的只有 WAFFO_MERCHANT_ID / WAFFO_STORE_ID / WAFFO_PRIVATE_KEY 三项（生产再加 WAFFO_ENV=prod）。
+// 三项都不配时支付不可用、服务照常启动；配了就必须配全且能解析。
+// Webhook 公钥是 Waffo 平台级的，已内置，两个 *_PUBLIC_KEY 只在 Waffo 轮换公钥时用来覆盖。
+type WaffoConfig struct {
+	Environment    string `json:"environment"`
+	APIBaseURL     string `json:"api_base_url"`
+	MerchantID     string `json:"merchant_id"`
+	StoreID        string `json:"store_id"`
+	PrivateKey     string `json:"-"`
+	WebhookTestKey string `json:"-"`
+	WebhookProdKey string `json:"-"`
+	SuccessURL     string `json:"success_url"`
+}
+
 var AppConfig *Config
 
 // IsProduction 表示当前是否运行在生产模式。
 func (c *Config) IsProduction() bool { return c.AppEnv == AppEnvProduction }
 
 func Init() error {
-	if err := godotenv.Load(); err != nil {
-		slog.Info("未找到 .env，使用环境变量或默认值")
+	if err := loadDotEnv(".env"); err != nil {
+		return err
 	}
 	origins, err := parseOrigins(getEnv("CORS_ALLOW_ORIGINS", "http://localhost:5173,http://localhost:3000"))
 	if err != nil {
@@ -141,6 +159,16 @@ func Init() error {
 		Microsoft: OAuthProviderConfig{Enabled: microsoftOAuthEnabled, ClientID: strings.TrimSpace(getEnv("MICROSOFT_OAUTH_CLIENT_ID", "9e5f94bc-e8a4-4e73-b8be-63364c29d753")), ClientSecret: getEnv("MICROSOFT_OAUTH_CLIENT_SECRET", ""), Tenant: strings.TrimSpace(getEnv("MICROSOFT_OAUTH_TENANT", "common")), RedirectURI: strings.TrimSpace(getEnv("MICROSOFT_OAUTH_REDIRECT_URI", "http://localhost:8080"))},
 		Google:    OAuthProviderConfig{Enabled: googleOAuthEnabled, ClientID: strings.TrimSpace(getEnv("GOOGLE_OAUTH_CLIENT_ID", "")), ClientSecret: getEnv("GOOGLE_OAUTH_CLIENT_SECRET", ""), RedirectURI: strings.TrimSpace(getEnv("GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:8080"))},
 		ReturnURL: returnURL,
+	}, Waffo: WaffoConfig{
+		Environment:    strings.TrimSpace(getEnv("WAFFO_ENV", "test")),
+		APIBaseURL:     strings.TrimRight(strings.TrimSpace(getEnv("WAFFO_API_BASE_URL", "https://api.waffo.ai")), "/"),
+		MerchantID:     strings.TrimSpace(getEnv("WAFFO_MERCHANT_ID", "")),
+		StoreID:        strings.TrimSpace(getEnv("WAFFO_STORE_ID", "")),
+		PrivateKey:     getEnv("WAFFO_PRIVATE_KEY", getEnv("WAFFO_PRIVATE_KEY_BASE64", "")),
+		WebhookTestKey: getEnv("WAFFO_WEBHOOK_TEST_PUBLIC_KEY", ""),
+		WebhookProdKey: getEnv("WAFFO_WEBHOOK_PROD_PUBLIC_KEY", ""),
+		// 留空时按请求域名推导，见 BillingService.successURLFor。
+		SuccessURL: strings.TrimSpace(getEnv("WAFFO_SUCCESS_URL", "")),
 	}}
 	if AppConfig.Database.Driver != "sqlite" && AppConfig.Database.Driver != "postgres" && AppConfig.Database.Driver != "postgresql" {
 		return fmt.Errorf("DB_DRIVER 仅支持 sqlite 或 postgres")
@@ -153,7 +181,95 @@ func Init() error {
 	if err := validateOAuth(AppConfig); err != nil {
 		return err
 	}
+	if err := validateWaffo(AppConfig); err != nil {
+		return err
+	}
 	return validateCrypto(AppConfig)
+}
+
+// validateWaffo 校验支付配置。
+//
+// 环境不论是否配置凭据都要合法：它决定 Webhook 只接受哪个环境的事件。
+// 凭据「配了一半」一律报错：那几乎总是漏写或拼错变量名，放它启动的话，
+// 管理员要到后台看见「缺少配置」才发现，而排查方向完全不指向这里。
+func validateWaffo(c *Config) error {
+	if c.Waffo.Environment != "test" && c.Waffo.Environment != "prod" {
+		return fmt.Errorf("WAFFO_ENV 仅支持 test 或 prod")
+	}
+	set := map[string]bool{
+		"WAFFO_MERCHANT_ID": c.Waffo.MerchantID != "",
+		"WAFFO_STORE_ID":    c.Waffo.StoreID != "",
+		"WAFFO_PRIVATE_KEY": strings.TrimSpace(c.Waffo.PrivateKey) != "",
+	}
+	var missing []string
+	for _, name := range []string{"WAFFO_MERCHANT_ID", "WAFFO_STORE_ID", "WAFFO_PRIVATE_KEY"} {
+		if !set[name] {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 && len(missing) < len(set) {
+		return fmt.Errorf("waffo 配置不完整，缺少 %s（三项要么都配，要么都不配）", strings.Join(missing, "、"))
+	}
+	return nil
+}
+
+// loadDotEnv 加载 .env。文件不存在是正常情况（容器里通常直接注入环境变量）；
+// 文件存在却解析失败必须报错退出——godotenv 解析失败时一行都不加载，
+// 继续启动等于让整份配置静默退回默认值：数据库、密钥、支付全都不是你写的那个。
+//
+// 报错只给行号，不转述 godotenv 的错误：它会把出错位置之后的原文（常常是密钥）整段带出来。
+func loadDotEnv(path string) error {
+	content, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		slog.Info("未找到 .env，使用环境变量或默认值")
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("读取 %s 失败: %w", path, err)
+	}
+	values, err := godotenv.UnmarshalBytes(content)
+	if err != nil {
+		if line := suspiciousDotEnvLine(string(content)); line > 0 {
+			return fmt.Errorf("%s 第 %d 行无法解析：多行的值（如 PEM 密钥）必须用双引号整体括起来，或改写成一行", path, line)
+		}
+		return fmt.Errorf("%s 格式有误，无法解析", path)
+	}
+	// 与 godotenv.Load 一致：已经存在的环境变量优先，.env 不覆盖它们。
+	for key, value := range values {
+		if _, exists := os.LookupEnv(key); !exists {
+			if err := os.Setenv(key, value); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// suspiciousDotEnvLine 找出第一行既不是注释、空行、KEY=VALUE，也不在引号括起的多行值里的行。
+// 最常见的就是没加引号的多行 PEM 的第二行。
+func suspiciousDotEnvLine(content string) int {
+	inQuote := byte(0)
+	for i, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if inQuote != 0 {
+			if strings.Count(trimmed, string(inQuote))%2 == 1 {
+				inQuote = 0
+			}
+			continue
+		}
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(strings.TrimPrefix(trimmed, "export "), "=")
+		if !ok || strings.ContainsAny(strings.TrimSpace(key), " \t") {
+			return i + 1
+		}
+		value = strings.TrimSpace(value)
+		if value != "" && (value[0] == '"' || value[0] == '\'') && strings.Count(value, string(value[0]))%2 == 1 {
+			inQuote = value[0]
+		}
+	}
+	return 0
 }
 
 func validateOAuth(c *Config) error {

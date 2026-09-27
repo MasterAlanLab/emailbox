@@ -112,23 +112,67 @@ func (q *Queries) CountMailAccounts(ctx context.Context, tenantID string) (int64
 	return count, err
 }
 
+const countMailAccountsByHealth = `-- name: CountMailAccountsByHealth :many
+SELECT health_status, health_error_kind, COUNT(*) AS total FROM mail_accounts
+WHERE tenant_id = $1
+  AND deleted_at IS NULL
+  AND ($2::text IS NULL OR group_id = $2::text)
+GROUP BY health_status, health_error_kind
+`
+
+type CountMailAccountsByHealthParams struct {
+	TenantID string
+	GroupID  sql.NullString
+}
+
+type CountMailAccountsByHealthRow struct {
+	HealthStatus    string
+	HealthErrorKind string
+	Total           int64
+}
+
+func (q *Queries) CountMailAccountsByHealth(ctx context.Context, arg CountMailAccountsByHealthParams) ([]CountMailAccountsByHealthRow, error) {
+	rows, err := q.db.QueryContext(ctx, countMailAccountsByHealth, arg.TenantID, arg.GroupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountMailAccountsByHealthRow{}
+	for rows.Next() {
+		var i CountMailAccountsByHealthRow
+		if err := rows.Scan(&i.HealthStatus, &i.HealthErrorKind, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countMailAccountsFiltered = `-- name: CountMailAccountsFiltered :one
 SELECT COUNT(*) FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::text IS NULL OR last_refresh_status = $3::text)
-  AND ($4::text IS NULL OR provider = $4::text)
-  AND ($5::text IS NULL OR group_id = $5::text)
-  AND ($6::text IS NULL
-       OR strpos(email_normalized, $6::text) > 0
-       OR strpos(lower(remark), $6::text) > 0)
+  AND ($4::text IS NULL OR health_status = $4::text)
+  AND ($5::text IS NULL OR provider = $5::text)
+  AND ($6::text IS NULL OR group_id = $6::text)
+  AND ($7::text IS NULL
+       OR strpos(email_normalized, $7::text) > 0
+       OR strpos(lower(remark), $7::text) > 0)
 `
 
 type CountMailAccountsFilteredParams struct {
 	TenantID      string
 	Status        sql.NullString
 	RefreshStatus sql.NullString
+	HealthStatus  sql.NullString
 	Provider      sql.NullString
 	GroupID       sql.NullString
 	Q             sql.NullString
@@ -149,6 +193,7 @@ func (q *Queries) CountMailAccountsFiltered(ctx context.Context, arg CountMailAc
 		arg.TenantID,
 		arg.Status,
 		arg.RefreshStatus,
+		arg.HealthStatus,
 		arg.Provider,
 		arg.GroupID,
 		arg.Q,
@@ -223,7 +268,7 @@ func (q *Queries) CreateMailAccount(ctx context.Context, arg CreateMailAccountPa
 }
 
 const getMailAccount = `-- name: GetMailAccount :one
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind, health_status, health_error_kind, health_error, health_checked_at FROM mail_accounts
 WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL LIMIT 1
 `
 
@@ -264,12 +309,16 @@ func (q *Queries) GetMailAccount(ctx context.Context, arg GetMailAccountParams) 
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.LastRefreshErrorKind,
+		&i.HealthStatus,
+		&i.HealthErrorKind,
+		&i.HealthError,
+		&i.HealthCheckedAt,
 	)
 	return i, err
 }
 
 const getMailAccountByEmail = `-- name: GetMailAccountByEmail :one
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind, health_status, health_error_kind, health_error, health_checked_at FROM mail_accounts
 WHERE tenant_id = $1 AND email_normalized = $2 AND deleted_at IS NULL LIMIT 1
 `
 
@@ -310,12 +359,16 @@ func (q *Queries) GetMailAccountByEmail(ctx context.Context, arg GetMailAccountB
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.LastRefreshErrorKind,
+		&i.HealthStatus,
+		&i.HealthErrorKind,
+		&i.HealthError,
+		&i.HealthCheckedAt,
 	)
 	return i, err
 }
 
 const listMailAccountsByIDs = `-- name: ListMailAccountsByIDs :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind, health_status, health_error_kind, health_error, health_checked_at FROM mail_accounts
 WHERE tenant_id = $1 AND deleted_at IS NULL
   AND id = ANY($2::text[])
 ORDER BY sort_order, created_at DESC
@@ -364,6 +417,10 @@ func (q *Queries) ListMailAccountsByIDs(ctx context.Context, arg ListMailAccount
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.LastRefreshErrorKind,
+			&i.HealthStatus,
+			&i.HealthErrorKind,
+			&i.HealthError,
+			&i.HealthCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -379,24 +436,26 @@ func (q *Queries) ListMailAccountsByIDs(ctx context.Context, arg ListMailAccount
 }
 
 const listMailAccountsPageByCreatedAtAsc = `-- name: ListMailAccountsPageByCreatedAtAsc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind, health_status, health_error_kind, health_error, health_checked_at FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::text IS NULL OR last_refresh_status = $3::text)
-  AND ($4::text IS NULL OR provider = $4::text)
-  AND ($5::text IS NULL OR group_id = $5::text)
-  AND ($6::text IS NULL
-       OR strpos(email_normalized, $6::text) > 0
-       OR strpos(lower(remark), $6::text) > 0)
+  AND ($4::text IS NULL OR health_status = $4::text)
+  AND ($5::text IS NULL OR provider = $5::text)
+  AND ($6::text IS NULL OR group_id = $6::text)
+  AND ($7::text IS NULL
+       OR strpos(email_normalized, $7::text) > 0
+       OR strpos(lower(remark), $7::text) > 0)
 ORDER BY created_at ASC, id
-LIMIT $8 OFFSET $7
+LIMIT $9 OFFSET $8
 `
 
 type ListMailAccountsPageByCreatedAtAscParams struct {
 	TenantID      string
 	Status        sql.NullString
 	RefreshStatus sql.NullString
+	HealthStatus  sql.NullString
 	Provider      sql.NullString
 	GroupID       sql.NullString
 	Q             sql.NullString
@@ -409,6 +468,7 @@ func (q *Queries) ListMailAccountsPageByCreatedAtAsc(ctx context.Context, arg Li
 		arg.TenantID,
 		arg.Status,
 		arg.RefreshStatus,
+		arg.HealthStatus,
 		arg.Provider,
 		arg.GroupID,
 		arg.Q,
@@ -451,6 +511,10 @@ func (q *Queries) ListMailAccountsPageByCreatedAtAsc(ctx context.Context, arg Li
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.LastRefreshErrorKind,
+			&i.HealthStatus,
+			&i.HealthErrorKind,
+			&i.HealthError,
+			&i.HealthCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -466,24 +530,26 @@ func (q *Queries) ListMailAccountsPageByCreatedAtAsc(ctx context.Context, arg Li
 }
 
 const listMailAccountsPageByCreatedAtDesc = `-- name: ListMailAccountsPageByCreatedAtDesc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind, health_status, health_error_kind, health_error, health_checked_at FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::text IS NULL OR last_refresh_status = $3::text)
-  AND ($4::text IS NULL OR provider = $4::text)
-  AND ($5::text IS NULL OR group_id = $5::text)
-  AND ($6::text IS NULL
-       OR strpos(email_normalized, $6::text) > 0
-       OR strpos(lower(remark), $6::text) > 0)
+  AND ($4::text IS NULL OR health_status = $4::text)
+  AND ($5::text IS NULL OR provider = $5::text)
+  AND ($6::text IS NULL OR group_id = $6::text)
+  AND ($7::text IS NULL
+       OR strpos(email_normalized, $7::text) > 0
+       OR strpos(lower(remark), $7::text) > 0)
 ORDER BY created_at DESC, id
-LIMIT $8 OFFSET $7
+LIMIT $9 OFFSET $8
 `
 
 type ListMailAccountsPageByCreatedAtDescParams struct {
 	TenantID      string
 	Status        sql.NullString
 	RefreshStatus sql.NullString
+	HealthStatus  sql.NullString
 	Provider      sql.NullString
 	GroupID       sql.NullString
 	Q             sql.NullString
@@ -496,6 +562,7 @@ func (q *Queries) ListMailAccountsPageByCreatedAtDesc(ctx context.Context, arg L
 		arg.TenantID,
 		arg.Status,
 		arg.RefreshStatus,
+		arg.HealthStatus,
 		arg.Provider,
 		arg.GroupID,
 		arg.Q,
@@ -538,6 +605,10 @@ func (q *Queries) ListMailAccountsPageByCreatedAtDesc(ctx context.Context, arg L
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.LastRefreshErrorKind,
+			&i.HealthStatus,
+			&i.HealthErrorKind,
+			&i.HealthError,
+			&i.HealthCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -553,24 +624,26 @@ func (q *Queries) ListMailAccountsPageByCreatedAtDesc(ctx context.Context, arg L
 }
 
 const listMailAccountsPageByEmailAsc = `-- name: ListMailAccountsPageByEmailAsc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind, health_status, health_error_kind, health_error, health_checked_at FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::text IS NULL OR last_refresh_status = $3::text)
-  AND ($4::text IS NULL OR provider = $4::text)
-  AND ($5::text IS NULL OR group_id = $5::text)
-  AND ($6::text IS NULL
-       OR strpos(email_normalized, $6::text) > 0
-       OR strpos(lower(remark), $6::text) > 0)
+  AND ($4::text IS NULL OR health_status = $4::text)
+  AND ($5::text IS NULL OR provider = $5::text)
+  AND ($6::text IS NULL OR group_id = $6::text)
+  AND ($7::text IS NULL
+       OR strpos(email_normalized, $7::text) > 0
+       OR strpos(lower(remark), $7::text) > 0)
 ORDER BY email_normalized ASC, id
-LIMIT $8 OFFSET $7
+LIMIT $9 OFFSET $8
 `
 
 type ListMailAccountsPageByEmailAscParams struct {
 	TenantID      string
 	Status        sql.NullString
 	RefreshStatus sql.NullString
+	HealthStatus  sql.NullString
 	Provider      sql.NullString
 	GroupID       sql.NullString
 	Q             sql.NullString
@@ -583,6 +656,7 @@ func (q *Queries) ListMailAccountsPageByEmailAsc(ctx context.Context, arg ListMa
 		arg.TenantID,
 		arg.Status,
 		arg.RefreshStatus,
+		arg.HealthStatus,
 		arg.Provider,
 		arg.GroupID,
 		arg.Q,
@@ -625,6 +699,10 @@ func (q *Queries) ListMailAccountsPageByEmailAsc(ctx context.Context, arg ListMa
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.LastRefreshErrorKind,
+			&i.HealthStatus,
+			&i.HealthErrorKind,
+			&i.HealthError,
+			&i.HealthCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -640,24 +718,26 @@ func (q *Queries) ListMailAccountsPageByEmailAsc(ctx context.Context, arg ListMa
 }
 
 const listMailAccountsPageByEmailDesc = `-- name: ListMailAccountsPageByEmailDesc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind, health_status, health_error_kind, health_error, health_checked_at FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::text IS NULL OR last_refresh_status = $3::text)
-  AND ($4::text IS NULL OR provider = $4::text)
-  AND ($5::text IS NULL OR group_id = $5::text)
-  AND ($6::text IS NULL
-       OR strpos(email_normalized, $6::text) > 0
-       OR strpos(lower(remark), $6::text) > 0)
+  AND ($4::text IS NULL OR health_status = $4::text)
+  AND ($5::text IS NULL OR provider = $5::text)
+  AND ($6::text IS NULL OR group_id = $6::text)
+  AND ($7::text IS NULL
+       OR strpos(email_normalized, $7::text) > 0
+       OR strpos(lower(remark), $7::text) > 0)
 ORDER BY email_normalized DESC, id
-LIMIT $8 OFFSET $7
+LIMIT $9 OFFSET $8
 `
 
 type ListMailAccountsPageByEmailDescParams struct {
 	TenantID      string
 	Status        sql.NullString
 	RefreshStatus sql.NullString
+	HealthStatus  sql.NullString
 	Provider      sql.NullString
 	GroupID       sql.NullString
 	Q             sql.NullString
@@ -670,6 +750,7 @@ func (q *Queries) ListMailAccountsPageByEmailDesc(ctx context.Context, arg ListM
 		arg.TenantID,
 		arg.Status,
 		arg.RefreshStatus,
+		arg.HealthStatus,
 		arg.Provider,
 		arg.GroupID,
 		arg.Q,
@@ -712,6 +793,10 @@ func (q *Queries) ListMailAccountsPageByEmailDesc(ctx context.Context, arg ListM
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.LastRefreshErrorKind,
+			&i.HealthStatus,
+			&i.HealthErrorKind,
+			&i.HealthError,
+			&i.HealthCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -727,24 +812,26 @@ func (q *Queries) ListMailAccountsPageByEmailDesc(ctx context.Context, arg ListM
 }
 
 const listMailAccountsPageByLastRefreshAtAsc = `-- name: ListMailAccountsPageByLastRefreshAtAsc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind, health_status, health_error_kind, health_error, health_checked_at FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::text IS NULL OR last_refresh_status = $3::text)
-  AND ($4::text IS NULL OR provider = $4::text)
-  AND ($5::text IS NULL OR group_id = $5::text)
-  AND ($6::text IS NULL
-       OR strpos(email_normalized, $6::text) > 0
-       OR strpos(lower(remark), $6::text) > 0)
+  AND ($4::text IS NULL OR health_status = $4::text)
+  AND ($5::text IS NULL OR provider = $5::text)
+  AND ($6::text IS NULL OR group_id = $6::text)
+  AND ($7::text IS NULL
+       OR strpos(email_normalized, $7::text) > 0
+       OR strpos(lower(remark), $7::text) > 0)
 ORDER BY last_refresh_at ASC, id
-LIMIT $8 OFFSET $7
+LIMIT $9 OFFSET $8
 `
 
 type ListMailAccountsPageByLastRefreshAtAscParams struct {
 	TenantID      string
 	Status        sql.NullString
 	RefreshStatus sql.NullString
+	HealthStatus  sql.NullString
 	Provider      sql.NullString
 	GroupID       sql.NullString
 	Q             sql.NullString
@@ -757,6 +844,7 @@ func (q *Queries) ListMailAccountsPageByLastRefreshAtAsc(ctx context.Context, ar
 		arg.TenantID,
 		arg.Status,
 		arg.RefreshStatus,
+		arg.HealthStatus,
 		arg.Provider,
 		arg.GroupID,
 		arg.Q,
@@ -799,6 +887,10 @@ func (q *Queries) ListMailAccountsPageByLastRefreshAtAsc(ctx context.Context, ar
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.LastRefreshErrorKind,
+			&i.HealthStatus,
+			&i.HealthErrorKind,
+			&i.HealthError,
+			&i.HealthCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -814,24 +906,26 @@ func (q *Queries) ListMailAccountsPageByLastRefreshAtAsc(ctx context.Context, ar
 }
 
 const listMailAccountsPageByLastRefreshAtDesc = `-- name: ListMailAccountsPageByLastRefreshAtDesc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind, health_status, health_error_kind, health_error, health_checked_at FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::text IS NULL OR last_refresh_status = $3::text)
-  AND ($4::text IS NULL OR provider = $4::text)
-  AND ($5::text IS NULL OR group_id = $5::text)
-  AND ($6::text IS NULL
-       OR strpos(email_normalized, $6::text) > 0
-       OR strpos(lower(remark), $6::text) > 0)
+  AND ($4::text IS NULL OR health_status = $4::text)
+  AND ($5::text IS NULL OR provider = $5::text)
+  AND ($6::text IS NULL OR group_id = $6::text)
+  AND ($7::text IS NULL
+       OR strpos(email_normalized, $7::text) > 0
+       OR strpos(lower(remark), $7::text) > 0)
 ORDER BY last_refresh_at DESC, id
-LIMIT $8 OFFSET $7
+LIMIT $9 OFFSET $8
 `
 
 type ListMailAccountsPageByLastRefreshAtDescParams struct {
 	TenantID      string
 	Status        sql.NullString
 	RefreshStatus sql.NullString
+	HealthStatus  sql.NullString
 	Provider      sql.NullString
 	GroupID       sql.NullString
 	Q             sql.NullString
@@ -844,6 +938,7 @@ func (q *Queries) ListMailAccountsPageByLastRefreshAtDesc(ctx context.Context, a
 		arg.TenantID,
 		arg.Status,
 		arg.RefreshStatus,
+		arg.HealthStatus,
 		arg.Provider,
 		arg.GroupID,
 		arg.Q,
@@ -886,6 +981,10 @@ func (q *Queries) ListMailAccountsPageByLastRefreshAtDesc(ctx context.Context, a
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.LastRefreshErrorKind,
+			&i.HealthStatus,
+			&i.HealthErrorKind,
+			&i.HealthError,
+			&i.HealthCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -901,24 +1000,26 @@ func (q *Queries) ListMailAccountsPageByLastRefreshAtDesc(ctx context.Context, a
 }
 
 const listMailAccountsPageBySortOrderAsc = `-- name: ListMailAccountsPageBySortOrderAsc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind, health_status, health_error_kind, health_error, health_checked_at FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::text IS NULL OR last_refresh_status = $3::text)
-  AND ($4::text IS NULL OR provider = $4::text)
-  AND ($5::text IS NULL OR group_id = $5::text)
-  AND ($6::text IS NULL
-       OR strpos(email_normalized, $6::text) > 0
-       OR strpos(lower(remark), $6::text) > 0)
+  AND ($4::text IS NULL OR health_status = $4::text)
+  AND ($5::text IS NULL OR provider = $5::text)
+  AND ($6::text IS NULL OR group_id = $6::text)
+  AND ($7::text IS NULL
+       OR strpos(email_normalized, $7::text) > 0
+       OR strpos(lower(remark), $7::text) > 0)
 ORDER BY sort_order ASC, id
-LIMIT $8 OFFSET $7
+LIMIT $9 OFFSET $8
 `
 
 type ListMailAccountsPageBySortOrderAscParams struct {
 	TenantID      string
 	Status        sql.NullString
 	RefreshStatus sql.NullString
+	HealthStatus  sql.NullString
 	Provider      sql.NullString
 	GroupID       sql.NullString
 	Q             sql.NullString
@@ -931,6 +1032,7 @@ func (q *Queries) ListMailAccountsPageBySortOrderAsc(ctx context.Context, arg Li
 		arg.TenantID,
 		arg.Status,
 		arg.RefreshStatus,
+		arg.HealthStatus,
 		arg.Provider,
 		arg.GroupID,
 		arg.Q,
@@ -973,6 +1075,10 @@ func (q *Queries) ListMailAccountsPageBySortOrderAsc(ctx context.Context, arg Li
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.LastRefreshErrorKind,
+			&i.HealthStatus,
+			&i.HealthErrorKind,
+			&i.HealthError,
+			&i.HealthCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -988,24 +1094,26 @@ func (q *Queries) ListMailAccountsPageBySortOrderAsc(ctx context.Context, arg Li
 }
 
 const listMailAccountsPageBySortOrderDesc = `-- name: ListMailAccountsPageBySortOrderDesc :many
-SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind FROM mail_accounts
+SELECT id, tenant_id, group_id, email, email_normalized, provider, account_type, auth_channel, password_enc, client_id, refresh_token_enc, imap_host, imap_port, imap_password_enc, status, remark, sort_order, proxy_url, fallback_proxy_url_1, fallback_proxy_url_2, last_refresh_at, last_refresh_status, last_refresh_error, refresh_token_updated_at, created_at, updated_at, deleted_at, last_refresh_error_kind, health_status, health_error_kind, health_error, health_checked_at FROM mail_accounts
 WHERE tenant_id = $1
   AND deleted_at IS NULL
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::text IS NULL OR last_refresh_status = $3::text)
-  AND ($4::text IS NULL OR provider = $4::text)
-  AND ($5::text IS NULL OR group_id = $5::text)
-  AND ($6::text IS NULL
-       OR strpos(email_normalized, $6::text) > 0
-       OR strpos(lower(remark), $6::text) > 0)
+  AND ($4::text IS NULL OR health_status = $4::text)
+  AND ($5::text IS NULL OR provider = $5::text)
+  AND ($6::text IS NULL OR group_id = $6::text)
+  AND ($7::text IS NULL
+       OR strpos(email_normalized, $7::text) > 0
+       OR strpos(lower(remark), $7::text) > 0)
 ORDER BY sort_order DESC, id
-LIMIT $8 OFFSET $7
+LIMIT $9 OFFSET $8
 `
 
 type ListMailAccountsPageBySortOrderDescParams struct {
 	TenantID      string
 	Status        sql.NullString
 	RefreshStatus sql.NullString
+	HealthStatus  sql.NullString
 	Provider      sql.NullString
 	GroupID       sql.NullString
 	Q             sql.NullString
@@ -1018,6 +1126,7 @@ func (q *Queries) ListMailAccountsPageBySortOrderDesc(ctx context.Context, arg L
 		arg.TenantID,
 		arg.Status,
 		arg.RefreshStatus,
+		arg.HealthStatus,
 		arg.Provider,
 		arg.GroupID,
 		arg.Q,
@@ -1060,6 +1169,10 @@ func (q *Queries) ListMailAccountsPageBySortOrderDesc(ctx context.Context, arg L
 			&i.UpdatedAt,
 			&i.DeletedAt,
 			&i.LastRefreshErrorKind,
+			&i.HealthStatus,
+			&i.HealthErrorKind,
+			&i.HealthError,
+			&i.HealthCheckedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1072,6 +1185,57 @@ func (q *Queries) ListMailAccountsPageBySortOrderDesc(ctx context.Context, arg L
 		return nil, err
 	}
 	return items, nil
+}
+
+const resetMailAccountHealth = `-- name: ResetMailAccountHealth :execrows
+UPDATE mail_accounts
+SET health_status = 'unknown',
+    health_error_kind = '',
+    health_error = '',
+    health_checked_at = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL
+`
+
+type ResetMailAccountHealthParams struct {
+	TenantID string
+	ID       string
+}
+
+// New credentials void the old verdict: an account left invalid after the
+// user fixed it would be removed by the next "delete invalid accounts".
+func (q *Queries) ResetMailAccountHealth(ctx context.Context, arg ResetMailAccountHealthParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, resetMailAccountHealth, arg.TenantID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const softDeleteInvalidMailAccounts = `-- name: SoftDeleteInvalidMailAccounts :execrows
+UPDATE mail_accounts
+SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP,
+    password_enc = '', refresh_token_enc = '', imap_password_enc = ''
+WHERE tenant_id = $1
+  AND deleted_at IS NULL
+  AND health_status = 'invalid'
+  AND ($2::text IS NULL OR group_id = $2::text)
+`
+
+type SoftDeleteInvalidMailAccountsParams struct {
+	TenantID string
+	GroupID  sql.NullString
+}
+
+// The invalid condition lives in the statement itself, not in a list of IDs
+// picked earlier: an account that a concurrent check just marked ok must not
+// be deleted because it was invalid a moment ago.
+func (q *Queries) SoftDeleteInvalidMailAccounts(ctx context.Context, arg SoftDeleteInvalidMailAccountsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, softDeleteInvalidMailAccounts, arg.TenantID, arg.GroupID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const softDeleteMailAccount = `-- name: SoftDeleteMailAccount :execrows
@@ -1178,6 +1342,51 @@ func (q *Queries) UpdateMailAccount(ctx context.Context, arg UpdateMailAccountPa
 	return result.RowsAffected()
 }
 
+const updateMailAccountAccessResult = `-- name: UpdateMailAccountAccessResult :execrows
+UPDATE mail_accounts
+SET last_refresh_at = CURRENT_TIMESTAMP,
+    last_refresh_status = $1,
+    last_refresh_error = $2,
+    last_refresh_error_kind = $3,
+    health_status = $4,
+    health_error_kind = $5,
+    health_error = $6,
+    health_checked_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = $7 AND id = $8 AND deleted_at IS NULL
+`
+
+type UpdateMailAccountAccessResultParams struct {
+	LastRefreshStatus    string
+	LastRefreshError     string
+	LastRefreshErrorKind string
+	HealthStatus         string
+	HealthErrorKind      string
+	HealthError          string
+	TenantID             string
+	ID                   string
+}
+
+// Mail access (list, detail, health check) proves the mailbox itself, so it
+// writes the access result and the health verdict in one statement instead of
+// two round trips per request.
+func (q *Queries) UpdateMailAccountAccessResult(ctx context.Context, arg UpdateMailAccountAccessResultParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateMailAccountAccessResult,
+		arg.LastRefreshStatus,
+		arg.LastRefreshError,
+		arg.LastRefreshErrorKind,
+		arg.HealthStatus,
+		arg.HealthErrorKind,
+		arg.HealthError,
+		arg.TenantID,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateMailAccountAuthChannel = `-- name: UpdateMailAccountAuthChannel :execrows
 UPDATE mail_accounts
 SET auth_channel = $1, updated_at = CURRENT_TIMESTAMP
@@ -1208,6 +1417,10 @@ SET client_id = $1, refresh_token_enc = $2, auth_channel = $3,
     last_refresh_status = 'success',
     last_refresh_error = '',
     last_refresh_error_kind = '',
+    health_status = 'unknown',
+    health_error_kind = '',
+    health_error = '',
+    health_checked_at = NULL,
     updated_at = CURRENT_TIMESTAMP
 WHERE tenant_id = $4 AND id = $5 AND deleted_at IS NULL
 `
@@ -1227,6 +1440,41 @@ func (q *Queries) UpdateMailAccountAuthorization(ctx context.Context, arg Update
 		arg.ClientID,
 		arg.RefreshTokenEnc,
 		arg.AuthChannel,
+		arg.TenantID,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateMailAccountHealth = `-- name: UpdateMailAccountHealth :execrows
+UPDATE mail_accounts
+SET health_status = $1,
+    health_error_kind = $2,
+    health_error = $3,
+    health_checked_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = $4 AND id = $5 AND deleted_at IS NULL
+`
+
+type UpdateMailAccountHealthParams struct {
+	HealthStatus    string
+	HealthErrorKind string
+	HealthError     string
+	TenantID        string
+	ID              string
+}
+
+// Health is written only by real mailbox logins (health check jobs, mail
+// access); token refresh may only downgrade it to invalid. Narrow update like
+// the other write-backs so concurrent edits are never overwritten.
+func (q *Queries) UpdateMailAccountHealth(ctx context.Context, arg UpdateMailAccountHealthParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateMailAccountHealth,
+		arg.HealthStatus,
+		arg.HealthErrorKind,
+		arg.HealthError,
 		arg.TenantID,
 		arg.ID,
 	)

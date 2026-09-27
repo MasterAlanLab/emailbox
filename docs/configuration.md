@@ -189,3 +189,35 @@ JOB_EVENT_RETENTION_DAYS=7
 默认值按「5000 个账号、单账号约 1.5 秒」估算：8 并发约 16 分钟跑完。
 **调大并发时要同时调大 `JOB_ACCOUNT_DELAY_MS`**——批量刷新是最容易触发服务商风控的操作，
 而风控的代价是用户的账号被封，比慢几分钟严重得多。
+
+## Waffo 订阅支付
+
+Waffo 由 Go 服务端通过 HTTP API 直连，数据模型、路由与事件状态机见
+[09-billing.md](plan/09-billing.md)。只需要三个变量，生产再加一个：
+
+```env
+WAFFO_MERCHANT_ID=MER_xxx
+WAFFO_STORE_ID=STO_xxx
+WAFFO_PRIVATE_KEY=MIIEv...        # 一行 Base64；或用双引号括起的多行 PEM
+WAFFO_ENV=prod                    # 默认 test
+```
+
+- **三项要么都不填，要么都填。** 都不填时支付不可用、服务照常启动；只填一部分或私钥解析不了，
+  启动直接失败并指出是哪一项——而不是等管理员在后台看见「缺少配置」再去猜。
+- **支付开关在后台**「套餐」页，不在环境变量里。打开前后台会列出还缺什么。
+- **Webhook 公钥不用配**：它是 Waffo 平台级的，测试与生产各一把，已内置（与官方 SDK 相同）。
+  Waffo 轮换公钥时用 `WAFFO_WEBHOOK_TEST_PUBLIC_KEY` / `WAFFO_WEBHOOK_PROD_PUBLIC_KEY` 覆盖。
+- **付款回跳地址不用配**：按用户访问的域名推导为 `https://<域名>/settings/usage?billing=success`。
+  只有 https 才会带上——Waffo 创建会话时接受非 https 的值，却会在买家付款那一步拒绝。
+  本地 http 开发时不带，买家付完停在 Waffo 自己的成功页。需要固定地址时用 `WAFFO_SUCCESS_URL`（必须 https）。
+- 其余可选项：`WAFFO_API_BASE_URL`（默认 `https://api.waffo.ai`）。旧变量名 `WAFFO_PRIVATE_KEY_BASE64`
+  仍然认，`WAFFO_ENABLED` 已废弃（写了也不起作用）。
+- 在 Waffo Dashboard 把 Webhook 地址设为 `https://<域名>/api/v1/webhooks/waffo`。
+  没有 Webhook 时首次订阅仍能生效（用量页打开时会向 Waffo 对账），但续费、取消、逾期这些后续事件
+  只能靠 Webhook 送达。本地开发要测它们，需要用 https 隧道把这个路径暴露出去。
+
+### `.env` 里的多行值
+
+`.env` 解析失败时服务直接启动失败并指出行号。最常见的原因是多行 PEM 没加引号：
+`godotenv` 遇到这种写法会**整份文件一行都不加载**。曾经的处理是记一句「未找到 .env」继续启动，
+结果数据库、密钥、支付配置全部静默退回默认值。多行值请用双引号整体括起来，或改写成一行。

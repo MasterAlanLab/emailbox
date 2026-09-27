@@ -70,6 +70,12 @@ type failingMailClient struct{ kind mailer.ErrKind }
 // upstreamFailEmailMarker 是「请让这个账号的上游调用失败」的约定标记。
 const upstreamFailEmailMarker = "upstream-fail"
 
+// unavailableEmailMarker 让上游以 account_unavailable 失败：令牌有效、邮箱拒绝连接。
+const unavailableEmailMarker = "mailbox-locked"
+
+// networkFailEmailMarker 让上游以 network 失败：得不出结论，绝不能被当成失效账号。
+const networkFailEmailMarker = "net-flaky"
+
 func (c failingMailClient) fail() error {
 	return &mailer.Error{Kind: c.kind, Channel: mailer.ChannelIMAPNew,
 		Message: "当前通道的认证未通过，请查看具体原因"}
@@ -274,6 +280,23 @@ func TestMessageEndpointsRejectBannedAccount(t *testing.T) {
 	_ = json.Unmarshal([]byte(body), &payload)
 	if !strings.Contains(payload.Message, "封禁") {
 		t.Errorf("提示应说明账号被封，实际 %q", payload.Message)
+	}
+}
+
+// 令牌有效但邮箱拒绝连接的账号走 409：它和 banned 一样是账号自身的确定状态，
+// 回 502 会让调用方以为是上游抖动而反复重试。
+func TestAccountUnavailableIsConflict(t *testing.T) {
+	e := newTestServer(t)
+	token, tenantID := register(t, e, "alice", "alice@example.com")
+	accountID := createAccount(t, e, token, tenantID,
+		`{"email":"`+unavailableEmailMarker+`@outlook.com","refresh_token":"M.token"}`)
+
+	status, body := do(t, e, http.MethodGet, messagePath(tenantID, accountID, "?folder=inbox"), token, "")
+	if status != http.StatusConflict {
+		t.Fatalf("状态 = %d，期望 409\n%s", status, body)
+	}
+	if !strings.Contains(body, `"error_kind":"account_unavailable"`) {
+		t.Errorf("响应缺少 error_kind：\n%s", body)
 	}
 }
 

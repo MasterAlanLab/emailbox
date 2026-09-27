@@ -6,6 +6,8 @@ import type { ApiResponse } from "@/lib/client";
 export type GroupColor = "blue" | "green" | "amber" | "red" | "purple" | "gray";
 export type AccountStatus = "active" | "disabled" | "banned";
 export type RefreshStatus = "never" | "success" | "failed";
+// 账号本身能不能用，与令牌是否有效（RefreshStatus）分开：见 pkg/model.HealthStatus。
+export type HealthStatus = "unknown" | "ok" | "invalid" | "error";
 
 export interface MailGroup {
   id: string;
@@ -57,6 +59,10 @@ export interface MailAccount {
   last_refresh_status: RefreshStatus;
   last_refresh_error: string;
   last_refresh_error_kind: string;
+  health_status: HealthStatus;
+  health_error_kind: string;
+  health_error: string;
+  health_checked_at: string | null;
   created_at: string;
   updated_at: string;
   has_password: boolean;
@@ -85,6 +91,7 @@ export interface AccountFilterParams {
   q?: string;
   status?: AccountStatus | "";
   refresh_status?: RefreshStatus | "";
+  health_status?: HealthStatus | "";
   provider?: string;
   sort?: "sort_order" | "email" | "created_at" | "last_refresh_at";
   order?: "asc" | "desc";

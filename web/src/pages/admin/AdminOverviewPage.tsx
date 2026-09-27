@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { adminApi, type PlatformStats } from "@/api/admin";
-import { AdminShell, StatTile } from "@/components/admin/AdminShell";
+import { PageShell } from "@/components/layout/PageShell";
+import { OverviewStat } from "@/components/admin/OverviewStat";
 
 export default function AdminOverviewPage() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
@@ -22,34 +23,34 @@ export default function AdminOverviewPage() {
   }, []);
 
   return (
-    <AdminShell title="平台总览" description="全系统的用户与邮箱概况。">
+    <PageShell title="概览" description="全系统的用户与邮箱概况。">
       {error && <p className="text-sm text-kumo-danger">{error}</p>}
       {!stats && !error && <p className="text-sm text-kumo-subtle">加载中…</p>}
 
       {stats && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <StatTile
+          <OverviewStat
             label="注册用户"
             value={stats.user_count}
             hint={`其中 ${stats.admin_count} 位管理员`}
           />
-          <StatTile
+          <OverviewStat
             label="已禁用用户"
             value={stats.disabled_user_count}
             alert={stats.disabled_user_count > 0}
           />
-          <StatTile label="托管账号总数" value={stats.account_count} />
+          <OverviewStat label="托管账号总数" value={stats.account_count} />
           {/* 被封账号单独列出来：它是协议层识别到服务商封禁后置位的，
               数量突然上涨通常意味着某批账号的来源出了问题，值得当天就发现。 */}
-          <StatTile
+          <OverviewStat
             label="已封禁邮箱"
             value={stats.banned_account_count}
             alert={stats.banned_account_count > 0}
           />
-          <StatTile label="今日拉取邮件" value={stats.mail_fetch_today} />
-          <StatTile label="今日令牌轮换" value={stats.token_refresh_today} />
+          <OverviewStat label="今日拉取邮件" value={stats.mail_fetch_today} />
+          <OverviewStat label="今日令牌轮换" value={stats.token_refresh_today} />
         </div>
       )}
-    </AdminShell>
+    </PageShell>
   );
 }

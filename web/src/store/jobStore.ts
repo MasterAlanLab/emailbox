@@ -33,6 +33,8 @@ interface JobProgress {
 
 interface JobState {
   jobID: string | null;
+  // 令牌刷新与账号检测共用这一条事件流，界面靠它决定进度条上写「刷新」还是「检测」。
+  jobType: string | null;
   status: JobStatus | null;
   progress: JobProgress;
   recent: RecentItem[];
@@ -43,7 +45,7 @@ interface JobState {
   lastEventID: number;
   error: string;
 
-  watch: (tenant: TenantRef, jobID: string) => void;
+  watch: (tenant: TenantRef, jobID: string, jobType?: string) => void;
   stopWatching: () => void;
   reset: () => void;
 }
@@ -61,6 +63,7 @@ const closeSource = () => {
 
 export const useJobStore = create<JobState>((set, get) => ({
   jobID: null,
+  jobType: null,
   status: null,
   progress: emptyProgress,
   recent: [],
@@ -68,12 +71,13 @@ export const useJobStore = create<JobState>((set, get) => ({
   lastEventID: 0,
   error: "",
 
-  watch: (tenant, jobID) => {
+  watch: (tenant, jobID, jobType) => {
     // 切到另一个任务时先把旧连接关掉，否则两个流的事件会混在一起。
     if (get().jobID !== jobID) {
       closeSource();
       set({
         jobID,
+        jobType: jobType ?? null,
         status: null,
         progress: emptyProgress,
         recent: [],
@@ -170,6 +174,7 @@ export const useJobStore = create<JobState>((set, get) => ({
     closeSource();
     set({
       jobID: null,
+      jobType: null,
       status: null,
       progress: emptyProgress,
       recent: [],

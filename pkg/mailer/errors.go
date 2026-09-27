@@ -15,15 +15,20 @@ import (
 type ErrKind string
 
 const (
-	ErrKindAuthFailed        ErrKind = "auth_failed"
-	ErrKindBanned            ErrKind = "banned"
-	ErrKindConsentRequired   ErrKind = "consent_required"
-	ErrKindProxyFailed       ErrKind = "proxy_failed"
-	ErrKindNetwork           ErrKind = "network"
-	ErrKindRateLimited       ErrKind = "rate_limited"
-	ErrKindFolderUnavailable ErrKind = "folder_unavailable"
-	ErrKindProviderError     ErrKind = "provider_error"
-	ErrKindCanceled          ErrKind = "canceled"
+	ErrKindAuthFailed ErrKind = "auth_failed"
+	ErrKindBanned     ErrKind = "banned"
+	// ErrKindAccountUnavailable 是「令牌有效、但邮箱拒绝连接」：OAuth 令牌交换成功，
+	// 服务器却不让这个邮箱登录。微软对被锁定、冻结或停用的账号就是这样回应的，
+	// 此时刷新令牌永远显示成功，只有真正登录邮箱才暴露出来。
+	// 它和 auth_failed 的处置不同：重新授权无济于事，账号本身已不可用。
+	ErrKindAccountUnavailable ErrKind = "account_unavailable"
+	ErrKindConsentRequired    ErrKind = "consent_required"
+	ErrKindProxyFailed        ErrKind = "proxy_failed"
+	ErrKindNetwork            ErrKind = "network"
+	ErrKindRateLimited        ErrKind = "rate_limited"
+	ErrKindFolderUnavailable  ErrKind = "folder_unavailable"
+	ErrKindProviderError      ErrKind = "provider_error"
+	ErrKindCanceled           ErrKind = "canceled"
 )
 
 // Attempt 记录一次通道或代理的尝试，供排障时还原整条回退路径。
@@ -96,6 +101,7 @@ func KindOf(err error) ErrKind {
 //
 // 不该继续回退的情形会白白浪费三倍时间，并放大对上游的请求量、加剧风控：
 //   - banned：账号已被封，换通道也是封的，而且每试一次都在加重风控
+//   - account_unavailable：邮箱本身拒绝连接，新旧 IMAP 端点给的是同一个结论
 //   - auth_failed：该通道的授权已经不成立，重试同一条通道没有意义
 //   - consent_required：当前通道的权限不足，重复请求同一权限没有意义
 //   - canceled：调用方主动取消或整体超时，继续试只会拖长响应
@@ -103,7 +109,7 @@ func KindOf(err error) ErrKind {
 // 回退链请用 RetriableFrom：Graph 与不同 OAuth IMAP 端点的授权错误仍可能在另一端点成功。
 func Retriable(err error) bool {
 	switch KindOf(err) {
-	case ErrKindBanned, ErrKindAuthFailed, ErrKindConsentRequired, ErrKindCanceled:
+	case ErrKindBanned, ErrKindAccountUnavailable, ErrKindAuthFailed, ErrKindConsentRequired, ErrKindCanceled:
 		return false
 	default:
 		return true
@@ -145,6 +151,12 @@ func RetriableWithAnotherProxy(err error) bool {
 // 来源：outlookEmail `outlook_mail_reader.py:124`。
 const abuseMarker = "service abuse mode"
 
+// notConnectedMarker 是微软 IMAP 在 XOAUTH2 已通过、但邮箱拒绝连接时的回应
+// （完整原文 `NO User is authenticated but not connected.`）。
+// 线上核实过：同一个 client_id 下其余账号正常，这批账号令牌刷新成功、
+// 新旧两个 IMAP 端点都稳定返回它，属于账号自身被锁定或停用。
+const notConnectedMarker = "user is authenticated but not connected"
+
 // ClassifyIMAPAuthError 把各家 IMAP 服务器五花八门的鉴权错误翻译成可操作的中文文案。
 // 来源：outlookEmail 的 normalize_imap_auth_error。
 //
@@ -155,6 +167,10 @@ func ClassifyIMAPAuthError(raw string) (ErrKind, string) {
 	switch {
 	case strings.Contains(lower, abuseMarker):
 		return ErrKindBanned, "账号已被服务商封禁"
+	// 必须排在下面的 "auth" 之前：原文里的 authenticated 会被当成授权码错误，
+	// 用户于是去重新授权，而这类账号重新授权也救不回来。
+	case strings.Contains(lower, notConnectedMarker):
+		return ErrKindAccountUnavailable, "令牌有效但邮箱拒绝连接，账号可能已被锁定或停用"
 	case strings.Contains(lower, "unsafe login"):
 		// 网易系要求客户端先发 IMAP ID 命令，没发就报这个。
 		return ErrKindProviderError, "服务商要求客户端标识，请重试；若持续失败请在邮箱设置中开启 IMAP"

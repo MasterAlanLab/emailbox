@@ -245,12 +245,12 @@ func (s *RefreshService) selectAccounts(
 		}
 		accounts, err = s.store.ListMailAccountsByIDs(ctx, tenantID, accountIDs)
 	case RefreshScopeGroup:
-		accounts, err = s.accountsInGroups(ctx, tenantID, groupIDs)
+		accounts, err = accountsInGroups(ctx, s.store, tenantID, groupIDs)
 	case RefreshScopeFailed:
-		accounts, err = s.collectAccounts(ctx, tenantID,
+		accounts, err = collectAccounts(ctx, s.store, tenantID,
 			model.AccountFilter{RefreshStatus: string(model.RefreshFailed)})
 	case RefreshScopeAll, "":
-		accounts, err = s.collectAccounts(ctx, tenantID, model.AccountFilter{})
+		accounts, err = collectAccounts(ctx, s.store, tenantID, model.AccountFilter{})
 	default:
 		return nil, fmt.Errorf("未知的选取范围 %q", scope)
 	}
@@ -271,14 +271,14 @@ func (s *RefreshService) selectAccounts(
 }
 
 // accountsInGroups 取出若干分组下的账号。分组先校验归属，避免用别人的
-// group_id 探测到不属于自己的账号。
-func (s *RefreshService) accountsInGroups(
-	ctx context.Context, tenantID string, groupIDs []string,
+// group_id 探测到不属于自己的账号。令牌刷新与账号检测共用。
+func accountsInGroups(
+	ctx context.Context, store *repo.Store, tenantID string, groupIDs []string,
 ) ([]model.MailAccount, error) {
 	if len(groupIDs) == 0 {
-		return nil, errors.New("请先选择要刷新的分组")
+		return nil, errors.New("请先选择分组")
 	}
-	groups, err := s.store.ListMailGroups(ctx, tenantID)
+	groups, err := store.ListMailGroups(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +299,7 @@ func (s *RefreshService) accountsInGroups(
 			continue
 		}
 		seen[gid] = true
-		batch, err := s.collectAccounts(ctx, tenantID, model.AccountFilter{GroupIDs: []string{gid}})
+		batch, err := collectAccounts(ctx, store, tenantID, model.AccountFilter{GroupIDs: []string{gid}})
 		if err != nil {
 			return nil, err
 		}
@@ -312,15 +312,15 @@ func (s *RefreshService) accountsInGroups(
 //
 // 必须翻页：AccountFilter.Normalize 会把 Limit 压到 MaxAccountPageSize(200)，
 // 「填一个大 Limit 一次取完」的写法拿到的永远只有前 200 个。
-func (s *RefreshService) collectAccounts(
-	ctx context.Context, tenantID string, filter model.AccountFilter,
+func collectAccounts(
+	ctx context.Context, store *repo.Store, tenantID string, filter model.AccountFilter,
 ) ([]model.MailAccount, error) {
 	filter.Limit = model.MaxAccountPageSize
 	filter.Normalize()
 	out := make([]model.MailAccount, 0, filter.Limit)
 	for page := 1; len(out) < maxBatchAccounts; page++ {
 		filter.Page = page
-		batch, err := s.store.ListMailAccountsPage(ctx, tenantID, filter)
+		batch, err := store.ListMailAccountsPage(ctx, tenantID, filter)
 		if err != nil {
 			return nil, err
 		}

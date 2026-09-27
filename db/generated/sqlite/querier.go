@@ -41,6 +41,7 @@ type Querier interface {
 	CountJobItems(ctx context.Context, arg CountJobItemsParams) (int64, error)
 	CountJobs(ctx context.Context, arg CountJobsParams) (int64, error)
 	CountMailAccounts(ctx context.Context, tenantID string) (int64, error)
+	CountMailAccountsByHealth(ctx context.Context, arg CountMailAccountsByHealthParams) ([]CountMailAccountsByHealthRow, error)
 	// Optional filters use the "NULL means ignore" pattern. tenant_id and
 	// deleted_at are constant conditions and come first so the composite indexes
 	// can still help.
@@ -63,6 +64,7 @@ type Querier interface {
 	// .sql file contains multi-byte characters and silently truncates the SQL.
 	// Explanations live in pkg/repo/audit.go instead.
 	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) error
+	CreateCheckoutSession(ctx context.Context, arg CreateCheckoutSessionParams) error
 	// NOTE: keep this file ASCII-only. sqlc miscomputes query boundaries when a
 	// .sql file contains multi-byte characters and silently truncates the SQL.
 	// Explanations live in pkg/repo/jobs.go instead.
@@ -85,6 +87,7 @@ type Querier interface {
 	CreateMailGroup(ctx context.Context, arg CreateMailGroupParams) error
 	CreateOAuthAuthorization(ctx context.Context, arg CreateOAuthAuthorizationParams) error
 	CreatePlan(ctx context.Context, arg CreatePlanParams) error
+	CreatePlanPrice(ctx context.Context, arg CreatePlanPriceParams) error
 	// NOTE: keep this file ASCII-only. sqlc miscomputes query boundaries when a
 	// .sql file contains multi-byte characters and silently truncates the SQL.
 	// Explanations live in pkg/repo/refresh_logs.go instead.
@@ -127,6 +130,9 @@ type Querier interface {
 	// Explanations live in pkg/repo/api_keys.go instead.
 	GetAPIKeyByTenant(ctx context.Context, tenantID string) (TenantApiKey, error)
 	GetAdminUser(ctx context.Context, id string) (GetAdminUserRow, error)
+	GetBillingSettings(ctx context.Context) (BillingSetting, error)
+	GetCheckoutByIdempotency(ctx context.Context, arg GetCheckoutByIdempotencyParams) (BillingCheckoutSession, error)
+	GetCheckoutByMerchantExternalID(ctx context.Context, merchantExternalID string) (BillingCheckoutSession, error)
 	GetDefaultPlan(ctx context.Context) (Plan, error)
 	GetEffectiveQuota(ctx context.Context, tenantID string) (GetEffectiveQuotaRow, error)
 	// Every read is scoped by tenant_id, admins included: the admin routes reach
@@ -144,6 +150,7 @@ type Querier interface {
 	// .sql file contains multi-byte characters and silently truncates the SQL.
 	// Explanations live in pkg/repo/quotas.go instead.
 	GetPlanByID(ctx context.Context, id string) (Plan, error)
+	GetPlanPriceByID(ctx context.Context, id string) (GetPlanPriceByIDRow, error)
 	// max_accounts is resolved here (override first, then plan) so the list can
 	// flag tenants sitting over their limit after an admin lowered it.
 	// One round trip for the whole overview card. Each sub-select is an indexed
@@ -155,16 +162,23 @@ type Querier interface {
 	// of the account, not a count of historical attempts.
 	GetRefreshStats(ctx context.Context, tenantID string) (GetRefreshStatsRow, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
+	GetSubscriptionByOrderID(ctx context.Context, orderID string) (TenantSubscription, error)
+	GetSubscriptionByTenant(ctx context.Context, tenantID string) (TenantSubscription, error)
 	GetSystemMailGroup(ctx context.Context, tenantID string) (MailGroup, error)
 	GetTenantByID(ctx context.Context, id string) (Tenant, error)
 	GetTenantMember(ctx context.Context, arg GetTenantMemberParams) (TenantMember, error)
 	GetUsageCount(ctx context.Context, arg GetUsageCountParams) (int64, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
+	GetWebhookEventStatus(ctx context.Context, arg GetWebhookEventStatusParams) (string, error)
 	// Failure breakdown comes from the log table because mail_accounts only keeps
 	// the error text, not its kind. Bounded by a time window so the aggregate does
 	// not slowly turn into a full-table scan as history accumulates.
 	GroupRefreshFailuresByKind(ctx context.Context, arg GroupRefreshFailuresByKindParams) ([]GroupRefreshFailuresByKindRow, error)
+	InsertWebhookEvent(ctx context.Context, arg InsertWebhookEventParams) (int64, error)
+	// The default plan is what everyone has for free; a price left on it (from
+	// before pricing it was rejected) must never show up as something to buy.
+	ListActivePlanPrices(ctx context.Context) ([]ListActivePlanPricesRow, error)
 	// NOTE: keep this file ASCII-only. sqlc miscomputes query boundaries when a
 	// .sql file contains multi-byte characters and silently truncates the SQL.
 	// Explanations live in pkg/repo/admin.go instead.
@@ -201,13 +215,20 @@ type Querier interface {
 	// Fetch aliases for many accounts in one round trip to avoid N+1.
 	ListMailAliasesByAccountIDs(ctx context.Context, arg ListMailAliasesByAccountIDsParams) ([]ListMailAliasesByAccountIDsRow, error)
 	ListMailGroups(ctx context.Context, tenantID string) ([]MailGroup, error)
+	// Marks the checkout that produced an activated subscription. Only pending
+	// rows move, so a replayed activation cannot resurrect a failed attempt.
+	// Recent checkouts that never got an activation, newest first. The sync
+	// endpoint asks Waffo about these when webhooks cannot reach the server.
+	ListPendingCheckouts(ctx context.Context, arg ListPendingCheckoutsParams) ([]BillingCheckoutSession, error)
 	ListPendingJobItems(ctx context.Context, jobID string) ([]JobItem, error)
+	ListPlanPrices(ctx context.Context) ([]ListPlanPricesRow, error)
 	ListPlans(ctx context.Context) ([]Plan, error)
 	ListRefreshLogsPage(ctx context.Context, arg ListRefreshLogsPageParams) ([]MailRefreshLog, error)
 	// Zombie reaping on startup: a killed process leaves rows stuck in running.
 	ListStaleJobs(ctx context.Context, cutoff sql.NullTime) ([]Job, error)
 	ListTenantMembers(ctx context.Context, tenantID string) ([]ListTenantMembersRow, error)
 	ListTenantsByUserID(ctx context.Context, userID string) ([]Tenant, error)
+	MarkCheckoutCompleted(ctx context.Context, merchantExternalID string) (int64, error)
 	MarkJobInterrupted(ctx context.Context, arg MarkJobInterruptedParams) error
 	MarkOAuthAuthorizationExchanged(ctx context.Context, arg MarkOAuthAuthorizationExchangedParams) (int64, error)
 	MarkOAuthAuthorizationFailed(ctx context.Context, arg MarkOAuthAuthorizationFailedParams) (int64, error)
@@ -215,6 +236,14 @@ type Querier interface {
 	MoveAccountsToGroup(ctx context.Context, arg MoveAccountsToGroupParams) error
 	// Only a job that has not finished yet can be asked to stop.
 	RequestJobStop(ctx context.Context, arg RequestJobStopParams) (int64, error)
+	// New credentials void the old verdict: an account left invalid after the
+	// user fixed it would be removed by the next "delete invalid accounts".
+	ResetMailAccountHealth(ctx context.Context, arg ResetMailAccountHealthParams) (int64, error)
+	RestoreTenantQuotaSource(ctx context.Context, arg RestoreTenantQuotaSourceParams) (int64, error)
+	// The invalid condition lives in the statement itself, not in a list of IDs
+	// picked earlier: an account that a concurrent check just marked ok must not
+	// be deleted because it was invalid a moment ago.
+	SoftDeleteInvalidMailAccounts(ctx context.Context, arg SoftDeleteInvalidMailAccountsParams) (int64, error)
 	// Soft delete clears the three credential columns in the same statement.
 	// Credential ciphertext must not linger behind a deleted_at flag.
 	SoftDeleteMailAccount(ctx context.Context, arg SoftDeleteMailAccountParams) (int64, error)
@@ -227,13 +256,23 @@ type Querier interface {
 	StartJob(ctx context.Context, id string) (int64, error)
 	StartJobItem(ctx context.Context, id string) error
 	TouchJobHeartbeat(ctx context.Context, id string) error
+	UpdateBillingSettings(ctx context.Context, arg UpdateBillingSettingsParams) error
+	UpdateCheckoutSession(ctx context.Context, arg UpdateCheckoutSessionParams) (int64, error)
 	UpdateMailAccount(ctx context.Context, arg UpdateMailAccountParams) (int64, error)
+	// Mail access (list, detail, health check) proves the mailbox itself, so it
+	// writes the access result and the health verdict in one statement instead of
+	// two round trips per request.
+	UpdateMailAccountAccessResult(ctx context.Context, arg UpdateMailAccountAccessResultParams) (int64, error)
 	// Hot path: clicking a group in the left pane. Skips every optional clause so
 	// idx_mail_accounts_group applies cleanly.
 	UpdateMailAccountAuthChannel(ctx context.Context, arg UpdateMailAccountAuthChannelParams) (int64, error)
 	// Reauthorization changes credentials only after the new token is verified.
 	// It must not overwrite group, proxy, remark, or concurrent account edits.
 	UpdateMailAccountAuthorization(ctx context.Context, arg UpdateMailAccountAuthorizationParams) (int64, error)
+	// Health is written only by real mailbox logins (health check jobs, mail
+	// access); token refresh may only downgrade it to invalid. Narrow update like
+	// the other write-backs so concurrent edits are never overwritten.
+	UpdateMailAccountHealth(ctx context.Context, arg UpdateMailAccountHealthParams) (int64, error)
 	UpdateMailAccountRefreshResult(ctx context.Context, arg UpdateMailAccountRefreshResultParams) (int64, error)
 	// Microsoft rotates refresh tokens. Missing a rotation breaks the account on
 	// the next refresh, so this must be its own statement that cannot be skipped.
@@ -243,18 +282,25 @@ type Querier interface {
 	UpdateMailGroupSort(ctx context.Context, arg UpdateMailGroupSortParams) error
 	// code is not updatable: it is the stable identifier other systems key off.
 	UpdatePlan(ctx context.Context, arg UpdatePlanParams) (int64, error)
+	UpdatePlanPrice(ctx context.Context, arg UpdatePlanPriceParams) (int64, error)
 	UpdateSessionTenant(ctx context.Context, arg UpdateSessionTenantParams) (int64, error)
+	UpdateSubscriptionStatus(ctx context.Context, arg UpdateSubscriptionStatusParams) (int64, error)
 	UpdateTenant(ctx context.Context, arg UpdateTenantParams) (int64, error)
 	UpdateTenantMemberRole(ctx context.Context, arg UpdateTenantMemberRoleParams) (int64, error)
+	// An admin picking a plan takes ownership of it: plan_source goes back to
+	// admin, so a later subscription cancellation will not revert this choice.
 	UpdateTenantPlan(ctx context.Context, arg UpdateTenantPlanParams) (int64, error)
 	// Admin overrides. NULL in a column means "fall back to the plan value".
 	UpdateTenantQuotaOverrides(ctx context.Context, arg UpdateTenantQuotaOverridesParams) (int64, error)
+	UpdateTenantSubscriptionQuota(ctx context.Context, arg UpdateTenantSubscriptionQuotaParams) (int64, error)
 	UpdateUserLastLogin(ctx context.Context, id string) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (int64, error)
 	UpdateUserPlatformRole(ctx context.Context, arg UpdateUserPlatformRoleParams) (int64, error)
 	UpdateUserProfile(ctx context.Context, arg UpdateUserProfileParams) (int64, error)
 	UpdateUserStatus(ctx context.Context, arg UpdateUserStatusParams) (int64, error)
+	UpdateWebhookEvent(ctx context.Context, arg UpdateWebhookEventParams) (int64, error)
 	UpsertAPIKey(ctx context.Context, arg UpsertAPIKeyParams) error
+	UpsertSubscription(ctx context.Context, arg UpsertSubscriptionParams) error
 }
 
 var _ Querier = (*Queries)(nil)

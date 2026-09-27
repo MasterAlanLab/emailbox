@@ -5,12 +5,12 @@ import { Select } from "@cloudflare/kumo/components/select";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { adminApi, type AdminUser } from "@/api/admin";
-import { AdminShell } from "@/components/admin/AdminShell";
+import { PageShell } from "@/components/layout/PageShell";
 import { QuotaDialog, type QuotaTarget } from "@/components/admin/QuotaDialog";
 import { useAsyncAction } from "@/lib/useAsyncAction";
 import { useAuthStore } from "@/store/authStore";
 
-// 后台只有这一份人员清单。
+// 管理端只有这一份人员清单。
 //
 // **一个租户空间只属于一个用户**，所以「工作空间列表」和「用户列表」原本是同一批行
 // 的两种叫法——两份清单摆在一起，只会让人怀疑「这两个数为什么对不上」。
@@ -64,7 +64,7 @@ export default function AdminUsersPage() {
     });
 
   return (
-    <AdminShell title="用户" description={`共 ${total} 位注册用户。`}>
+    <PageShell title="用户" description={`共 ${total} 位注册用户。`}>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Input
           className="max-w-xs"
@@ -253,6 +253,6 @@ export default function AdminUsersPage() {
           }}
         />
       )}
-    </AdminShell>
+    </PageShell>
   );
 }

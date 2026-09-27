@@ -50,6 +50,30 @@ const (
 	RefreshFailed  RefreshStatus = "failed"
 )
 
+// HealthStatus 是账号本身能不能用：最近一次真正登录邮箱得出的结论。
+//
+// 它与 RefreshStatus 分开，是因为令牌刷新成功不代表邮箱可用——线上有一批账号
+// 令牌每次都换得出来，登录邮箱却被拒绝。两者共用一列的话，下一次刷新令牌任务
+// 就会把「不可用」改回「成功」。
+type HealthStatus string
+
+const (
+	HealthUnknown HealthStatus = "unknown"
+	HealthOK      HealthStatus = "ok"
+	// HealthInvalid 是账号自身确定不可用，「删除失效账号」只删这一类。
+	HealthInvalid HealthStatus = "invalid"
+	// HealthError 是最近一次没能得出结论（网络、代理、限流），不参与清理：
+	// 代理抖一下就删掉一批好账号，这个代价用户承受不起。
+	HealthError HealthStatus = "error"
+)
+
+// HealthCount 是按（健康状态, 失败原因）聚合的账号数。
+type HealthCount struct {
+	Status    HealthStatus
+	ErrorKind string
+	Count     int
+}
+
 // MailAccount 是一个托管的邮箱账号。
 //
 // 三个凭据字段是加密存储的密文，绝不能出现在任何列表/详情接口里——
@@ -84,6 +108,11 @@ type MailAccount struct {
 	LastRefreshErrorKind  string        `json:"last_refresh_error_kind"`
 	RefreshTokenUpdatedAt *time.Time    `json:"refresh_token_updated_at"`
 
+	HealthStatus    HealthStatus `json:"health_status"`
+	HealthErrorKind string       `json:"health_error_kind"`
+	HealthError     string       `json:"health_error"`
+	HealthCheckedAt *time.Time   `json:"health_checked_at"`
+
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
 	DeletedAt *time.Time `json:"-"`
@@ -113,6 +142,7 @@ type AccountFilter struct {
 	Query         string
 	Status        string
 	RefreshStatus string
+	HealthStatus  string
 	Provider      string
 	Sort          string
 	Order         string

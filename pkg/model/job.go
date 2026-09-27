@@ -2,9 +2,13 @@ package model
 
 import "time"
 
-// 任务类型。本期只有 token_refresh，P5 的转发轮询会加进来。
+// 任务类型。
+//
+// account_check 与 token_refresh 分开：后者只证明令牌换得出来，
+// 前者真正登录一次邮箱，才能发现「令牌有效、邮箱却拒绝连接」的账号。
 const (
 	JobTypeTokenRefresh = "token_refresh"
+	JobTypeAccountCheck = "account_check"
 )
 
 // 任务触发方式。
@@ -187,4 +191,27 @@ type RefreshStats struct {
 	// 「一批账号被封」和「代理挂了」——两者的处置完全不同。
 	ByErrorKind map[string]int `json:"by_error_kind"`
 	LastJob     *Job           `json:"last_job"`
+}
+
+// HealthStats 是 /mail/account-health 的响应：账号可用性的分布。
+//
+// InvalidByKind 是「删除失效账号」的确认依据：用户点下删除之前，
+// 要能看到这批账号分别是被封、邮箱拒绝连接还是授权失效。
+type HealthStats struct {
+	Total         int            `json:"total"`
+	OK            int            `json:"ok"`
+	Invalid       int            `json:"invalid"`
+	Error         int            `json:"error"`
+	Unknown       int            `json:"unknown"`
+	InvalidByKind map[string]int `json:"invalid_by_kind"`
+	LastJob       *Job           `json:"last_job"`
+}
+
+// DeleteInvalidRequest 是「删除失效账号」的请求。
+//
+// Expected 是用户在确认框里看到的数量。服务端按它核对：两次操作之间若有检测任务
+// 又判出了新的失效账号，删掉的就会比用户确认过的多——此时宁可让用户再确认一次。
+type DeleteInvalidRequest struct {
+	GroupID  string `json:"group_id"`
+	Expected int    `json:"expected"`
 }

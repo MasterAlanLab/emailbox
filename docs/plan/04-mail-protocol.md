@@ -474,6 +474,7 @@ type ErrKind string
 const (
     ErrKindAuthFailed        ErrKind = "auth_failed"        // 认证/令牌交换失败，原因见 message
     ErrKindBanned            ErrKind = "banned"             // service abuse mode
+    ErrKindAccountUnavailable ErrKind = "account_unavailable" // 令牌有效但邮箱拒绝连接（被锁定/停用），不可回退
     ErrKindConsentRequired   ErrKind = "consent_required"   // scope/权限不足，需重新授权
     ErrKindProxyFailed       ErrKind = "proxy_failed"       // 代理配置/认证或全部候选失败
     ErrKindNetwork           ErrKind = "network"            // 超时、连接重置

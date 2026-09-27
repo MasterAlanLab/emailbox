@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { jobApi } from "@/api/jobs";
@@ -24,6 +24,10 @@ function account(id: string, errorKind: string, error: string): MailAccount {
     last_refresh_status: "failed",
     last_refresh_error: error,
     last_refresh_error_kind: errorKind,
+    health_status: "unknown",
+    health_error_kind: "",
+    health_error: "",
+    health_checked_at: null,
     created_at: "",
     updated_at: "",
     has_password: false,
@@ -63,6 +67,19 @@ describe("Token 刷新结果", () => {
         failed: 2,
         never: 0,
         by_error_kind: { auth_failed: 2 },
+        last_job: null,
+      },
+    });
+    vi.spyOn(jobApi, "health").mockResolvedValue({
+      code: 0,
+      message: "",
+      data: {
+        total: 3,
+        ok: 1,
+        invalid: 2,
+        error: 0,
+        unknown: 0,
+        invalid_by_kind: { account_unavailable: 2 },
         last_job: null,
       },
     });
@@ -167,5 +184,25 @@ describe("Token 刷新结果", () => {
         limit: 200,
       },
     );
+  });
+
+  // 删除按「确认时看到的数量」提交：服务端据此拒绝确认之后才冒出来的失效账号。
+  it("删除失效账号时提交确认框里的数量", async () => {
+    const del = vi
+      .spyOn(jobApi, "deleteInvalid")
+      .mockResolvedValue({ code: 0, message: "", data: { deleted: 2 } });
+    await mount();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /删除失效账号/ }));
+    });
+    expect(screen.getByText("删除 2 个失效账号？")).toBeTruthy();
+    expect(screen.getByText(/邮箱拒绝连接.*：2 个/)).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+    });
+    expect(del).toHaveBeenCalledWith({ tenantID: "t1" }, 2);
+    expect(screen.getByText("已删除 2 个失效账号")).toBeTruthy();
   });
 });

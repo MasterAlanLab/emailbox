@@ -2,8 +2,10 @@ import { Button } from "@cloudflare/kumo/components/button";
 import { Input } from "@cloudflare/kumo/components/input";
 import { LayerCard } from "@cloudflare/kumo/components/layer-card";
 import { useCallback, useEffect, useState } from "react";
-import { adminApi, type Plan } from "@/api/admin";
-import { AdminShell } from "@/components/admin/AdminShell";
+import { adminApi, type AdminPlanPrice, type BillingSettings, type Plan } from "@/api/admin";
+import { PaymentSwitchCard } from "@/components/admin/PaymentSwitchCard";
+import { PlanPrices } from "@/components/admin/PlanPrices";
+import { PageShell } from "@/components/layout/PageShell";
 import { useAsyncAction } from "@/lib/useAsyncAction";
 
 // 数值型配额项。-1 表示不限，与后端 model.Unlimited 对齐。
@@ -19,6 +21,10 @@ export default function AdminPlansPage() {
   const [loadError, setLoadError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
   const [draft, setDraft] = useState({ code: "", name: "" });
+  // 支付配置单独加载：计费接口出错只少了价格与开关，套餐配额照样能改。
+  const [billing, setBilling] = useState<BillingSettings | null>(null);
+  const [prices, setPrices] = useState<AdminPlanPrice[]>([]);
+  const [billingError, setBillingError] = useState("");
   const { error, pending, run } = useAsyncAction();
 
   const reload = useCallback(() => setReloadToken((v) => v + 1), []);
@@ -35,6 +41,23 @@ export default function AdminPlansPage() {
         if (!ignore) setLoading(false);
       }
     })();
+    return () => {
+      ignore = true;
+    };
+  }, [reloadToken]);
+
+  useEffect(() => {
+    let ignore = false;
+    void Promise.all([adminApi.billingSettings(), adminApi.billingPrices()])
+      .then(([settings, priceResp]) => {
+        if (ignore) return;
+        setBilling(settings.data);
+        setPrices(priceResp.data);
+        setBillingError("");
+      })
+      .catch((e: unknown) => {
+        if (!ignore) setBillingError(e instanceof Error ? e.message : "加载支付配置失败");
+      });
     return () => {
       ignore = true;
     };
@@ -58,10 +81,13 @@ export default function AdminPlansPage() {
     });
 
   return (
-    <AdminShell
+    <PageShell
       title="套餐"
-      description="定义各订阅等级的基础资源配额。管理员可在用户列表中为特定租户设定专属覆盖值。"
+      description="每个套餐的资源配额与售价。需要给某个用户单独调额，到「用户」页设置覆盖值。"
     >
+      {billing && <PaymentSwitchCard settings={billing} onChange={setBilling} />}
+      {billingError && <p className="mb-4 text-sm text-kumo-danger">{billingError}</p>}
+
       <LayerCard render={<form onSubmit={create} />} className="mb-6 flex flex-wrap gap-3 p-4">
         <Input
           className="max-w-40"
@@ -144,9 +170,24 @@ export default function AdminPlansPage() {
                 </label>
               ))}
             </div>
+
+            {/* 默认套餐是每个人注册即有的，后端拒绝给它定价。 */}
+            {plan.is_default && (
+              <p className="mt-4 border-t border-kumo-hairline pt-3 text-xs text-kumo-subtle">
+                默认套餐免费提供给所有用户，订阅到期后也回落到它，不能设置价格。
+              </p>
+            )}
+            {billing && !plan.is_default && (
+              <PlanPrices
+                plan={plan}
+                prices={prices.filter((p) => p.plan_id === plan.id)}
+                defaultCurrency={billing.default_currency}
+                onChanged={reload}
+              />
+            )}
           </LayerCard>
         ))}
       </div>
-    </AdminShell>
+    </PageShell>
   );
 }

@@ -96,6 +96,7 @@ WHERE tenant_id = sqlc.arg(tenant_id)
   AND deleted_at IS NULL
   AND (sqlc.narg(status)::text IS NULL OR status = sqlc.narg(status)::text)
   AND (sqlc.narg(refresh_status)::text IS NULL OR last_refresh_status = sqlc.narg(refresh_status)::text)
+  AND (sqlc.narg(health_status)::text IS NULL OR health_status = sqlc.narg(health_status)::text)
   AND (sqlc.narg(provider)::text IS NULL OR provider = sqlc.narg(provider)::text)
   AND (sqlc.narg(group_id)::text IS NULL OR group_id = sqlc.narg(group_id)::text)
   AND (sqlc.narg(q)::text IS NULL
@@ -108,6 +109,7 @@ WHERE tenant_id = sqlc.arg(tenant_id)
   AND deleted_at IS NULL
   AND (sqlc.narg(status)::text IS NULL OR status = sqlc.narg(status)::text)
   AND (sqlc.narg(refresh_status)::text IS NULL OR last_refresh_status = sqlc.narg(refresh_status)::text)
+  AND (sqlc.narg(health_status)::text IS NULL OR health_status = sqlc.narg(health_status)::text)
   AND (sqlc.narg(provider)::text IS NULL OR provider = sqlc.narg(provider)::text)
   AND (sqlc.narg(group_id)::text IS NULL OR group_id = sqlc.narg(group_id)::text)
   AND (sqlc.narg(q)::text IS NULL
@@ -122,6 +124,7 @@ WHERE tenant_id = sqlc.arg(tenant_id)
   AND deleted_at IS NULL
   AND (sqlc.narg(status)::text IS NULL OR status = sqlc.narg(status)::text)
   AND (sqlc.narg(refresh_status)::text IS NULL OR last_refresh_status = sqlc.narg(refresh_status)::text)
+  AND (sqlc.narg(health_status)::text IS NULL OR health_status = sqlc.narg(health_status)::text)
   AND (sqlc.narg(provider)::text IS NULL OR provider = sqlc.narg(provider)::text)
   AND (sqlc.narg(group_id)::text IS NULL OR group_id = sqlc.narg(group_id)::text)
   AND (sqlc.narg(q)::text IS NULL
@@ -136,6 +139,7 @@ WHERE tenant_id = sqlc.arg(tenant_id)
   AND deleted_at IS NULL
   AND (sqlc.narg(status)::text IS NULL OR status = sqlc.narg(status)::text)
   AND (sqlc.narg(refresh_status)::text IS NULL OR last_refresh_status = sqlc.narg(refresh_status)::text)
+  AND (sqlc.narg(health_status)::text IS NULL OR health_status = sqlc.narg(health_status)::text)
   AND (sqlc.narg(provider)::text IS NULL OR provider = sqlc.narg(provider)::text)
   AND (sqlc.narg(group_id)::text IS NULL OR group_id = sqlc.narg(group_id)::text)
   AND (sqlc.narg(q)::text IS NULL
@@ -150,6 +154,7 @@ WHERE tenant_id = sqlc.arg(tenant_id)
   AND deleted_at IS NULL
   AND (sqlc.narg(status)::text IS NULL OR status = sqlc.narg(status)::text)
   AND (sqlc.narg(refresh_status)::text IS NULL OR last_refresh_status = sqlc.narg(refresh_status)::text)
+  AND (sqlc.narg(health_status)::text IS NULL OR health_status = sqlc.narg(health_status)::text)
   AND (sqlc.narg(provider)::text IS NULL OR provider = sqlc.narg(provider)::text)
   AND (sqlc.narg(group_id)::text IS NULL OR group_id = sqlc.narg(group_id)::text)
   AND (sqlc.narg(q)::text IS NULL
@@ -164,6 +169,7 @@ WHERE tenant_id = sqlc.arg(tenant_id)
   AND deleted_at IS NULL
   AND (sqlc.narg(status)::text IS NULL OR status = sqlc.narg(status)::text)
   AND (sqlc.narg(refresh_status)::text IS NULL OR last_refresh_status = sqlc.narg(refresh_status)::text)
+  AND (sqlc.narg(health_status)::text IS NULL OR health_status = sqlc.narg(health_status)::text)
   AND (sqlc.narg(provider)::text IS NULL OR provider = sqlc.narg(provider)::text)
   AND (sqlc.narg(group_id)::text IS NULL OR group_id = sqlc.narg(group_id)::text)
   AND (sqlc.narg(q)::text IS NULL
@@ -178,6 +184,7 @@ WHERE tenant_id = sqlc.arg(tenant_id)
   AND deleted_at IS NULL
   AND (sqlc.narg(status)::text IS NULL OR status = sqlc.narg(status)::text)
   AND (sqlc.narg(refresh_status)::text IS NULL OR last_refresh_status = sqlc.narg(refresh_status)::text)
+  AND (sqlc.narg(health_status)::text IS NULL OR health_status = sqlc.narg(health_status)::text)
   AND (sqlc.narg(provider)::text IS NULL OR provider = sqlc.narg(provider)::text)
   AND (sqlc.narg(group_id)::text IS NULL OR group_id = sqlc.narg(group_id)::text)
   AND (sqlc.narg(q)::text IS NULL
@@ -192,6 +199,7 @@ WHERE tenant_id = sqlc.arg(tenant_id)
   AND deleted_at IS NULL
   AND (sqlc.narg(status)::text IS NULL OR status = sqlc.narg(status)::text)
   AND (sqlc.narg(refresh_status)::text IS NULL OR last_refresh_status = sqlc.narg(refresh_status)::text)
+  AND (sqlc.narg(health_status)::text IS NULL OR health_status = sqlc.narg(health_status)::text)
   AND (sqlc.narg(provider)::text IS NULL OR provider = sqlc.narg(provider)::text)
   AND (sqlc.narg(group_id)::text IS NULL OR group_id = sqlc.narg(group_id)::text)
   AND (sqlc.narg(q)::text IS NULL
@@ -206,6 +214,7 @@ WHERE tenant_id = sqlc.arg(tenant_id)
   AND deleted_at IS NULL
   AND (sqlc.narg(status)::text IS NULL OR status = sqlc.narg(status)::text)
   AND (sqlc.narg(refresh_status)::text IS NULL OR last_refresh_status = sqlc.narg(refresh_status)::text)
+  AND (sqlc.narg(health_status)::text IS NULL OR health_status = sqlc.narg(health_status)::text)
   AND (sqlc.narg(provider)::text IS NULL OR provider = sqlc.narg(provider)::text)
   AND (sqlc.narg(group_id)::text IS NULL OR group_id = sqlc.narg(group_id)::text)
   AND (sqlc.narg(q)::text IS NULL
@@ -249,6 +258,10 @@ SET client_id = $1, refresh_token_enc = $2, auth_channel = $3,
     last_refresh_status = 'success',
     last_refresh_error = '',
     last_refresh_error_kind = '',
+    health_status = 'unknown',
+    health_error_kind = '',
+    health_error = '',
+    health_checked_at = NULL,
     updated_at = CURRENT_TIMESTAMP
 WHERE tenant_id = $4 AND id = $5 AND deleted_at IS NULL;
 
@@ -260,3 +273,61 @@ UPDATE mail_accounts
 SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP,
     password_enc = '', refresh_token_enc = '', imap_password_enc = ''
 WHERE tenant_id = $1 AND deleted_at IS NULL;
+
+-- Health is written only by real mailbox logins (health check jobs, mail
+-- access); token refresh may only downgrade it to invalid. Narrow update like
+-- the other write-backs so concurrent edits are never overwritten.
+-- name: UpdateMailAccountHealth :execrows
+UPDATE mail_accounts
+SET health_status = $1,
+    health_error_kind = $2,
+    health_error = $3,
+    health_checked_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = $4 AND id = $5 AND deleted_at IS NULL;
+
+-- New credentials void the old verdict: an account left invalid after the
+-- user fixed it would be removed by the next "delete invalid accounts".
+-- name: ResetMailAccountHealth :execrows
+UPDATE mail_accounts
+SET health_status = 'unknown',
+    health_error_kind = '',
+    health_error = '',
+    health_checked_at = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL;
+
+-- name: CountMailAccountsByHealth :many
+SELECT health_status, health_error_kind, COUNT(*) AS total FROM mail_accounts
+WHERE tenant_id = sqlc.arg(tenant_id)
+  AND deleted_at IS NULL
+  AND (sqlc.narg(group_id)::text IS NULL OR group_id = sqlc.narg(group_id)::text)
+GROUP BY health_status, health_error_kind;
+
+-- The invalid condition lives in the statement itself, not in a list of IDs
+-- picked earlier: an account that a concurrent check just marked ok must not
+-- be deleted because it was invalid a moment ago.
+-- name: SoftDeleteInvalidMailAccounts :execrows
+UPDATE mail_accounts
+SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP,
+    password_enc = '', refresh_token_enc = '', imap_password_enc = ''
+WHERE tenant_id = sqlc.arg(tenant_id)
+  AND deleted_at IS NULL
+  AND health_status = 'invalid'
+  AND (sqlc.narg(group_id)::text IS NULL OR group_id = sqlc.narg(group_id)::text);
+
+-- Mail access (list, detail, health check) proves the mailbox itself, so it
+-- writes the access result and the health verdict in one statement instead of
+-- two round trips per request.
+-- name: UpdateMailAccountAccessResult :execrows
+UPDATE mail_accounts
+SET last_refresh_at = CURRENT_TIMESTAMP,
+    last_refresh_status = $1,
+    last_refresh_error = $2,
+    last_refresh_error_kind = $3,
+    health_status = $4,
+    health_error_kind = $5,
+    health_error = $6,
+    health_checked_at = CURRENT_TIMESTAMP,
+    updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = $7 AND id = $8 AND deleted_at IS NULL;

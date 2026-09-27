@@ -57,7 +57,9 @@ type Handlers struct {
 	Admin   *handler.AdminHandler
 	Job     *handler.JobHandler
 	Refresh *handler.RefreshHandler
+	Health  *handler.HealthHandler
 	OAuth   *handler.OAuthHandler
+	Billing *handler.BillingHandler
 	Audit   *service.AuditService
 }
 
@@ -87,6 +89,8 @@ func SetupRoutes(
 	v1.GET("/oauth/callback", h.OAuth.Callback)
 	// 保留旧回调地址，已配置的 Microsoft 应用可平滑迁移到通用地址。
 	v1.GET("/oauth/microsoft/callback", h.OAuth.Callback)
+	// Waffo 回调在认证组外，依靠 RSA 签名、Store ID、环境与事件去重校验。
+	v1.POST("/webhooks/waffo", h.Billing.Webhook)
 	protected := v1.Group("", auth.Require)
 	protected.POST("/auth/logout", h.Auth.Logout)
 	protected.GET("/auth/session", h.Auth.Session)
@@ -101,6 +105,13 @@ func SetupRoutes(
 	t.DELETE("", h.Tenant.Delete, middleware.Require(model.PermissionTenantDelete))
 	t.POST("/select", h.Tenant.Select, middleware.Require(model.PermissionTenantRead))
 	t.GET("/quota", h.Quota.Get, middleware.Require(model.PermissionTenantRead))
+	t.GET("/billing/plans", h.Billing.Plans, middleware.Require(model.PermissionTenantRead))
+	t.GET("/billing/subscription", h.Billing.Subscription, middleware.Require(model.PermissionTenantRead))
+	// 对账只把 Waffo 已确认的订单同步下来，调用方不提供任何输入，因此与读订阅同一权限、不记审计。
+	t.POST("/billing/sync", h.Billing.Sync, middleware.Require(model.PermissionTenantRead))
+	t.POST("/billing/checkout", h.Billing.Checkout, middleware.Require(model.PermissionTenantUpdate), handler.AuditWrite(h.Audit, model.AuditBillingCheckout, "billing_checkout", ""))
+	t.POST("/billing/cancel", h.Billing.Cancel, middleware.Require(model.PermissionTenantUpdate), handler.AuditWrite(h.Audit, model.AuditBillingCancel, "subscription", ""))
+	t.POST("/billing/uncancel", h.Billing.Uncancel, middleware.Require(model.PermissionTenantUpdate), handler.AuditWrite(h.Audit, model.AuditBillingCancel, "subscription", ""))
 	// API Key 的读与重置都要 tenant:update：它等价于发放一把能读全部邮件的钥匙，
 	// 不能让只读成员拿到。Key 自己的角色没有这一项，因此读不到也重置不了自己。
 	t.GET("/api-key", h.APIKey.Get, middleware.Require(model.PermissionTenantUpdate))
@@ -194,6 +205,9 @@ func mountMailRoutes(m *echo.Group, h Handlers, exportLimiter echo.MiddlewareFun
 		BulkBody(), audit(model.AuditAccountBatch, "account", ""))
 	m.POST("/accounts/batch/delete", h.Account.BatchDelete, middleware.Require(model.PermissionAccountDelete),
 		BulkBody(), audit(model.AuditAccountDelete, "account", ""))
+	// 按「当前失效」这个条件删除，而不是按前端传来的 ID 列表：见 HealthService.DeleteInvalid。
+	m.POST("/accounts/batch/delete-invalid", h.Health.DeleteInvalid, middleware.Require(model.PermissionAccountDelete),
+		audit(model.AuditAccountDelete, "account", ""))
 
 	// 邮件读写。这些端点每一个都会打上游，耗时以秒计——
 	// 批量操作因此限制在 200 封以内，更多的走 P4 的任务系统。
@@ -227,6 +241,11 @@ func mountMailRoutes(m *echo.Group, h Handlers, exportLimiter echo.MiddlewareFun
 	m.POST("/jobs/token-refresh", h.Refresh.SubmitBatch,
 		middleware.Require(model.PermissionTokenRefresh), BulkBody(),
 		audit(model.AuditJobSubmit, "job", ""))
+	// 账号检测与令牌刷新同属「批量打上游」的任务，权限一并收在 PermissionTokenRefresh。
+	m.POST("/jobs/account-check", h.Health.SubmitBatch,
+		middleware.Require(model.PermissionTokenRefresh), BulkBody(),
+		audit(model.AuditJobSubmit, "job", ""))
+	m.GET("/account-health", h.Health.Stats, middleware.Require(model.PermissionAccountRead))
 	m.GET("/refresh/stats", h.Refresh.Stats, middleware.Require(model.PermissionAccountRead))
 	m.GET("/refresh/logs", h.Refresh.Logs, middleware.Require(model.PermissionAccountRead))
 
@@ -256,6 +275,12 @@ func mountAdminRoutes(admin *echo.Group, h Handlers, platform *middleware.Platfo
 	admin.POST("/plans", h.Admin.CreatePlan)
 	admin.PATCH("/plans/:planID", h.Admin.UpdatePlan)
 	admin.DELETE("/plans/:planID", h.Admin.DeletePlan)
+	admin.GET("/billing/settings", h.Billing.AdminSettings)
+	admin.PATCH("/billing/settings", h.Billing.UpdateAdminSettings, handler.AuditWrite(h.Audit, model.AuditBillingSettings, "billing_settings", ""))
+	admin.GET("/billing/prices", h.Billing.AdminPrices)
+	admin.POST("/billing/prices", h.Billing.CreatePrice, handler.AuditWrite(h.Audit, model.AuditBillingPrice, "plan_price", ""))
+	admin.PATCH("/billing/prices/:priceID", h.Billing.UpdatePrice, handler.AuditWrite(h.Audit, model.AuditBillingPrice, "plan_price", "priceID"))
+	admin.POST("/billing/prices/:priceID/sync", h.Billing.SyncPrice, handler.AuditWrite(h.Audit, model.AuditBillingPrice, "plan_price", "priceID"))
 
 	// 跨租户视图。TenantContext 确认租户存在，之后的邮箱路由与用户侧完全同构。
 	at := admin.Group("/tenants/:tenantID", platform.TenantContext)

@@ -33,6 +33,31 @@ export interface Plan {
   updated_at: string;
 }
 
+export interface BillingSettings {
+  enabled: boolean;
+  mode: "test" | "prod";
+  default_currency: string;
+  updated_at: string;
+  /** 部署配置里 Waffo API Key 绑定的环境，管理员不能在界面上改。 */
+  environment: "test" | "prod";
+  /** 打开支付之前还缺的配置，空数组表示可以打开。 */
+  missing: string[];
+}
+
+export interface AdminPlanPrice {
+  id: string;
+  plan_id: string;
+  plan_code: string;
+  plan_name: string;
+  billing_period: "monthly" | "yearly";
+  currency: string;
+  amount: string;
+  provider_product_id?: string;
+  sync_status: "pending" | "active" | "error" | "inactive";
+  sync_error?: string;
+  active: boolean;
+}
+
 export interface AuditLog {
   id: string;
   tenant_id: string;
@@ -116,6 +141,18 @@ export const adminApi = {
     (await client.patch<ApiResponse<Plan>>(`${base}/plans/${planID}`, data)).data,
   deletePlan: async (planID: string) =>
     (await client.delete<ApiResponse<null>>(`${base}/plans/${planID}`)).data,
+  billingSettings: async () =>
+    (await client.get<ApiResponse<BillingSettings>>(`${base}/billing/settings`)).data,
+  updateBillingSettings: async (data: Partial<BillingSettings>) =>
+    (await client.patch<ApiResponse<BillingSettings>>(`${base}/billing/settings`, data)).data,
+  billingPrices: async () =>
+    (await client.get<ApiResponse<AdminPlanPrice[]>>(`${base}/billing/prices`)).data,
+  createBillingPrice: async (data: Partial<AdminPlanPrice>) =>
+    (await client.post<ApiResponse<AdminPlanPrice>>(`${base}/billing/prices`, data)).data,
+  updateBillingPrice: async (id: string, data: Partial<AdminPlanPrice>) =>
+    (await client.patch<ApiResponse<AdminPlanPrice>>(`${base}/billing/prices/${id}`, data)).data,
+  syncBillingPrice: async (id: string) =>
+    (await client.post<ApiResponse<AdminPlanPrice>>(`${base}/billing/prices/${id}/sync`)).data,
 
   audit: async (params: {
     tenant_id?: string;

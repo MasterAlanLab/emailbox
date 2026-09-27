@@ -89,6 +89,8 @@ func TestClassifyIMAPAuthError(t *testing.T) {
 		want ErrKind
 	}{
 		{"被封", "Service abuse mode", ErrKindBanned},
+		// 线上原文。含 authenticated，曾被下面的 "auth" 分支吞成 auth_failed。
+		{"令牌有效但邮箱拒绝连接", "imap: NO User is authenticated but not connected.", ErrKindAccountUnavailable},
 		{"网易未发 IMAP ID", "EOF Unsafe Login. Please contact kefu@188.com", ErrKindProviderError},
 		{"授权码错误", "Authentication failed", ErrKindAuthFailed},
 		{"凭据无效", "Invalid credentials (Failure)", ErrKindAuthFailed},
@@ -142,15 +144,16 @@ func TestKindOf(t *testing.T) {
 
 func TestRetriable(t *testing.T) {
 	cases := map[ErrKind]bool{
-		ErrKindBanned:            false,
-		ErrKindAuthFailed:        false,
-		ErrKindConsentRequired:   false,
-		ErrKindCanceled:          false,
-		ErrKindNetwork:           true,
-		ErrKindProxyFailed:       true,
-		ErrKindRateLimited:       true,
-		ErrKindFolderUnavailable: true,
-		ErrKindProviderError:     true,
+		ErrKindBanned:             false,
+		ErrKindAccountUnavailable: false,
+		ErrKindAuthFailed:         false,
+		ErrKindConsentRequired:    false,
+		ErrKindCanceled:           false,
+		ErrKindNetwork:            true,
+		ErrKindProxyFailed:        true,
+		ErrKindRateLimited:        true,
+		ErrKindFolderUnavailable:  true,
+		ErrKindProviderError:      true,
 	}
 	for kind, want := range cases {
 		if got := Retriable(newError(kind, "", "", nil)); got != want {

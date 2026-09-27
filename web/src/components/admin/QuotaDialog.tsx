@@ -7,7 +7,7 @@ import { adminApi, type Plan } from "@/api/admin";
 import { useAsyncAction } from "@/lib/useAsyncAction";
 
 // 只要「改谁的配额」这三样，不绑定某个具体的列表行类型：
-// 后台的租户列表已经并进用户列表（一个租户空间只属于一个用户），
+// 管理端的租户列表已经并进用户列表（一个租户空间只属于一个用户），
 // 调用方传的是 AdminUser，将来若再有别的入口也不必再改这里。
 export interface QuotaTarget {
   tenantID: string;

@@ -15,15 +15,15 @@ import (
 // postgres 因为 SQL 里带了 ::text / ::int 转换，生成 sql.NullString / sql.NullInt32。
 // 这两组结构体各自独立，因此下面按驱动各构造一次。
 type sqliteFilterParams struct {
-	TenantID                                    string
-	Status, RefreshStatus, Provider, GroupID, Q interface{}
-	RowLimit, RowOffset                         int64
+	TenantID                                                  string
+	Status, RefreshStatus, HealthStatus, Provider, GroupID, Q interface{}
+	RowLimit, RowOffset                                       int64
 }
 
 type postgresFilterParams struct {
-	TenantID                                    string
-	Status, RefreshStatus, Provider, GroupID, Q sql.NullString
-	RowLimit, RowOffset                         int32
+	TenantID                                                  string
+	Status, RefreshStatus, HealthStatus, Provider, GroupID, Q sql.NullString
+	RowLimit, RowOffset                                       int32
 }
 
 // nullStr 把「空串表示不筛选」转换为 SQL 的 NULL。
@@ -68,7 +68,8 @@ func (s *Store) ListMailAccountsPage(ctx context.Context, tenantID string, f mod
 		p := sqliteFilterParams{
 			TenantID: tenantID,
 			Status:   anyStr(f.Status), RefreshStatus: anyStr(f.RefreshStatus),
-			Provider: anyStr(f.Provider), GroupID: anyStr(firstOrEmpty(f.GroupIDs)),
+			HealthStatus: anyStr(f.HealthStatus),
+			Provider:     anyStr(f.Provider), GroupID: anyStr(firstOrEmpty(f.GroupIDs)),
 			Q:        anyStr(searchTerm(f.Query)),
 			RowLimit: int64(f.Limit), RowOffset: int64(f.Offset()),
 		}
@@ -85,7 +86,8 @@ func (s *Store) ListMailAccountsPage(ctx context.Context, tenantID string, f mod
 	p := postgresFilterParams{
 		TenantID: tenantID,
 		Status:   nullStr(f.Status), RefreshStatus: nullStr(f.RefreshStatus),
-		Provider: nullStr(f.Provider), GroupID: nullStr(firstOrEmpty(f.GroupIDs)),
+		HealthStatus: nullStr(f.HealthStatus),
+		Provider:     nullStr(f.Provider), GroupID: nullStr(firstOrEmpty(f.GroupIDs)),
 		Q:        nullStr(searchTerm(f.Query)),
 		RowLimit: int32(f.Limit), RowOffset: int32(f.Offset()),
 	}
@@ -103,56 +105,56 @@ func (s *Store) listAccountsSQLite(ctx context.Context, key string, p sqliteFilt
 	switch key {
 	case "sort_order/asc":
 		rows, err := s.sqlite.ListMailAccountsPageBySortOrderAsc(ctx, sqlitedb.ListMailAccountsPageBySortOrderAscParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "sort_order/desc":
 		rows, err := s.sqlite.ListMailAccountsPageBySortOrderDesc(ctx, sqlitedb.ListMailAccountsPageBySortOrderDescParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "email/asc":
 		rows, err := s.sqlite.ListMailAccountsPageByEmailAsc(ctx, sqlitedb.ListMailAccountsPageByEmailAscParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "email/desc":
 		rows, err := s.sqlite.ListMailAccountsPageByEmailDesc(ctx, sqlitedb.ListMailAccountsPageByEmailDescParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "created_at/asc":
 		rows, err := s.sqlite.ListMailAccountsPageByCreatedAtAsc(ctx, sqlitedb.ListMailAccountsPageByCreatedAtAscParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "created_at/desc":
 		rows, err := s.sqlite.ListMailAccountsPageByCreatedAtDesc(ctx, sqlitedb.ListMailAccountsPageByCreatedAtDescParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "last_refresh_at/asc":
 		rows, err := s.sqlite.ListMailAccountsPageByLastRefreshAtAsc(ctx, sqlitedb.ListMailAccountsPageByLastRefreshAtAscParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "last_refresh_at/desc":
 		rows, err := s.sqlite.ListMailAccountsPageByLastRefreshAtDesc(ctx, sqlitedb.ListMailAccountsPageByLastRefreshAtDescParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
@@ -166,56 +168,56 @@ func (s *Store) listAccountsPostgres(ctx context.Context, key string, p postgres
 	switch key {
 	case "sort_order/asc":
 		rows, err := s.postgres.ListMailAccountsPageBySortOrderAsc(ctx, postgresdb.ListMailAccountsPageBySortOrderAscParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "sort_order/desc":
 		rows, err := s.postgres.ListMailAccountsPageBySortOrderDesc(ctx, postgresdb.ListMailAccountsPageBySortOrderDescParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "email/asc":
 		rows, err := s.postgres.ListMailAccountsPageByEmailAsc(ctx, postgresdb.ListMailAccountsPageByEmailAscParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "email/desc":
 		rows, err := s.postgres.ListMailAccountsPageByEmailDesc(ctx, postgresdb.ListMailAccountsPageByEmailDescParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "created_at/asc":
 		rows, err := s.postgres.ListMailAccountsPageByCreatedAtAsc(ctx, postgresdb.ListMailAccountsPageByCreatedAtAscParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "created_at/desc":
 		rows, err := s.postgres.ListMailAccountsPageByCreatedAtDesc(ctx, postgresdb.ListMailAccountsPageByCreatedAtDescParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "last_refresh_at/asc":
 		rows, err := s.postgres.ListMailAccountsPageByLastRefreshAtAsc(ctx, postgresdb.ListMailAccountsPageByLastRefreshAtAscParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
 		return rows, err
 	case "last_refresh_at/desc":
 		rows, err := s.postgres.ListMailAccountsPageByLastRefreshAtDesc(ctx, postgresdb.ListMailAccountsPageByLastRefreshAtDescParams{
-			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus,
+			TenantID: p.TenantID, Status: p.Status, RefreshStatus: p.RefreshStatus, HealthStatus: p.HealthStatus,
 			Provider: p.Provider, GroupID: p.GroupID,
 			Q: p.Q, RowLimit: p.RowLimit, RowOffset: p.RowOffset,
 		})
@@ -232,7 +234,8 @@ func (s *Store) CountMailAccountsFiltered(ctx context.Context, tenantID string, 
 		arg := sqlitedb.CountMailAccountsFilteredParams{
 			TenantID: tenantID,
 			Status:   anyStr(f.Status), RefreshStatus: anyStr(f.RefreshStatus),
-			Provider: anyStr(f.Provider), GroupID: anyStr(firstOrEmpty(f.GroupIDs)),
+			HealthStatus: anyStr(f.HealthStatus),
+			Provider:     anyStr(f.Provider), GroupID: anyStr(firstOrEmpty(f.GroupIDs)),
 			Q: anyStr(searchTerm(f.Query)),
 		}
 		n, err := s.sqlite.CountMailAccountsFiltered(ctx, arg)
@@ -241,7 +244,8 @@ func (s *Store) CountMailAccountsFiltered(ctx context.Context, tenantID string, 
 	arg := postgresdb.CountMailAccountsFilteredParams{
 		TenantID: tenantID,
 		Status:   nullStr(f.Status), RefreshStatus: nullStr(f.RefreshStatus),
-		Provider: nullStr(f.Provider), GroupID: nullStr(firstOrEmpty(f.GroupIDs)),
+		HealthStatus: nullStr(f.HealthStatus),
+		Provider:     nullStr(f.Provider), GroupID: nullStr(firstOrEmpty(f.GroupIDs)),
 		Q: nullStr(searchTerm(f.Query)),
 	}
 	n, err := s.postgres.CountMailAccountsFiltered(ctx, arg)

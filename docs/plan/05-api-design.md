@@ -37,7 +37,7 @@ SQL 里的 `WHERE tenant_id = ?` 永不放宽——理由与实现见 [08 文档
 | `1004` | 409 | `MAIL_ACCOUNT_EXISTS` — 邮箱已存在 |
 | `1005` | 502 | `UPSTREAM_MAIL_ERROR` — 上游邮件服务失败，`data` 带 `{error_kind, channel}` |
 
-> **1005 的状态码细分**（`handler.upstreamFailure`）：`banned` → 409、`rate_limited` → 429、
+> **1005 的状态码细分**（`handler.upstreamFailure`）：`banned` / `account_unavailable` → 409、`rate_limited` → 429、
 > `folder_unavailable` → 404、`canceled` → 504；其余（含 `auth_failed` / `consent_required`）
 > 落到表里的 502。
 >
@@ -219,6 +219,7 @@ POST /mail/accounts/import          权限 account:write   BodyLimit 8MB
 | `POST /mail/accounts/batch/proxy` | account:write | `{account_ids, proxy_url, fallback_1, fallback_2}` |
 | `POST /mail/accounts/batch/status` | account:write | `{account_ids, status}` |
 | `POST /mail/accounts/batch/delete` | account:delete | `{account_ids}` |
+| `POST /mail/accounts/batch/delete-invalid` | account:delete | `{group_id?, expected}`：删除 `health_status=invalid` 的账号（清空凭据）。`expected` 与当前失效数不一致时回 409，见 §6.3 |
 
 统一返回：`{requested, succeeded, failed, errors:[{account_id, reason}]}`。
 `account_ids` 长度上限 5000，超出返回 400（提示分批）。
@@ -354,6 +355,29 @@ GET /mail/refresh/logs         → 分页，支持 status / account_id / 时间�
 `mail_refresh_logs` 一直没有清理也没出过问题；定时刷新把它们变成「账号数 × 每天轮次」
 的稳定增量（5000 账号每天四轮 ≈ 每天两万行）。`main.go` 的 `purgeJobs` 与
 `purgeRefreshLogs` 各保留 30 天，写成常量。
+
+### 6.3 账号有效性检测（2026-09-27）
+
+令牌刷新只证明 refresh_token 换得出 access_token。线上有一批 Outlook 账号令牌刷新永远成功，
+IMAP XOAUTH2 却被拒（`NO User is authenticated but not connected.`，账号被锁定或停用），
+只看令牌的话它们永远显示「有效」。因此账号上另有一组 `health_*` 字段，只由**真正登录邮箱**的
+调用写入（检测任务、收信、取详情等）；令牌刷新只能把它写成 `invalid`，不能写成 `ok`。
+
+| 取值 | 含义 | 参与「删除失效账号」 |
+|---|---|---|
+| `unknown` | 从未登录过邮箱；换过凭据、改过状态后也回到这里 | 否 |
+| `ok` | 最近一次登录成功 | 否 |
+| `invalid` | 账号自身不可用：`banned` / `account_unavailable` / `auth_failed` | **是** |
+| `error` | 没能得出结论：网络、代理、限流、服务商故障、凭据解不开 | 否 |
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| POST | `/mail/jobs/account-check` | token:refresh | body `{scope:"all\|invalid\|selected\|group", account_ids:[], group_ids:[]}` → 返回任务；每个账号取收件箱最新一封的信封。停用账号不参与；同一租户同时只允许一个检测任务（409）；不扣取件额度 |
+| GET | `/mail/account-health` | account:read | `{total, ok, invalid, error, unknown, invalid_by_kind:{account_unavailable:4,...}, last_job}`，可带 `group_id` |
+| POST | `/mail/accounts/batch/delete-invalid` | account:delete | 见上表 |
+
+删除按「语句执行那一刻仍为 invalid」的条件执行，而不是按之前选出的 ID 列表——检测任务可能正在把其中
+某个改回 `ok`。`expected` 守的是另一个方向：确认之后又判出的失效账号，不能在用户没看到的情况下一起删掉。
 
 ## 7. 已删除的端点组
 

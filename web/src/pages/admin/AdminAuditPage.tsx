@@ -4,7 +4,7 @@ import { LayerCard } from "@cloudflare/kumo/components/layer-card";
 import { Select } from "@cloudflare/kumo/components/select";
 import { useEffect, useState } from "react";
 import { adminApi, type AuditLog } from "@/api/admin";
-import { AdminShell } from "@/components/admin/AdminShell";
+import { PageShell } from "@/components/layout/PageShell";
 
 export default function AdminAuditPage() {
   const [actorKind, setActorKind] = useState("");
@@ -41,7 +41,7 @@ export default function AdminAuditPage() {
   }, [actorKind, action, page]);
 
   return (
-    <AdminShell
+    <PageShell
       title="审计日志"
       description="所有写操作，以及管理员对他人数据的读操作，都会留在这里。"
     >
@@ -137,6 +137,6 @@ export default function AdminAuditPage() {
           下一页
         </Button>
       </div>
-    </AdminShell>
+    </PageShell>
   );
 }

@@ -168,6 +168,8 @@ func buildServices(store *repo.Store, desktop bool) (*services, error) {
 	})
 	refreshService := service.NewRefreshService(store, messageService, quotaService, jobManager)
 	jobManager.Register(refreshService)
+	healthService := service.NewHealthService(store, messageService, jobManager)
+	jobManager.Register(healthService)
 
 	// 强杀留下的 running 任务在这里被认出来并标为 interrupted。
 	// 不做这一步的话，前端的进度条会对着一个永远不动的任务一直转。
@@ -179,6 +181,10 @@ func buildServices(store *repo.Store, desktop bool) (*services, error) {
 
 	auditService := service.NewAuditService(store)
 	adminService := service.NewAdminService(store, platformService, quotaService)
+	billingService, err := service.NewBillingService(store, configs.AppConfig.Waffo)
+	if err != nil {
+		return nil, err
+	}
 	return &services{
 		auth:      authService,
 		jobs:      jobManager,
@@ -190,8 +196,10 @@ func buildServices(store *repo.Store, desktop bool) (*services, error) {
 			Account: handler.NewAccountHandler(accountService), Quota: handler.NewQuotaHandler(service.NewQuotaService(store, quotaService)),
 			Message: handler.NewMessageHandler(messageService),
 			Admin:   handler.NewAdminHandler(adminService, auditService, service.NewQuotaService(store, quotaService)),
+			Billing: handler.NewBillingHandler(billingService),
 			Job:     handler.NewJobHandler(service.NewJobService(store, jobManager), refreshService),
 			Refresh: handler.NewRefreshHandler(refreshService),
+			Health:  handler.NewHealthHandler(healthService),
 			OAuth:   handler.NewOAuthHandler(oauthService, configs.AppConfig.OAuth.ReturnURL), Audit: auditService,
 		},
 		authMW:     middleware2.NewAuthMiddleware(authService, apiKeyService),

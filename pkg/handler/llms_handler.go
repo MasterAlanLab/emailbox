@@ -122,6 +122,7 @@ curl -s -H "Authorization: Bearer $KEY" \
 - 403  权限不足：写操作、或访问别的工作空间
 - 403 且 code=1001  今日取件额度用尽，次日按工作空间时区重置
 - 404  账号或邮件不存在
+- 409  账号本身不可用：已封禁、已停用，或令牌有效但邮箱拒绝连接（data.error_kind=account_unavailable），重试无用
 - 429  请求过于频繁
 - 502  上游邮箱服务出错，data.error_kind 说明是要重新授权、换代理还是稍后再试
 

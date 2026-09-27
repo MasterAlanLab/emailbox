@@ -97,6 +97,9 @@ func mailError(c *echo.Context, err error) error {
 	// 用 400 的话前端分不清「参数写错了」和「换个账号就好了」。
 	case errors.Is(err, service.ErrAccountBanned), errors.Is(err, service.ErrAccountDisabled):
 		return failure(c, http.StatusConflict, err)
+	// 两者都是「请求没错，但当下的状态不允许」：等任务跑完、或重新确认数量即可。
+	case errors.Is(err, service.ErrCheckJobRunning), errors.Is(err, service.ErrInvalidCountChanged):
+		return failure(c, http.StatusConflict, err)
 	case isUpstreamError(err):
 		return upstreamFailure(c, err)
 	default:
@@ -130,7 +133,8 @@ func upstreamFailure(c *echo.Context, err error) error {
 
 	status := http.StatusBadGateway
 	switch e.Kind {
-	case mailer.ErrKindBanned:
+	// 这两类是账号自身的确定状态，不是上游抖动；回 502 会引来无意义的重试。
+	case mailer.ErrKindBanned, mailer.ErrKindAccountUnavailable:
 		status = http.StatusConflict
 	case mailer.ErrKindRateLimited:
 		status = http.StatusTooManyRequests

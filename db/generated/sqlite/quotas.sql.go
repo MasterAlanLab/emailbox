@@ -105,7 +105,9 @@ func (q *Queries) GetUsageCount(ctx context.Context, arg GetUsageCountParams) (i
 }
 
 const updateTenantPlan = `-- name: UpdateTenantPlan :execrows
-UPDATE tenant_quotas SET plan_id = ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?
+UPDATE tenant_quotas
+SET plan_id = ?, plan_source = 'admin', subscription_id = NULL, updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = ?
 `
 
 type UpdateTenantPlanParams struct {
@@ -113,6 +115,8 @@ type UpdateTenantPlanParams struct {
 	TenantID string
 }
 
+// An admin picking a plan takes ownership of it: plan_source goes back to
+// admin, so a later subscription cancellation will not revert this choice.
 func (q *Queries) UpdateTenantPlan(ctx context.Context, arg UpdateTenantPlanParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateTenantPlan, arg.PlanID, arg.TenantID)
 	if err != nil {

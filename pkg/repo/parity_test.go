@@ -15,6 +15,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -446,6 +447,8 @@ func TestAccountFilterParity(t *testing.T) {
 		{Status: "active"},
 		{Status: "banned"},
 		{RefreshStatus: "failed"},
+		{HealthStatus: "invalid"},
+		{HealthStatus: "unknown"},
 		{Provider: "gmail"},
 		{Query: "ALPHA"}, // 大小写不敏感
 		{Query: "beta"},
@@ -488,6 +491,9 @@ func TestAccountFilterParity(t *testing.T) {
 		second.Provider = "gmail"
 		second.Status = model.AccountStatusBanned
 		if err := e.store.UpdateMailAccount(ctx, second); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if err := e.store.UpdateMailAccountHealth(ctx, tenantID, ids[2], "invalid", "account_unavailable", "x"); err != nil {
 			t.Fatalf("%s: %v", e.name, err)
 		}
 
@@ -535,6 +541,133 @@ func TestAccountFilterParity(t *testing.T) {
 					break
 				}
 			}
+		}
+	}
+}
+
+// 健康状态的写回、聚合与按条件软删在两个引擎上各写一份，结果必须一致：
+// 「删除失效账号」少删是小事，多删一个就是事故。
+func TestAccountHealthParity(t *testing.T) {
+	type outcome struct {
+		counts    string
+		deleted   int
+		remaining int
+	}
+	outcomes := map[string]outcome{}
+	for _, e := range parityEngines(t) {
+		ctx := context.Background()
+		tenantID := seed(t, e.store)
+		ids := seedAccounts(t, e.store, tenantID, "a@x.com", "b@x.com", "c@x.com", "d@x.com")
+
+		// a：收信判定失效；b：检测判定失效后换了凭据（重置）；c：网络不通；d：从未检测。
+		if err := e.store.UpdateMailAccountAccessResult(ctx, tenantID, ids[0],
+			"failed", "locked", "account_unavailable", "invalid", "account_unavailable"); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if err := e.store.UpdateMailAccountHealth(ctx, tenantID, ids[1], "invalid", "auth_failed", "x"); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if err := e.store.ResetMailAccountHealth(ctx, tenantID, ids[1]); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if err := e.store.UpdateMailAccountHealth(ctx, tenantID, ids[2], "error", "network", "x"); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+
+		rows, err := e.store.CountMailAccountsByHealth(ctx, tenantID, "")
+		if err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		byKey := map[string]int{}
+		for _, r := range rows {
+			byKey[string(r.Status)+"/"+r.ErrorKind] = r.Count
+		}
+		// 分组筛选对不上的分组时什么都不删。
+		if n, err := e.store.SoftDeleteInvalidMailAccounts(ctx, tenantID, "no-such-group"); err != nil || n != 0 {
+			t.Fatalf("%s: 按不存在的分组删除 = %d, %v", e.name, n, err)
+		}
+		deleted, err := e.store.SoftDeleteInvalidMailAccounts(ctx, tenantID, "parity-group")
+		if err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		remaining, err := e.store.CountMailAccounts(ctx, tenantID)
+		if err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		outcomes[e.name] = outcome{counts: fmt.Sprint(byKey), deleted: deleted, remaining: remaining}
+	}
+	want := outcome{counts: "map[error/network:1 invalid/account_unavailable:1 unknown/:2]", deleted: 1, remaining: 3}
+	for name, got := range outcomes {
+		if got != want {
+			t.Errorf("%s: %+v，期望 %+v", name, got, want)
+		}
+	}
+}
+
+// 计费里三条 ON CONFLICT 语句两个引擎各写一份（EXCLUDED 与 excluded 的写法都不同），
+// 行为必须一致：Webhook 去重不能吞掉同 eventId 的另一类事件；订阅按租户 upsert 时
+// 行 ID 不能变（tenant_quotas.subscription_id 指着它）；回收套餐只动订阅授予的那份。
+func TestBillingParity(t *testing.T) {
+	type outcome struct {
+		firstInsert, dupInsert, otherType bool
+		subID, subOrder                   string
+		planAfterCancel                   string
+	}
+	outcomes := map[string]outcome{}
+	for _, e := range parityEngines(t) {
+		ctx := context.Background()
+		tenantID := seed(t, e.store)
+		var o outcome
+		var err error
+		if o.firstInsert, err = e.store.InsertWebhookEvent(ctx, "PAY_1", "test", "subscription.activated", "STO", "h"); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		o.dupInsert, _ = e.store.InsertWebhookEvent(ctx, "PAY_1", "test", "subscription.activated", "STO", "h")
+		o.otherType, _ = e.store.InsertWebhookEvent(ctx, "PAY_1", "test", "subscription.payment_succeeded", "STO", "h")
+
+		if err := e.store.CreatePlan(ctx, model.Plan{ID: "plan-pro", Code: "pro", Name: "Pro"}); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if err := e.store.CreatePlanPrice(ctx, model.PlanPrice{ID: "price-1", PlanID: "plan-pro", BillingPeriod: "monthly",
+			Currency: "USD", Amount: "9.90", SyncStatus: "active", Active: true}); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		sub := model.Subscription{ID: "sub-1", TenantID: tenantID, Provider: "waffo", Mode: "test", OrderID: "ORD_A",
+			PlanPriceID: "price-1", PlanID: "plan-pro", Status: "active", Currency: "USD", Amount: "9.90"}
+		if err := e.store.UpsertSubscription(ctx, sub); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		sub.ID, sub.OrderID = "sub-2", "ORD_B"
+		if err := e.store.UpsertSubscription(ctx, sub); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		got, err := e.store.GetSubscription(ctx, tenantID)
+		if err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		o.subID, o.subOrder = got.ID, got.OrderID
+
+		if err := e.store.UpdateTenantSubscriptionQuota(ctx, tenantID, "plan-pro", got.ID); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		// 管理员接管后，回收订阅套餐应当什么都不做。
+		if err := e.store.UpdateTenantPlan(ctx, tenantID, "plan-pro"); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if err := e.store.RestoreTenantQuotaSource(ctx, tenantID, got.ID); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		limits, err := e.store.GetEffectiveQuota(ctx, tenantID)
+		if err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		o.planAfterCancel = limits.PlanCode
+		outcomes[e.name] = o
+	}
+	want := outcome{firstInsert: true, dupInsert: false, otherType: true, subID: "sub-1", subOrder: "ORD_B", planAfterCancel: "pro"}
+	for name, got := range outcomes {
+		if got != want {
+			t.Errorf("%s: %+v，期望 %+v", name, got, want)
 		}
 	}
 }

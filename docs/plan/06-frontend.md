@@ -310,6 +310,11 @@ VirtualList.tsx      EmptyState.tsx
   换成平台自己的回调域名后则自动完成。代理与应用配置错误按服务端提示处理
 - 最近 7 天的失败原因分布：banned / auth_failed / proxy_failed… 各自的处置完全不同，
   这也是把它们分开统计的全部意义
+- 账号检测（`AccountHealthPanel`）：可用 / 失效 / 检测异常 / 未检测四格，「检测全部 /
+  复核失效账号 / 检测选中分组」三种提交，失效原因分布，以及「删除失效账号」。确认框按原因列出数量、
+  写明凭据会一并清除，并把看到的数量作为 `expected` 提交。与令牌刷新共用 `jobStore` 的那条进度流，
+  `jobType` 决定进度条写「正在检测」还是「正在刷新」。账号列表的状态列对 `active` 但
+  `health_status=invalid` 的账号显示「失效」徽标
 
 `auth_failed` 的统一标签为「认证失败」，不等同于「令牌失效」；逐账号展示服务端的具体原因。
 过期、撤销、重新登录等账号侧问题归 `auth_failed`，客户端配置归 `provider_error`，
@@ -338,8 +343,16 @@ Outlook 只能走 4 段 OAuth；域名不在表里就用自定义 IMAP 的 4 段
 
 前端**解析预览**（前 20 行 + 统计）仍未做：格式写错要提交一次、看逐行说明才知道。
 
-### 5.4 `/admin/*` 管理后台
+### 5.4 `/admin/*` 管理页
 
+没有一个带页签的「后台」入口（2026-09-27 起）：左侧导航栏对平台管理员多出一个「管理」分组，
+概览 `/admin`、用户 `/admin/users`、套餐 `/admin/plans`、审计 `/admin/audit` 各是一个独立入口，
+页面直接用 `PageShell`。几件事彼此无关，藏在同一个入口的页签后面只会多点一次、还要先猜它在哪个页签；
+「后台」这个说法对用户也没有意义。由 `AppSidebar.test.tsx` 钉住。
+
+- `/admin/plans`：页首是在线订阅开关（`PaymentSwitchCard`，列出打开前还缺的配置），
+  每个套餐一张卡片，配额与月付 / 年付价格（`PlanPrices`）在同一张卡片里——
+  价格说的就是这份配额卖多少钱，分开摆的话改额度和改价格要来回对照
 - `/admin/users`：`Table` + `Pagination` + 搜索。行内 `DropdownMenu`：
   禁用/启用、重置密码、调配额、授予管理员、进入其邮箱、删除
 - 危险操作（删除用户、重置密码）用 `Dialog` 二次确认，措辞写明影响范围
@@ -475,7 +488,7 @@ export type MailProvider = "outlook" | "gmail" | "qq" | "163" | "126" | "yahoo" 
 export type AuthChannel = "" | "graph" | "imap_new" | "imap_old" | "imap_gmail" | "imap";
 export type MailFolder  = "inbox" | "junkemail" | "deleteditems" | "all";
 export type RefreshStatus = "never" | "success" | "failed";
-export type ErrorKind = "auth_failed" | "banned" | "consent_required" | "proxy_failed"
+export type ErrorKind = "auth_failed" | "banned" | "account_unavailable" | "consent_required" | "proxy_failed"
                       | "network" | "rate_limited" | "folder_unavailable" | "provider_error"
                       | "canceled";
 export type PlatformRole = "user" | "admin";

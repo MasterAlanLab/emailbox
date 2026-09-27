@@ -27,7 +27,7 @@ import AdminTenantMailPage from "@/pages/admin/AdminTenantMailPage";
 // 以后要做团队协作时，把 TenantSettingsPage / TenantMembersPage 挂回路由即可
 // （两个页面文件都留着，只是现在没有入口）。
 const protect = (node: React.ReactNode) => <ProtectedRoute>{node}</ProtectedRoute>;
-// 后台入口对普通用户隐藏。真正的拦截在服务端，这里只是不把门摆出来。
+// 管理入口对普通用户隐藏。真正的拦截在服务端，这里只是不把门摆出来。
 const admin = (node: React.ReactNode) => <AdminRoute>{node}</AdminRoute>;
 
 export const router = createBrowserRouter([

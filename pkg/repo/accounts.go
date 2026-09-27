@@ -260,7 +260,9 @@ func mapSQLiteAccount(a sqlitedb.MailAccount) *model.MailAccount {
 		LastRefreshStatus: model.RefreshStatus(a.LastRefreshStatus), LastRefreshError: a.LastRefreshError,
 		LastRefreshErrorKind:  a.LastRefreshErrorKind,
 		RefreshTokenUpdatedAt: timePtr(a.RefreshTokenUpdatedAt),
-		CreatedAt:             a.CreatedAt, UpdatedAt: a.UpdatedAt, DeletedAt: timePtr(a.DeletedAt),
+		HealthStatus:          model.HealthStatus(a.HealthStatus), HealthErrorKind: a.HealthErrorKind,
+		HealthError: a.HealthError, HealthCheckedAt: timePtr(a.HealthCheckedAt),
+		CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt, DeletedAt: timePtr(a.DeletedAt),
 	}
 }
 
@@ -277,7 +279,9 @@ func mapPostgresAccount(a postgresdb.MailAccount) *model.MailAccount {
 		LastRefreshStatus: model.RefreshStatus(a.LastRefreshStatus), LastRefreshError: a.LastRefreshError,
 		LastRefreshErrorKind:  a.LastRefreshErrorKind,
 		RefreshTokenUpdatedAt: timePtr(a.RefreshTokenUpdatedAt),
-		CreatedAt:             a.CreatedAt, UpdatedAt: a.UpdatedAt, DeletedAt: timePtr(a.DeletedAt),
+		HealthStatus:          model.HealthStatus(a.HealthStatus), HealthErrorKind: a.HealthErrorKind,
+		HealthError: a.HealthError, HealthCheckedAt: timePtr(a.HealthCheckedAt),
+		CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt, DeletedAt: timePtr(a.DeletedAt),
 	}
 }
 
@@ -350,4 +354,106 @@ func (s *Store) UpdateMailAccountAuthorization(ctx context.Context, tenantID, id
 		})
 	}
 	return rowsAffected(n, e)
+}
+
+// UpdateMailAccountAccessResult 记录一次真正访问邮箱的结果：last_refresh_* 与健康结论
+// 在同一条语句里写，避免每次收信多一次往返。
+func (s *Store) UpdateMailAccountAccessResult(
+	ctx context.Context, tenantID, id, status, errMessage, errorKind, health, healthKind string,
+) error {
+	var n int64
+	var e error
+	if s.driver == "sqlite" {
+		n, e = s.sqlite.UpdateMailAccountAccessResult(ctx, sqlitedb.UpdateMailAccountAccessResultParams{
+			LastRefreshStatus: status, LastRefreshError: errMessage, LastRefreshErrorKind: errorKind,
+			HealthStatus: health, HealthErrorKind: healthKind, HealthError: errMessage,
+			TenantID: tenantID, ID: id,
+		})
+	} else {
+		n, e = s.postgres.UpdateMailAccountAccessResult(ctx, postgresdb.UpdateMailAccountAccessResultParams{
+			LastRefreshStatus: status, LastRefreshError: errMessage, LastRefreshErrorKind: errorKind,
+			HealthStatus: health, HealthErrorKind: healthKind, HealthError: errMessage,
+			TenantID: tenantID, ID: id,
+		})
+	}
+	return rowsAffected(n, e)
+}
+
+// UpdateMailAccountHealth 记录一次真正登录邮箱的结论。与上面几条写回一样是窄 UPDATE。
+func (s *Store) UpdateMailAccountHealth(ctx context.Context, tenantID, id, status, errorKind, errMessage string) error {
+	var n int64
+	var e error
+	if s.driver == "sqlite" {
+		n, e = s.sqlite.UpdateMailAccountHealth(ctx, sqlitedb.UpdateMailAccountHealthParams{
+			HealthStatus: status, HealthErrorKind: errorKind, HealthError: errMessage,
+			TenantID: tenantID, ID: id,
+		})
+	} else {
+		n, e = s.postgres.UpdateMailAccountHealth(ctx, postgresdb.UpdateMailAccountHealthParams{
+			HealthStatus: status, HealthErrorKind: errorKind, HealthError: errMessage,
+			TenantID: tenantID, ID: id,
+		})
+	}
+	return rowsAffected(n, e)
+}
+
+// ResetMailAccountHealth 把健康状态退回 unknown。凭据换过之后旧结论就作废了：
+// 一个已被用户修好的账号若仍挂着 invalid，下一次「删除失效账号」会把它一起删掉。
+func (s *Store) ResetMailAccountHealth(ctx context.Context, tenantID, id string) error {
+	var n int64
+	var e error
+	if s.driver == "sqlite" {
+		n, e = s.sqlite.ResetMailAccountHealth(ctx, sqlitedb.ResetMailAccountHealthParams{TenantID: tenantID, ID: id})
+	} else {
+		n, e = s.postgres.ResetMailAccountHealth(ctx, postgresdb.ResetMailAccountHealthParams{TenantID: tenantID, ID: id})
+	}
+	return rowsAffected(n, e)
+}
+
+// CountMailAccountsByHealth 按（健康状态, 失败原因）聚合账号数。groupID 为空表示全部分组。
+func (s *Store) CountMailAccountsByHealth(ctx context.Context, tenantID, groupID string) ([]model.HealthCount, error) {
+	out := []model.HealthCount{}
+	if s.driver == "sqlite" {
+		rows, err := s.sqlite.CountMailAccountsByHealth(ctx, sqlitedb.CountMailAccountsByHealthParams{
+			TenantID: tenantID, GroupID: anyStr(groupID),
+		})
+		if err != nil {
+			return nil, normalize(err)
+		}
+		for _, r := range rows {
+			out = append(out, model.HealthCount{
+				Status: model.HealthStatus(r.HealthStatus), ErrorKind: r.HealthErrorKind, Count: int(r.Total),
+			})
+		}
+		return out, nil
+	}
+	rows, err := s.postgres.CountMailAccountsByHealth(ctx, postgresdb.CountMailAccountsByHealthParams{
+		TenantID: tenantID, GroupID: nullStr(groupID),
+	})
+	if err != nil {
+		return nil, normalize(err)
+	}
+	for _, r := range rows {
+		out = append(out, model.HealthCount{
+			Status: model.HealthStatus(r.HealthStatus), ErrorKind: r.HealthErrorKind, Count: int(r.Total),
+		})
+	}
+	return out, nil
+}
+
+// SoftDeleteInvalidMailAccounts 软删除所有 health_status=invalid 的账号并清空凭据，
+// 返回删除数。groupID 为空表示全部分组。
+func (s *Store) SoftDeleteInvalidMailAccounts(ctx context.Context, tenantID, groupID string) (int, error) {
+	var n int64
+	var err error
+	if s.driver == "sqlite" {
+		n, err = s.sqlite.SoftDeleteInvalidMailAccounts(ctx, sqlitedb.SoftDeleteInvalidMailAccountsParams{
+			TenantID: tenantID, GroupID: anyStr(groupID),
+		})
+	} else {
+		n, err = s.postgres.SoftDeleteInvalidMailAccounts(ctx, postgresdb.SoftDeleteInvalidMailAccountsParams{
+			TenantID: tenantID, GroupID: nullStr(groupID),
+		})
+	}
+	return int(n), normalize(err)
 }

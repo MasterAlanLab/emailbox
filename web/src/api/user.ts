@@ -5,7 +5,7 @@ export interface User {
   username: string;
   email: string;
   status: "active" | "disabled";
-  // 与租户角色正交：它决定能否跨租户管理整个系统。前端只用它决定是否显示后台入口，
+  // 与租户角色正交：它决定能否跨租户管理整个系统。前端只用它决定是否显示管理入口，
   // 真正的拦截在服务端的 RequirePlatformAdmin —— 改前端 state 什么也拿不到。
   platform_role: "user" | "admin";
 }

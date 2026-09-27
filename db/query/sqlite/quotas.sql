@@ -33,5 +33,9 @@ SET max_accounts = ?, max_groups = ?,
     note = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
 WHERE tenant_id = ?;
 
+-- An admin picking a plan takes ownership of it: plan_source goes back to
+-- admin, so a later subscription cancellation will not revert this choice.
 -- name: UpdateTenantPlan :execrows
-UPDATE tenant_quotas SET plan_id = ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?;
+UPDATE tenant_quotas
+SET plan_id = ?, plan_source = 'admin', subscription_id = NULL, updated_at = CURRENT_TIMESTAMP
+WHERE tenant_id = ?;

@@ -73,6 +73,17 @@ export interface RefreshStats {
   last_job: Job | null;
 }
 
+// 账号可用性分布，对应后端 model.HealthStats。
+export interface HealthStats {
+  total: number;
+  ok: number;
+  invalid: number;
+  error: number;
+  unknown: number;
+  invalid_by_kind: Record<string, number>;
+  last_job: Job | null;
+}
+
 // SSE 事件的载荷，与后端 pkg/job/worker.go 的三个 payload 结构对应。
 export interface ProgressPayload {
   total: number;
@@ -114,6 +125,28 @@ export const jobApi = {
       group_ids?: string[];
     },
   ) => (await client.post<ApiResponse<Job>>(`${mailBase(tenant)}/jobs/token-refresh`, data)).data,
+
+  submitCheck: async (
+    tenant: TenantRef,
+    data: {
+      // invalid：删除前复核一遍已判失效的账号。
+      scope: "all" | "invalid" | "selected" | "group";
+      account_ids?: string[];
+      group_ids?: string[];
+    },
+  ) => (await client.post<ApiResponse<Job>>(`${mailBase(tenant)}/jobs/account-check`, data)).data,
+
+  health: async (tenant: TenantRef) =>
+    (await client.get<ApiResponse<HealthStats>>(`${mailBase(tenant)}/account-health`)).data,
+
+  // expected 是用户在确认框里看到的数量；对不上时后端回 409，不会多删。
+  deleteInvalid: async (tenant: TenantRef, expected: number) =>
+    (
+      await client.post<ApiResponse<{ deleted: number }>>(
+        `${mailBase(tenant)}/accounts/batch/delete-invalid`,
+        { expected },
+      )
+    ).data,
 
   refreshOne: async (tenant: TenantRef, accountID: string) =>
     (

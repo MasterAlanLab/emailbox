@@ -29,11 +29,19 @@ import (
 
 // testMailClient 决定某个账号的上游用哪个假通道。
 // 默认一切正常；邮箱里带 upstreamFailEmailMarker 的账号则一律以 auth_failed 失败，
-// 用来验证协议层错误的 HTTP 映射（见 TestUpstreamAuthFailureIsNotUnauthorized）。
+// 用来验证协议层错误的 HTTP 映射（见 TestUpstreamAuthFailureIsNotUnauthorized）；
+// 带 unavailableEmailMarker 的一律以 account_unavailable 失败、带 networkFailEmailMarker 的
+// 一律以 network 失败（账号检测与清理用）。
 // 做成「按账号选」而不是给 newTestServer 加参数，是为了不动其余几十处调用。
 func testMailClient(account *model.MailAccount) mailer.Client {
 	if account != nil && strings.Contains(account.Email, upstreamFailEmailMarker) {
 		return failingMailClient{kind: mailer.ErrKindAuthFailed}
+	}
+	if account != nil && strings.Contains(account.Email, unavailableEmailMarker) {
+		return failingMailClient{kind: mailer.ErrKindAccountUnavailable}
+	}
+	if account != nil && strings.Contains(account.Email, networkFailEmailMarker) {
+		return failingMailClient{kind: mailer.ErrKindNetwork}
 	}
 	return stubMailClient{}
 }
@@ -120,6 +128,8 @@ func newTestServerWithMailOptions(t *testing.T, mailOptions service.ChainOptions
 		refreshService.WithRefresherFactory(newStubRefresher)
 	}
 	jobManager.Register(refreshService)
+	healthService := service.NewHealthService(store, messageService, jobManager)
+	jobManager.Register(healthService)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -127,6 +137,13 @@ func newTestServerWithMailOptions(t *testing.T, mailOptions service.ChainOptions
 	})
 	handlers.Job = handler.NewJobHandler(service.NewJobService(store, jobManager), refreshService)
 	handlers.Refresh = handler.NewRefreshHandler(refreshService)
+	handlers.Health = handler.NewHealthHandler(healthService)
+	// 支付未配置：路由、权限与租户隔离照样要测，Waffo 调用由 pkg/service 的用例覆盖。
+	billingService, err := service.NewBillingService(store, configs.WaffoConfig{Environment: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handlers.Billing = handler.NewBillingHandler(billingService)
 	oauthService := service.NewOAuthService(store, testCipher(t), quota.NewService(store), messageService, service.OAuthOptions{
 		Microsoft: service.OAuthProviderOptions{Enabled: true, ClientID: "test-client", RedirectURI: "http://localhost:8080"},
 	})
@@ -267,6 +284,12 @@ func TestNonMemberCannotReachTenantEndpoints(t *testing.T) {
 		{http.MethodGet, "/api/v1/tenants/" + tenantID},
 		{http.MethodGet, "/api/v1/tenants/" + tenantID + "/members"},
 		{http.MethodDelete, "/api/v1/tenants/" + tenantID},
+		{http.MethodGet, "/api/v1/tenants/" + tenantID + "/billing/plans"},
+		{http.MethodGet, "/api/v1/tenants/" + tenantID + "/billing/subscription"},
+		{http.MethodPost, "/api/v1/tenants/" + tenantID + "/billing/checkout"},
+		{http.MethodPost, "/api/v1/tenants/" + tenantID + "/billing/sync"},
+		{http.MethodPost, "/api/v1/tenants/" + tenantID + "/billing/cancel"},
+		{http.MethodPost, "/api/v1/tenants/" + tenantID + "/billing/uncancel"},
 	}
 	for _, tc := range cases {
 		if status, body := do(t, e, tc.method, tc.path, outsider, ""); status != http.StatusForbidden {
@@ -369,5 +392,37 @@ func TestPersonalTenantCannotBeDeleted(t *testing.T) {
 	ownerToken, tenantID := register(t, e, "alice", "alice@example.com")
 	if status, body := do(t, e, http.MethodDelete, "/api/v1/tenants/"+tenantID, ownerToken, ""); status == http.StatusOK {
 		t.Fatalf("个人工作空间不应被删除，实际 %d %s", status, body)
+	}
+}
+
+// Webhook 在认证组外，唯一的门是签名：没签名、签名不对都必须挡住。
+func TestWaffoWebhookRequiresSignature(t *testing.T) {
+	e := newTestServer(t)
+	body := `{"eventId":"E","eventType":"subscription.activated","storeId":"","mode":"test","data":{}}`
+	for _, sig := range []string{"", "t=1,v1=AAAA"} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/webhooks/waffo", strings.NewReader(body))
+		req.Header.Set("X-Waffo-Signature", sig)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("签名 %q: 状态 = %d，期望 401", sig, rec.Code)
+		}
+	}
+}
+
+// 支付关闭时：套餐与订阅照常可读（前端据此不显示购买入口），结账一律 409。
+func TestBillingWhileDisabled(t *testing.T) {
+	e := newTestServer(t)
+	token, tenantID := register(t, e, "alice", "alice@example.com")
+	base := "/api/v1/tenants/" + tenantID + "/billing"
+	if status, body := do(t, e, http.MethodGet, base+"/plans", token, ""); status != http.StatusOK || !strings.Contains(body, `"data":[]`) {
+		t.Errorf("套餐列表: %d %s", status, body)
+	}
+	if status, body := do(t, e, http.MethodGet, base+"/subscription", token, ""); status != http.StatusOK || !strings.Contains(body, `"data":null`) {
+		t.Errorf("订阅: %d %s", status, body)
+	}
+	if status, body := do(t, e, http.MethodPost, base+"/checkout", token,
+		`{"plan_price_id":"p","idempotency_key":"k"}`); status != http.StatusConflict {
+		t.Errorf("支付关闭时结账: %d %s，期望 409", status, body)
 	}
 }

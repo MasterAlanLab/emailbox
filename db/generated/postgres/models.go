@@ -23,6 +23,41 @@ type AuditLog struct {
 	CreatedAt    time.Time
 }
 
+type BillingCheckoutSession struct {
+	ID                 string
+	TenantID           string
+	PlanPriceID        string
+	MerchantExternalID string
+	ProviderSessionID  string
+	IdempotencyKey     string
+	CheckoutUrl        string
+	Status             string
+	ExpiresAt          sql.NullTime
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+type BillingSetting struct {
+	ID              int32
+	Enabled         int32
+	Mode            string
+	DefaultCurrency string
+	UpdatedBy       sql.NullString
+	UpdatedAt       time.Time
+}
+
+type BillingWebhookEvent struct {
+	EventID       string
+	Mode          string
+	EventType     string
+	StoreID       string
+	PayloadSha256 string
+	Status        string
+	Error         string
+	ReceivedAt    time.Time
+	ProcessedAt   sql.NullTime
+}
+
 type Job struct {
 	ID           string
 	TenantID     string
@@ -92,6 +127,10 @@ type MailAccount struct {
 	UpdatedAt             time.Time
 	DeletedAt             sql.NullTime
 	LastRefreshErrorKind  string
+	HealthStatus          string
+	HealthErrorKind       string
+	HealthError           string
+	HealthCheckedAt       sql.NullTime
 }
 
 type MailAccountAlias struct {
@@ -160,6 +199,20 @@ type Plan struct {
 	UpdatedAt      time.Time
 }
 
+type PlanPrice struct {
+	ID                string
+	PlanID            string
+	BillingPeriod     string
+	Currency          string
+	Amount            string
+	ProviderProductID string
+	SyncStatus        string
+	SyncError         string
+	Active            int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
 type Session struct {
 	ID             string
 	UserID         string
@@ -207,6 +260,28 @@ type TenantQuota struct {
 	Note           string
 	UpdatedBy      sql.NullString
 	UpdatedAt      time.Time
+	PlanSource     string
+	SubscriptionID sql.NullString
+}
+
+type TenantSubscription struct {
+	ID                 string
+	TenantID           string
+	Provider           string
+	Mode               string
+	OrderID            string
+	ProviderProductID  string
+	PlanPriceID        string
+	PlanID             string
+	Status             string
+	Currency           string
+	Amount             string
+	CurrentPeriodStart sql.NullTime
+	CurrentPeriodEnd   sql.NullTime
+	CancelAtPeriodEnd  int32
+	LastEventAt        sql.NullTime
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type UsageCounter struct {

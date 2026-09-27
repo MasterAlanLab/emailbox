@@ -214,9 +214,7 @@ function AccountRow({
         <>
           <span className={`${SECONDARY_CELL} truncate text-kumo-subtle`}>{account.provider}</span>
           <span>
-            <Badge variant={STATUS_LABEL[account.status].variant as never}>
-              {STATUS_LABEL[account.status].label}
-            </Badge>
+            <StatusBadge account={account} />
           </span>
           <RefreshCell account={account} />
         </>
@@ -230,6 +228,23 @@ function AccountRow({
         onClick={() => onEdit(account)}
       />
     </div>
+  );
+}
+
+// 「正常」但检测判定失效的账号直接在状态列标出来：令牌列可能仍显示有效，
+// 那正是这类账号最容易被忽略的原因。原因挂在 title 上，不必点进详情。
+function StatusBadge({ account }: { account: MailAccount }) {
+  if (account.status === "active" && account.health_status === "invalid") {
+    return (
+      <span title={account.health_error}>
+        <Badge variant={"red" as never}>失效</Badge>
+      </span>
+    );
+  }
+  return (
+    <Badge variant={STATUS_LABEL[account.status].variant as never}>
+      {STATUS_LABEL[account.status].label}
+    </Badge>
   );
 }
 

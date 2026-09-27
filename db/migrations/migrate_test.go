@@ -35,6 +35,16 @@ func TestUpAppliesAllMigrations(t *testing.T) {
 	if code != "free" {
 		t.Fatalf("默认套餐应为 free，实际 %q", code)
 	}
+	var enabled int
+	if err := db.QueryRowContext(ctx, `SELECT enabled FROM billing_settings WHERE id = 1`).Scan(&enabled); err != nil {
+		t.Fatalf("计费设置初始化失败: %v", err)
+	}
+	if enabled != 0 {
+		t.Fatalf("支付开关默认应关闭，实际 %d", enabled)
+	}
+	if _, err := db.ExecContext(ctx, `SELECT plan_source, subscription_id FROM tenant_quotas LIMIT 1`); err != nil {
+		t.Fatalf("租户套餐来源列缺失: %v", err)
+	}
 }
 
 // 全新库上跑通的迁移，在**已有数据的库**上未必跑得通——000008 要整表重建

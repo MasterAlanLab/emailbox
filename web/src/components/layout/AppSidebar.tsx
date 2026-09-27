@@ -1,14 +1,17 @@
 import {
   CaretLeft,
   CaretRight,
+  ChartBar,
+  ClipboardText,
   Code,
   Envelope,
   Gauge,
   Key,
   Moon,
-  ShieldCheck,
+  Package,
   SignOut,
   Sun,
+  Users,
   type Icon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -29,7 +32,6 @@ interface NavItem {
   label: string;
   icon: Icon;
   end?: boolean;
-  adminOnly?: boolean;
 }
 
 // 这里只放**并列的工作区**。分组曾经也在这一层，但它下面只有「管理分组」
@@ -43,7 +45,15 @@ const PRIMARY: NavItem[] = [
 const SECONDARY: NavItem[] = [
   { to: "/settings/usage", label: "用量", icon: Gauge },
   { to: "/settings/api", label: "API", icon: Code },
-  { to: "/admin", label: "后台", icon: ShieldCheck, adminOnly: true },
+];
+
+// 平台管理的几件事各自是一个入口，而不是塞进一个带页签的「后台」：
+// 套餐、用户、审计彼此独立，藏在同一个入口后面只会多点一次、还要先猜它在哪个页签。
+const MANAGE: NavItem[] = [
+  { to: "/admin", label: "概览", icon: ChartBar, end: true },
+  { to: "/admin/users", label: "用户", icon: Users },
+  { to: "/admin/plans", label: "套餐", icon: Package },
+  { to: "/admin/audit", label: "审计", icon: ClipboardText },
 ];
 
 export function AppSidebar() {
@@ -66,11 +76,10 @@ export function AppSidebar() {
     });
   };
 
-  const items = [...PRIMARY, ...SECONDARY].filter(
-    // 后台入口只给平台管理员看。这不是权限控制——每个 /admin/* 端点在服务端
-    // 都有 RequirePlatformAdmin 把着，这里只是不把门摆出来。
-    (item) => !item.adminOnly || user?.platform_role === "admin",
-  );
+  const items = [...PRIMARY, ...SECONDARY];
+  // 管理入口只给平台管理员看。这不是权限控制——每个 /admin/* 端点在服务端
+  // 都有 RequirePlatformAdmin 把着，这里只是不把门摆出来。
+  const isAdmin = user?.platform_role === "admin";
 
   // 窄屏**强制**图标模式：420px 的屏幕上，一条 224px 的导航栏会吃掉一半宽度，
   // 剩下的空间连账号列表都放不下。用 CSS 断点而不是 matchMedia——
@@ -101,6 +110,24 @@ export function AppSidebar() {
         {items.map((item) => (
           <SidebarLink key={item.to} item={item} collapsed={collapsed} labelClass={labelClass} />
         ))}
+        {isAdmin && (
+          <div
+            role="group"
+            aria-label="管理"
+            className="mt-3 flex flex-col gap-0.5 border-t border-kumo-line pt-3"
+          >
+            {/* 收起时标题藏掉，只留分隔线：图标列里塞两个字只会被截断。 */}
+            <p className={`${labelClass} px-2 pb-1 text-xs text-kumo-subtle`}>管理</p>
+            {MANAGE.map((item) => (
+              <SidebarLink
+                key={item.to}
+                item={item}
+                collapsed={collapsed}
+                labelClass={labelClass}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="shrink-0 border-t border-kumo-line p-2">

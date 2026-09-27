@@ -48,6 +48,10 @@ const (
 	AuditPlanUpdate        = "plan.update"
 	AuditPlanDelete        = "plan.delete"
 	AuditQuotaUpdate       = "quota.update"
+	AuditBillingSettings   = "billing.settings.update"
+	AuditBillingPrice      = "billing.price.update"
+	AuditBillingCheckout   = "billing.checkout"
+	AuditBillingCancel     = "billing.cancel"
 )
 
 // AuditLog 是一条审计记录。

@@ -250,7 +250,11 @@ func (s *AccountService) persistImported(ctx context.Context, tx *repo.Store, p 
 	if p.isNew {
 		return tx.CreateMailAccount(ctx, p.account)
 	}
-	return tx.UpdateMailAccount(ctx, p.account)
+	if err := tx.UpdateMailAccount(ctx, p.account); err != nil {
+		return err
+	}
+	// 覆盖导入带来的是新凭据，旧的健康结论随之作废。
+	return tx.ResetMailAccountHealth(ctx, p.account.TenantID, p.account.ID)
 }
 
 // BatchMove 把账号移动到另一个分组。
