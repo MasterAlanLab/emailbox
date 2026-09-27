@@ -577,10 +577,15 @@ tenants / tenant_members / sessions / audit_logs 四张表都有外键指着它�
   补不上的（用户已删、外键置空）留空由前端显示「(已删除)」。
 
 - **`AccountFilter.Normalize()` 会把 `Limit` 压到 `MaxAccountPageSize`(200)**，所以
-  「填一个大 Limit 一次取全量」这个写法是无效的。批量刷新的 `selectAccounts` 原本
-  正是这么写的（`Limit = maxBatchAccounts` = 5000），结果账号超过 200 个时，
-  「刷新全部」只刷前 200 个——而任务上写着的总数也是 200，界面上完全看不出少了。
+  「填一个大 Limit 一次取全量」这个写法是无效的。批量刷新的 `selectAccounts` 曾经
+  因此只拿到前 200 个——而任务上写着的总数也是 200，界面上完全看不出少了。
   要全量就得翻页（`RefreshService.collectAccounts`，同 `AccountService.collectAccounts`）。
+
+- **批量刷新曾静默截断到 5000 个账号**（2026-09-27）：`collectAccounts` 为了控制
+  预计运行时长，在翻页循环和结果切片上用了 `maxBatchAccounts = 5000`。这让「刷新全部」
+  或「按分组刷新」在 6500 个账号时只创建 5000 个任务项，剩余账号既没有失败记录，
+  也没有可继续的任务。任务状态是持久化的，逐项事件也按批读取，因而没有理由丢掉剩余项；
+  现在会翻页收集完整范围，任务总数与实际处理数一致。
 
 ## 一次技术债清理（2026-08-20）
 

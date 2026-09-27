@@ -308,17 +308,19 @@ func accountsInGroups(
 	return out, nil
 }
 
-// collectAccounts 按筛选条件翻页取全量，最多 maxBatchAccounts 个。
+// collectAccounts 按筛选条件翻页取全量。
 //
 // 必须翻页：AccountFilter.Normalize 会把 Limit 压到 MaxAccountPageSize(200)，
 // 「填一个大 Limit 一次取完」的写法拿到的永远只有前 200 个。
+// 任务的逐项状态和事件本来就是持久化的，超过 5000 个账号也必须完整进入
+// 同一个任务；静默截断会让用户误以为整组都已刷新，而且没有任何剩余项可以继续。
 func collectAccounts(
 	ctx context.Context, store *repo.Store, tenantID string, filter model.AccountFilter,
 ) ([]model.MailAccount, error) {
 	filter.Limit = model.MaxAccountPageSize
 	filter.Normalize()
 	out := make([]model.MailAccount, 0, filter.Limit)
-	for page := 1; len(out) < maxBatchAccounts; page++ {
+	for page := 1; ; page++ {
 		filter.Page = page
 		batch, err := store.ListMailAccountsPage(ctx, tenantID, filter)
 		if err != nil {
@@ -329,15 +331,8 @@ func collectAccounts(
 			break
 		}
 	}
-	if len(out) > maxBatchAccounts {
-		out = out[:maxBatchAccounts]
-	}
 	return out, nil
 }
-
-// maxBatchAccounts 是一个任务能包含的账号数上限。
-// 5000 个账号按 8 并发、每个 1.5 秒算约 16 分钟，再多就该拆成多个任务了。
-const maxBatchAccounts = 5000
 
 // Stats 返回刷新概况：账号当前状态分布 + 最近失败原因分布 + 最后一个任务。
 func (s *RefreshService) Stats(ctx context.Context, tenantID string) (*model.RefreshStats, error) {

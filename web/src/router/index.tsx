@@ -23,9 +23,7 @@ import AdminAuditPage from "@/pages/admin/AdminAuditPage";
 import AdminTenantMailPage from "@/pages/admin/AdminTenantMailPage";
 
 // 工作区（租户）在**前端不露面**：一个用户就是一个工作区，界面上不提这个概念。
-// 后端的多租户模型、API 的 tenantID、tenantStore 全部原样保留——
-// 以后要做团队协作时，把 TenantSettingsPage / TenantMembersPage 挂回路由即可
-// （两个页面文件都留着，只是现在没有入口）。
+// 后端仍保留多租户模型与 API 的 tenantID，用于隔离和未来协作能力。
 const protect = (node: React.ReactNode) => <ProtectedRoute>{node}</ProtectedRoute>;
 // 管理入口对普通用户隐藏。真正的拦截在服务端，这里只是不把门摆出来。
 const admin = (node: React.ReactNode) => <AdminRoute>{node}</AdminRoute>;
