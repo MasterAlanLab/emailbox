@@ -7,7 +7,6 @@ package sqlitedb
 
 import (
 	"context"
-	"database/sql"
 )
 
 const consumeUsage = `-- name: ConsumeUsage :one
@@ -56,17 +55,21 @@ func (q *Queries) CreateTenantQuota(ctx context.Context, arg CreateTenantQuotaPa
 
 const getEffectiveQuota = `-- name: GetEffectiveQuota :one
 SELECT
-    pl.code                                                  AS plan_code,
-    pl.name                                                  AS plan_name,
-    COALESCE(tq.max_accounts, pl.max_accounts)               AS max_accounts,
-    COALESCE(tq.max_groups, pl.max_groups)                   AS max_groups,
-    COALESCE(tq.daily_mail_fetch, pl.daily_mail_fetch)       AS daily_mail_fetch
+    tq.plan_id       AS plan_id,
+    tq.plan_source   AS plan_source,
+    pl.code          AS plan_code,
+    pl.name          AS plan_name,
+    pl.max_accounts  AS max_accounts,
+    pl.max_groups    AS max_groups,
+    pl.daily_mail_fetch AS daily_mail_fetch
 FROM tenant_quotas AS tq
 JOIN plans AS pl ON pl.id = tq.plan_id
 WHERE tq.tenant_id = ?
 `
 
 type GetEffectiveQuotaRow struct {
+	PlanID         string
+	PlanSource     string
 	PlanCode       string
 	PlanName       string
 	MaxAccounts    int64
@@ -74,10 +77,14 @@ type GetEffectiveQuotaRow struct {
 	DailyMailFetch int64
 }
 
+// Limits come straight from the plan: there are no per-tenant overrides.
+// An admin who wants a tenant to have more assigns it a different plan.
 func (q *Queries) GetEffectiveQuota(ctx context.Context, tenantID string) (GetEffectiveQuotaRow, error) {
 	row := q.db.QueryRowContext(ctx, getEffectiveQuota, tenantID)
 	var i GetEffectiveQuotaRow
 	err := row.Scan(
+		&i.PlanID,
+		&i.PlanSource,
 		&i.PlanCode,
 		&i.PlanName,
 		&i.MaxAccounts,
@@ -119,39 +126,6 @@ type UpdateTenantPlanParams struct {
 // admin, so a later subscription cancellation will not revert this choice.
 func (q *Queries) UpdateTenantPlan(ctx context.Context, arg UpdateTenantPlanParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateTenantPlan, arg.PlanID, arg.TenantID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const updateTenantQuotaOverrides = `-- name: UpdateTenantQuotaOverrides :execrows
-UPDATE tenant_quotas
-SET max_accounts = ?, max_groups = ?,
-    daily_mail_fetch = ?,
-    note = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
-WHERE tenant_id = ?
-`
-
-type UpdateTenantQuotaOverridesParams struct {
-	MaxAccounts    sql.NullInt64
-	MaxGroups      sql.NullInt64
-	DailyMailFetch sql.NullInt64
-	Note           string
-	UpdatedBy      sql.NullString
-	TenantID       string
-}
-
-// Admin overrides. NULL in a column means "fall back to the plan value".
-func (q *Queries) UpdateTenantQuotaOverrides(ctx context.Context, arg UpdateTenantQuotaOverridesParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateTenantQuotaOverrides,
-		arg.MaxAccounts,
-		arg.MaxGroups,
-		arg.DailyMailFetch,
-		arg.Note,
-		arg.UpdatedBy,
-		arg.TenantID,
-	)
 	if err != nil {
 		return 0, err
 	}

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { adminApi, type AdminUser } from "@/api/admin";
 import { PageShell } from "@/components/layout/PageShell";
-import { QuotaDialog, type QuotaTarget } from "@/components/admin/QuotaDialog";
+import { AssignPlanDialog, type AssignTarget } from "@/components/admin/AssignPlanDialog";
 import { useAsyncAction } from "@/lib/useAsyncAction";
 import { useAuthStore } from "@/store/authStore";
 
@@ -27,7 +27,7 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
-  const [quotaTarget, setQuotaTarget] = useState<QuotaTarget | null>(null);
+  const [planTarget, setPlanTarget] = useState<AssignTarget | null>(null);
   // 临时密码只在重置那一次的响应里出现，拿到之后必须一直显示到管理员主动关掉，
   // 否则他一刷新页面就再也拿不到了，只能再重置一次。
   const [tempPassword, setTempPassword] = useState<{ username: string; password: string } | null>(
@@ -166,14 +166,14 @@ export default function AdminUsersPage() {
                       size="sm"
                       variant="secondary"
                       onClick={() =>
-                        setQuotaTarget({
+                        setPlanTarget({
                           tenantID: user.tenant_id,
                           title: user.username,
                           subtitle: user.email || "未设置邮箱",
                         })
                       }
                     >
-                      配额
+                      套餐
                     </Button>
                   </>
                 )}
@@ -243,12 +243,12 @@ export default function AdminUsersPage() {
         </div>
       </LayerCard>
 
-      {quotaTarget && (
-        <QuotaDialog
-          target={quotaTarget}
-          onClose={() => setQuotaTarget(null)}
-          onSaved={() => {
-            setQuotaTarget(null);
+      {planTarget && (
+        <AssignPlanDialog
+          target={planTarget}
+          onClose={() => setPlanTarget(null)}
+          onAssigned={() => {
+            setPlanTarget(null);
             reload();
           }}
         />

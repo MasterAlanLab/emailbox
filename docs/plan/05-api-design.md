@@ -469,8 +469,8 @@ handler 复用同一份实现，只是 tenantID 的来源与鉴权中间件不�
 |---|---|---|
 | GET / POST | `/admin/plans` | 套餐列表 / 新建 |
 | PATCH / DELETE | `/admin/plans/:planID` | 修改 / 删除（有租户在用时拒绝删除） |
-| GET | `/admin/tenants/:tenantID/quota` | 该租户的生效配额 + 当前用量 |
-| PATCH | `/admin/tenants/:tenantID/quota` | 切换套餐或设置单项覆盖值，必须带 `note` 说明原因 |
+| GET | `/admin/tenants/:tenantID/plan` | 当前套餐（含来源 `plan_source`）与该用户的订阅 |
+| PUT | `/admin/tenants/:tenantID/plan` | `{plan_id}`：直接分配套餐，不经支付；分配后套餐归管理员所有，订阅取消时不回收。没有逐项覆盖，也不要求填写原因（审计记下原套餐与新套餐） |
 
 ### 10.4 平台运维
 

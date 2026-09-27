@@ -137,6 +137,9 @@ export interface OAuthCompleteResult {
 }
 
 export interface Limits {
+  plan_id: string;
+  /** admin：管理员分配的；subscription：用户订阅买的。订阅取消时只回收后者。 */
+  plan_source: "admin" | "subscription";
   plan_code: string;
   plan_name: string;
   max_accounts: number;

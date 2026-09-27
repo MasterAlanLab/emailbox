@@ -189,7 +189,7 @@ Key 认证通过后被塞成一个只读的虚拟租户角色 `model.TenantRoleA
 
 ### 5.5 配额
 
-`pkg/quota` 的 `Effective`（`COALESCE(override, plan)`）、`CheckAndConsume`（先加后判、超额回滚）、
+`pkg/quota` 的 `Effective`（直接取所挂套餐的额度，没有逐租户覆盖；管理员要多给就分配另一档套餐）、`CheckAndConsume`（先加后判、超额回滚）、
 `CheckCount`。要点：
 
 - 走远端**之前**扣（`daily_mail_fetch`）：扣完才发请求，超额时一个远端调用都不产生

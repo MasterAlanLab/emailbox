@@ -745,13 +745,12 @@ func TestAdminUsersParity(t *testing.T) {
 		tenantID := seed(t, e.store)
 		seedAccounts(t, e.store, tenantID, "u1@example.com", "u2@example.com")
 
-		// 把上限压到 1，低于现有的 2 个账号：这正是「调低配额不追溯」之后的常态。
-		limit := 1
-		updatedBy := "parity-user"
-		if err := e.store.UpdateTenantQuotaOverrides(ctx, tenantID, repo.QuotaOverrides{
-			MaxAccounts: &limit, Note: "parity", UpdatedBy: &updatedBy,
-		}); err != nil {
-			t.Fatalf("%s: 覆盖配额失败: %v", e.name, err)
+		// 分配一个上限为 1 的套餐，低于现有的 2 个账号：这正是「调低配额不追溯」之后的常态。
+		if err := e.store.CreatePlan(ctx, model.Plan{ID: "tiny", Code: "tiny", Name: "Tiny", MaxAccounts: 1}); err != nil {
+			t.Fatalf("%s: %v", e.name, err)
+		}
+		if err := e.store.UpdateTenantPlan(ctx, tenantID, "tiny"); err != nil {
+			t.Fatalf("%s: 分配套餐失败: %v", e.name, err)
 		}
 
 		users, total, err := e.store.ListAdminUsers(ctx, model.AdminUserFilter{})
@@ -766,9 +765,8 @@ func TestAdminUsersParity(t *testing.T) {
 		for _, u := range users {
 			got = append(got, row{u.Email, u.TenantName, u.AccountCount, u.MaxAccounts, u.OverQuota})
 		}
-		if got[0].maxAccounts != limit {
-			t.Errorf("%s: max_accounts = %d，覆盖值 %d 没生效（COALESCE 顺序写反了？）",
-				e.name, got[0].maxAccounts, limit)
+		if got[0].maxAccounts != 1 {
+			t.Errorf("%s: max_accounts = %d，期望取所分配套餐的 1", e.name, got[0].maxAccounts)
 		}
 		if !got[0].overQuota {
 			t.Errorf("%s: 2 个账号 / 上限 1 应当标记超额", e.name)

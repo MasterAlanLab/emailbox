@@ -151,7 +151,6 @@ func newTestServerWithMailOptions(t *testing.T, mailOptions service.ChainOptions
 	handlers.Admin = handler.NewAdminHandler(
 		service.NewAdminService(store, platformService, quota.NewService(store)),
 		auditService,
-		service.NewQuotaService(store, quota.NewService(store)),
 	)
 
 	e := echo.New()

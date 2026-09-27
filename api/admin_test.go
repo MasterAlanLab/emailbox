@@ -49,8 +49,8 @@ func adminEndpoints(tenantID, userID string) []struct{ method, path string } {
 		{http.MethodPost, "/api/v1/admin/billing/prices"},
 		{http.MethodPatch, "/api/v1/admin/billing/prices/price-1"},
 		{http.MethodPost, "/api/v1/admin/billing/prices/price-1/sync"},
-		{http.MethodGet, "/api/v1/admin/tenants/" + tenantID + "/quota"},
-		{http.MethodPatch, "/api/v1/admin/tenants/" + tenantID + "/quota"},
+		{http.MethodGet, "/api/v1/admin/tenants/" + tenantID + "/plan"},
+		{http.MethodPut, "/api/v1/admin/tenants/" + tenantID + "/plan"},
 		{http.MethodGet, "/api/v1/admin/tenants/" + tenantID + "/mail/groups"},
 		{http.MethodGet, "/api/v1/admin/tenants/" + tenantID + "/mail/groups/grp-1/proxy"},
 		{http.MethodPost, "/api/v1/admin/tenants/" + tenantID + "/mail/groups"},
@@ -290,11 +290,15 @@ func TestLoweringQuotaBlocksNewAccountsButKeepsExisting(t *testing.T) {
 	adminToken, _ := register(t, e, "root", "root@example.com")
 	promoteToAdmin(t, store, "root")
 
-	// 把上限压到 1，低于现有的 2 个
-	status, body := do(t, e, http.MethodPatch, "/api/v1/admin/tenants/"+tenantID+"/quota", adminToken,
-		`{"max_accounts":1,"note":"疑似滥用，临时收紧"}`)
+	// 分配一个上限为 1 的套餐，低于现有的 2 个。额度只随套餐走，没有逐项覆盖。
+	if status, body := do(t, e, http.MethodPost, "/api/v1/admin/plans", adminToken,
+		`{"code":"tiny","name":"迷你版","max_accounts":1,"max_groups":5,"daily_mail_fetch":100}`); status != http.StatusOK {
+		t.Fatalf("建套餐失败: %d %s", status, body)
+	}
+	status, body := do(t, e, http.MethodPut, "/api/v1/admin/tenants/"+tenantID+"/plan", adminToken,
+		`{"plan_id":"`+planIDByCode(t, store, "tiny")+`"}`)
 	if status != http.StatusOK {
-		t.Fatalf("调整配额失败: %d %s", status, body)
+		t.Fatalf("分配套餐失败: %d %s", status, body)
 	}
 
 	// 新增被拒，且用 1001 这个业务码告诉前端「是配额问题」
@@ -326,17 +330,40 @@ func TestLoweringQuotaBlocksNewAccountsButKeepsExisting(t *testing.T) {
 	}
 }
 
-// 调额必须写原因。三个月后回看时，note 是唯一能说明「为什么这个租户不一样」的东西。
-func TestQuotaUpdateRequiresNote(t *testing.T) {
+// 分配套餐：不经支付、不要求填写原因，套餐归管理员所有（订阅取消时不会被回收），并记进审计。
+func TestAdminAssignsPlanDirectly(t *testing.T) {
 	e, store, _ := newTestServerWithStore(t)
 	_, tenantID := register(t, e, "owner", "owner@example.com")
 	adminToken, _ := register(t, e, "root", "root@example.com")
 	promoteToAdmin(t, store, "root")
-
-	if status, _ := do(t, e, http.MethodPatch, "/api/v1/admin/tenants/"+tenantID+"/quota", adminToken,
-		`{"max_accounts":10}`); status != http.StatusBadRequest {
-		t.Errorf("缺 note 时拿到 %d，期望 400", status)
+	if status, body := do(t, e, http.MethodPost, "/api/v1/admin/plans", adminToken,
+		`{"code":"pro","name":"专业版"}`); status != http.StatusOK {
+		t.Fatalf("建套餐失败: %d %s", status, body)
 	}
+
+	path := "/api/v1/admin/tenants/" + tenantID + "/plan"
+	if status, _ := do(t, e, http.MethodPut, path, adminToken, `{}`); status != http.StatusBadRequest {
+		t.Errorf("没选套餐时拿到 %d，期望 400", status)
+	}
+	status, body := do(t, e, http.MethodPut, path, adminToken, `{"plan_id":"`+planIDByCode(t, store, "pro")+`"}`)
+	if status != http.StatusOK {
+		t.Fatalf("分配套餐失败: %d %s", status, body)
+	}
+	if !strings.Contains(body, `"plan_code":"pro"`) || !strings.Contains(body, `"plan_source":"admin"`) {
+		t.Errorf("分配结果不对: %s", body)
+	}
+	if _, body := do(t, e, http.MethodGet, "/api/v1/admin/audit?action=plan.assign", adminToken, ""); !strings.Contains(body, `from_plan`) {
+		t.Errorf("审计里没有分配记录: %s", body)
+	}
+}
+
+func planIDByCode(t *testing.T, store *repo.Store, code string) string {
+	t.Helper()
+	plan, err := store.GetPlanByCode(context.Background(), code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan.ID
 }
 
 // P3 验收第 5 条的后端半边：最后一个管理员不可降级、不可删除。

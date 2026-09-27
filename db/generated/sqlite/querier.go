@@ -134,6 +134,8 @@ type Querier interface {
 	GetCheckoutByIdempotency(ctx context.Context, arg GetCheckoutByIdempotencyParams) (BillingCheckoutSession, error)
 	GetCheckoutByMerchantExternalID(ctx context.Context, merchantExternalID string) (BillingCheckoutSession, error)
 	GetDefaultPlan(ctx context.Context) (Plan, error)
+	// Limits come straight from the plan: there are no per-tenant overrides.
+	// An admin who wants a tenant to have more assigns it a different plan.
 	GetEffectiveQuota(ctx context.Context, tenantID string) (GetEffectiveQuotaRow, error)
 	// Every read is scoped by tenant_id, admins included: the admin routes reach
 	// this through the same handler with a tenant_id taken from the URL.
@@ -290,8 +292,6 @@ type Querier interface {
 	// An admin picking a plan takes ownership of it: plan_source goes back to
 	// admin, so a later subscription cancellation will not revert this choice.
 	UpdateTenantPlan(ctx context.Context, arg UpdateTenantPlanParams) (int64, error)
-	// Admin overrides. NULL in a column means "fall back to the plan value".
-	UpdateTenantQuotaOverrides(ctx context.Context, arg UpdateTenantQuotaOverridesParams) (int64, error)
 	UpdateTenantSubscriptionQuota(ctx context.Context, arg UpdateTenantSubscriptionQuotaParams) (int64, error)
 	UpdateUserLastLogin(ctx context.Context, id string) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (int64, error)

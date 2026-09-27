@@ -60,7 +60,7 @@ func (s *Store) CreateTenantQuota(ctx context.Context, tenantID, planID string) 
 	return normalize(err)
 }
 
-// GetEffectiveQuota 返回租户的生效配额（套餐值经租户覆盖值 COALESCE 之后的结果）。
+// GetEffectiveQuota 返回租户的生效配额，也就是它所挂套餐的额度（没有逐租户的覆盖值）。
 func (s *Store) GetEffectiveQuota(ctx context.Context, tenantID string) (*model.Limits, error) {
 	if s.driver == "sqlite" {
 		v, e := s.sqlite.GetEffectiveQuota(ctx, tenantID)
@@ -68,7 +68,7 @@ func (s *Store) GetEffectiveQuota(ctx context.Context, tenantID string) (*model.
 			return nil, normalize(e)
 		}
 		return &model.Limits{
-			PlanCode: v.PlanCode, PlanName: v.PlanName,
+			PlanID: v.PlanID, PlanSource: v.PlanSource, PlanCode: v.PlanCode, PlanName: v.PlanName,
 			MaxAccounts: int(v.MaxAccounts), MaxGroups: int(v.MaxGroups),
 			DailyMailFetch: int(v.DailyMailFetch),
 		}, nil
@@ -78,7 +78,7 @@ func (s *Store) GetEffectiveQuota(ctx context.Context, tenantID string) (*model.
 		return nil, normalize(e)
 	}
 	return &model.Limits{
-		PlanCode: v.PlanCode, PlanName: v.PlanName,
+		PlanID: v.PlanID, PlanSource: v.PlanSource, PlanCode: v.PlanCode, PlanName: v.PlanName,
 		MaxAccounts: int(v.MaxAccounts), MaxGroups: int(v.MaxGroups),
 		DailyMailFetch: int(v.DailyMailFetch),
 	}, nil
@@ -129,37 +129,6 @@ func mapPostgresPlan(p postgresdb.Plan) *model.Plan {
 		DailyMailFetch: int(p.DailyMailFetch),
 		CreatedAt:      p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
-}
-
-// QuotaOverrides 是管理员针对单个租户的配额覆盖值。
-// nil 表示该项不覆盖，取套餐的基线值。
-type QuotaOverrides struct {
-	MaxAccounts    *int
-	MaxGroups      *int
-	DailyMailFetch *int
-	Note           string
-	UpdatedBy      *string
-}
-
-// UpdateTenantQuotaOverrides 写入配额覆盖值。
-// 调低配额不追溯删除已有数据，只阻止新增。
-func (s *Store) UpdateTenantQuotaOverrides(ctx context.Context, tenantID string, o QuotaOverrides) error {
-	var n int64
-	var e error
-	if s.driver == "sqlite" {
-		n, e = s.sqlite.UpdateTenantQuotaOverrides(ctx, sqlitedb.UpdateTenantQuotaOverridesParams{
-			MaxAccounts: nullInt64(o.MaxAccounts), MaxGroups: nullInt64(o.MaxGroups),
-			DailyMailFetch: nullInt64(o.DailyMailFetch),
-			Note:           o.Note, UpdatedBy: nullableString(o.UpdatedBy), TenantID: tenantID,
-		})
-	} else {
-		n, e = s.postgres.UpdateTenantQuotaOverrides(ctx, postgresdb.UpdateTenantQuotaOverridesParams{
-			MaxAccounts: nullInt32(o.MaxAccounts), MaxGroups: nullInt32(o.MaxGroups),
-			DailyMailFetch: nullInt32(o.DailyMailFetch),
-			Note:           o.Note, UpdatedBy: nullableString(o.UpdatedBy), TenantID: tenantID,
-		})
-	}
-	return rowsAffected(n, e)
 }
 
 // UpdateTenantPlan 改挂租户的套餐。

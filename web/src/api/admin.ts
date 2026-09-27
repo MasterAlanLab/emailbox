@@ -1,6 +1,7 @@
 import client from "@/lib/client";
 import type { ApiResponse } from "@/lib/client";
 import type { Limits, Pagination } from "./mail";
+import type { BillingSubscription } from "./tenant";
 
 // 与后端 pkg/model/admin.go、audit.go 手工同步。
 
@@ -90,23 +91,10 @@ interface Page<T> {
   pagination: Pagination;
 }
 
-export interface AdminQuotaUpdate {
-  plan_id?: string;
-  note: string;
-  max_accounts?: number | null;
-  max_groups?: number | null;
-  daily_mail_fetch?: number | null;
-}
-
-export interface TenantQuotaUsage {
+// 分配套餐弹窗看到的：当前套餐（含来源）与该用户的订阅。
+export interface TenantPlan {
   limits: Limits;
-  usage: {
-    accounts: number;
-    groups: number;
-    mail_fetch: number;
-    token_refresh: number;
-  };
-  day: string;
+  subscription: BillingSubscription | null;
 }
 
 const base = "/api/v1/admin";
@@ -128,11 +116,15 @@ export const adminApi = {
     (await client.delete<ApiResponse<{ deleted_accounts: number }>>(`${base}/users/${userID}`))
       .data,
 
-  tenantQuota: async (tenantID: string) =>
-    (await client.get<ApiResponse<TenantQuotaUsage>>(`${base}/tenants/${tenantID}/quota`)).data,
-  updateTenantQuota: async (tenantID: string, data: AdminQuotaUpdate) =>
-    (await client.patch<ApiResponse<TenantQuotaUsage>>(`${base}/tenants/${tenantID}/quota`, data))
-      .data,
+  tenantPlan: async (tenantID: string) =>
+    (await client.get<ApiResponse<TenantPlan>>(`${base}/tenants/${tenantID}/plan`)).data,
+  // 直接分配，不经支付。分配后套餐归管理员所有，用户的订阅取消时不会被回收。
+  assignPlan: async (tenantID: string, planID: string) =>
+    (
+      await client.put<ApiResponse<TenantPlan>>(`${base}/tenants/${tenantID}/plan`, {
+        plan_id: planID,
+      })
+    ).data,
 
   plans: async () => (await client.get<ApiResponse<Plan[]>>(`${base}/plans`)).data,
   createPlan: async (data: Partial<Plan>) =>

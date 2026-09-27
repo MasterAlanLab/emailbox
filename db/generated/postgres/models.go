@@ -254,11 +254,6 @@ type TenantMember struct {
 type TenantQuota struct {
 	TenantID       string
 	PlanID         string
-	MaxAccounts    sql.NullInt32
-	MaxGroups      sql.NullInt32
-	DailyMailFetch sql.NullInt32
-	Note           string
-	UpdatedBy      sql.NullString
 	UpdatedAt      time.Time
 	PlanSource     string
 	SubscriptionID sql.NullString

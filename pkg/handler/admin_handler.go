@@ -19,14 +19,13 @@ import (
 type AdminHandler struct {
 	service *service.AdminService
 	audit   *service.AuditService
-	quota   *service.QuotaService
 }
 
-func NewAdminHandler(s *service.AdminService, audit *service.AuditService, q *service.QuotaService) *AdminHandler {
-	return &AdminHandler{service: s, audit: audit, quota: q}
+func NewAdminHandler(s *service.AdminService, audit *service.AuditService) *AdminHandler {
+	return &AdminHandler{service: s, audit: audit}
 }
 
-// adminError 把管理后台的领域错误映射成 HTTP 状态。
+// adminError 把管理端的领域错误映射成 HTTP 状态。
 func adminError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, repo.ErrNotFound):
@@ -236,56 +235,45 @@ func (h *AdminHandler) recordPlanAudit(c *echo.Context, action, planID string, d
 
 // ---------- 配额 ----------
 
-func (h *AdminHandler) GetTenantQuota(c *echo.Context) error {
-	v, err := h.quota.Usage(c.Request().Context(), c.Param("tenantID"))
+func (h *AdminHandler) GetTenantPlan(c *echo.Context) error {
+	v, err := h.service.TenantPlan(c.Request().Context(), c.Param("tenantID"))
 	if err != nil {
 		return adminError(c, err)
 	}
 	return success(c, v, "获取成功")
 }
 
-type updateQuotaRequest struct {
-	PlanID         string `json:"plan_id"`
-	Note           string `json:"note"`
-	MaxAccounts    *int   `json:"max_accounts"`
-	MaxGroups      *int   `json:"max_groups"`
-	DailyMailFetch *int   `json:"daily_mail_fetch"`
+type assignPlanRequest struct {
+	PlanID string `json:"plan_id"`
 }
 
-func (h *AdminHandler) UpdateTenantQuota(c *echo.Context) error {
-	var req updateQuotaRequest
+// AssignTenantPlan 直接给用户分配套餐，不经支付。
+func (h *AdminHandler) AssignTenantPlan(c *echo.Context) error {
+	var req assignPlanRequest
 	if err := c.Bind(&req); err != nil {
 		return failure(c, http.StatusBadRequest, err)
 	}
+	if strings.TrimSpace(req.PlanID) == "" {
+		return failure(c, http.StatusBadRequest, errors.New("请选择要分配的套餐"))
+	}
 	tenantID := c.Param("tenantID")
 	actor := middleware.PlatformUser(c)
-
-	err := h.service.UpdateTenantQuota(c.Request().Context(), tenantID, actor.ID, service.QuotaUpdate{
-		PlanID: req.PlanID,
-		Overrides: repo.QuotaOverrides{
-			MaxAccounts:    req.MaxAccounts,
-			MaxGroups:      req.MaxGroups,
-			DailyMailFetch: req.DailyMailFetch,
-			Note:           req.Note,
-		},
-	})
+	from, err := h.service.AssignPlan(c.Request().Context(), tenantID, req.PlanID)
 	if err != nil {
 		return adminError(c, err)
 	}
-
+	v, err := h.service.TenantPlan(c.Request().Context(), tenantID)
+	if err != nil {
+		return adminError(c, err)
+	}
 	h.audit.Record(c.Request().Context(), service.Entry{
 		TenantID: tenantID, ActorUserID: actor.ID, ActorName: actor.Username,
-		ActorKind: middleware.ActorKind(c), Action: model.AuditQuotaUpdate,
+		ActorKind: middleware.ActorKind(c), Action: model.AuditPlanAssign,
 		ResourceType: "tenant", ResourceID: tenantID, IP: c.RealIP(),
-		// note 是调额原因，正是三个月后回看时唯一有用的信息，必须进 details。
-		Details: map[string]any{"note": req.Note, "plan_id": req.PlanID},
+		// 记套餐代码而不是 ID：审计页上要一眼看出这次是从哪一档换到哪一档。
+		Details: map[string]any{"from_plan": from, "to_plan": v.Limits.PlanCode},
 	})
-
-	v, err := h.quota.Usage(c.Request().Context(), tenantID)
-	if err != nil {
-		return adminError(c, err)
-	}
-	return success(c, v, "更新成功")
+	return success(c, v, "已分配套餐")
 }
 
 // ---------- 审计与概览 ----------

@@ -277,11 +277,14 @@ func TestImportSkipsOverQuotaInsteadOfFailingBatch(t *testing.T) {
 	}
 }
 
-// shrinkAccountQuota 走真实的「管理员覆盖配额」路径把账号上限压到 n。
+// shrinkAccountQuota 走真实的路径把账号上限压到 n：建一个上限为 n 的套餐，再分配给租户。
+// 额度只随套餐走，没有逐租户的覆盖值。
 func shrinkAccountQuota(ctx context.Context, store *repo.Store, tenantID string, n int) error {
-	return store.UpdateTenantQuotaOverrides(ctx, tenantID, repo.QuotaOverrides{
-		MaxAccounts: &n, Note: "测试用：压低账号配额",
-	})
+	plan := model.Plan{ID: "tiny-plan", Code: "tiny", Name: "迷你版", MaxAccounts: n, MaxGroups: 10, DailyMailFetch: 100}
+	if err := store.CreatePlan(ctx, plan); err != nil {
+		return err
+	}
+	return store.UpdateTenantPlan(ctx, tenantID, plan.ID)
 }
 
 func TestImportUpdateOnConflict(t *testing.T) {

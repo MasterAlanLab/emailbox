@@ -37,8 +37,6 @@ var (
 	ErrPlanInUse = errors.New("仍有租户在使用该套餐")
 	// ErrPlanIsDefault 表示这是默认套餐，删掉之后新用户注册会找不到套餐可挂。
 	ErrPlanIsDefault = errors.New("默认套餐不能删除，请先把另一个套餐设为默认")
-	// ErrQuotaNoteRequired 强制管理员写明调额原因。
-	ErrQuotaNoteRequired = errors.New("调整配额必须填写原因")
 )
 
 // ---------- 用户 ----------
@@ -264,38 +262,44 @@ func (s *AdminService) DeletePlan(ctx context.Context, planID string) error {
 	return s.store.DeletePlan(ctx, planID)
 }
 
-// ---------- 配额 ----------
+// ---------- 套餐分配 ----------
 
-// QuotaUpdate 是管理员对单个租户的配额调整。
-// PlanID 非空表示换套餐；Overrides 里 nil 的项表示「不覆盖，取套餐值」。
-type QuotaUpdate struct {
-	PlanID    string
-	Overrides repo.QuotaOverrides
+// TenantPlan 返回租户当前的套餐、它的来源，以及订阅（没有则为 nil）。
+// 分配前管理员要看到这些：给一个正在付费订阅的用户换套餐，他的订阅不会因此被取消。
+func (s *AdminService) TenantPlan(ctx context.Context, tenantID string) (*model.TenantPlan, error) {
+	if _, err := s.store.GetTenantByID(ctx, tenantID); err != nil {
+		return nil, err
+	}
+	limits, err := s.store.GetEffectiveQuota(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	out := &model.TenantPlan{Limits: *limits}
+	sub, err := s.store.GetSubscription(ctx, tenantID)
+	if err == nil {
+		out.Subscription = sub
+	} else if !errors.Is(err, repo.ErrNotFound) {
+		return nil, err
+	}
+	return out, nil
 }
 
-// UpdateTenantQuota 换套餐并写入覆盖值。note 是硬性要求：
-// 一个没写原因的调额，三个月后没人说得清是促销、补偿还是处罚。
-func (s *AdminService) UpdateTenantQuota(ctx context.Context, tenantID, actorID string, u QuotaUpdate) error {
-	if strings.TrimSpace(u.Overrides.Note) == "" {
-		return ErrQuotaNoteRequired
-	}
+// AssignPlan 直接给租户分配一个套餐，不经过支付。返回分配前的套餐代码，供审计记录。
+//
+// 分配后套餐归管理员所有（plan_source=admin）：之后即使该用户的订阅被取消，
+// 也不会把这里的选择回收成默认套餐。额度一律取套餐本身的值，没有逐项覆盖。
+func (s *AdminService) AssignPlan(ctx context.Context, tenantID, planID string) (fromPlan string, err error) {
 	if _, err := s.store.GetTenantByID(ctx, tenantID); err != nil {
-		return err
+		return "", err
 	}
-	if u.PlanID != "" {
-		if _, err := s.store.GetPlanByID(ctx, u.PlanID); err != nil {
-			return err
-		}
+	if _, err := s.store.GetPlanByID(ctx, planID); err != nil {
+		return "", err
 	}
-	u.Overrides.UpdatedBy = &actorID
-	return s.store.WithTx(ctx, func(tx *repo.Store) error {
-		if u.PlanID != "" {
-			if err := tx.UpdateTenantPlan(ctx, tenantID, u.PlanID); err != nil {
-				return err
-			}
-		}
-		return tx.UpdateTenantQuotaOverrides(ctx, tenantID, u.Overrides)
-	})
+	current, err := s.store.GetEffectiveQuota(ctx, tenantID)
+	if err != nil {
+		return "", err
+	}
+	return current.PlanCode, s.store.UpdateTenantPlan(ctx, tenantID, planID)
 }
 
 // ---------- 概览 ----------

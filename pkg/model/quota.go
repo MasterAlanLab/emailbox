@@ -30,6 +30,10 @@ type Plan struct {
 
 // Limits 是某个租户的生效配额：套餐基线值经租户覆盖值 COALESCE 之后的结果。
 type Limits struct {
+	PlanID string `json:"plan_id"`
+	// PlanSource 说明套餐从哪来：admin 是管理员分配的，subscription 是用户订阅买的。
+	// 订阅取消时只回收后者。
+	PlanSource     string `json:"plan_source"`
 	PlanCode       string `json:"plan_code"`
 	PlanName       string `json:"plan_name"`
 	MaxAccounts    int    `json:"max_accounts"`
@@ -44,4 +48,10 @@ func (l Limits) LimitFor(metric string) int {
 		return l.DailyMailFetch
 	}
 	return Unlimited
+}
+
+// TenantPlan 是管理员分配套餐时看到的：当前套餐（含来源）与该租户的订阅。
+type TenantPlan struct {
+	Limits       Limits        `json:"limits"`
+	Subscription *Subscription `json:"subscription"`
 }

@@ -19,7 +19,7 @@
 
 1. **Go 直接调用 Waffo HTTP API**。服务端自行完成请求签名、错误映射和 Webhook 验签，项目中不引入 Bun Bridge、Node 运行时或 `@waffo/pancake-ts` 作为服务端依赖。
 2. Waffo 私钥只从运行时密钥注入，进入 `pkg/waffo` 后留在内存中；配置、前端、数据库、审计字段、日志和 Git 都只出现密钥标识或摘要。
-3. `tenant_quotas` 继续作为配额计算的唯一入口。订阅变更通过受控 service 更新套餐来源，管理员对单租户的配额覆盖值优先保留。
+3. `tenant_quotas` 继续作为配额计算的唯一入口。订阅变更通过受控 service 更新套餐来源，管理员直接分配的套餐优先保留。
 4. Waffo Webhook 是订阅权益的权威来源。支付回跳、前端提示和客户端传入的金额都不直接授予权益。
 5. 测试环境与生产环境分别使用 Merchant / Store / API Key / Webhook 公钥，数据库记录 `mode`，事件跨环境时直接隔离。
 
@@ -163,7 +163,7 @@ plan_source       admin | subscription
 subscription_id   nullable FK tenant_subscriptions(id)
 ```
 
-订阅激活时写入 `plan_source=subscription`；管理员手工换套餐（`UpdateTenantPlan`）时写回 `admin` 并清空 `subscription_id`。取消或到期只回收由该订阅授予的套餐，管理员覆盖值与管理员手工套餐保持原样。这样可以避免 Webhook 把后台刚调整的额度覆盖掉。
+订阅激活时写入 `plan_source=subscription`；管理员手工换套餐（`UpdateTenantPlan`）时写回 `admin` 并清空 `subscription_id`。取消或到期只回收由该订阅授予的套餐，管理员分配的套餐保持原样。这样可以避免 Webhook 把后台刚调整的额度覆盖掉。
 
 ## 5. 关键业务流程
 

@@ -284,7 +284,8 @@ func mountAdminRoutes(admin *echo.Group, h Handlers, platform *middleware.Platfo
 
 	// 跨租户视图。TenantContext 确认租户存在，之后的邮箱路由与用户侧完全同构。
 	at := admin.Group("/tenants/:tenantID", platform.TenantContext)
-	at.GET("/quota", h.Admin.GetTenantQuota)
-	at.PATCH("/quota", h.Admin.UpdateTenantQuota)
+	// 管理员直接给用户分配套餐（不经支付）。没有逐项覆盖额度：要多给就换一档套餐。
+	at.GET("/plan", h.Admin.GetTenantPlan)
+	at.PUT("/plan", h.Admin.AssignTenantPlan)
 	mountMailRoutes(at.Group("/mail"), h, exportLimiter)
 }

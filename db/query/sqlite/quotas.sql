@@ -5,13 +5,17 @@
 -- name: CreateTenantQuota :exec
 INSERT INTO tenant_quotas (tenant_id, plan_id) VALUES (?, ?);
 
+-- Limits come straight from the plan: there are no per-tenant overrides.
+-- An admin who wants a tenant to have more assigns it a different plan.
 -- name: GetEffectiveQuota :one
 SELECT
-    pl.code                                                  AS plan_code,
-    pl.name                                                  AS plan_name,
-    COALESCE(tq.max_accounts, pl.max_accounts)               AS max_accounts,
-    COALESCE(tq.max_groups, pl.max_groups)                   AS max_groups,
-    COALESCE(tq.daily_mail_fetch, pl.daily_mail_fetch)       AS daily_mail_fetch
+    tq.plan_id       AS plan_id,
+    tq.plan_source   AS plan_source,
+    pl.code          AS plan_code,
+    pl.name          AS plan_name,
+    pl.max_accounts  AS max_accounts,
+    pl.max_groups    AS max_groups,
+    pl.daily_mail_fetch AS daily_mail_fetch
 FROM tenant_quotas AS tq
 JOIN plans AS pl ON pl.id = tq.plan_id
 WHERE tq.tenant_id = ?;
@@ -24,14 +28,6 @@ INSERT INTO usage_counters (tenant_id, day, metric, count) VALUES (?, ?, ?, ?)
 ON CONFLICT (tenant_id, day, metric)
 DO UPDATE SET count = usage_counters.count + excluded.count
 RETURNING count;
-
--- Admin overrides. NULL in a column means "fall back to the plan value".
--- name: UpdateTenantQuotaOverrides :execrows
-UPDATE tenant_quotas
-SET max_accounts = ?, max_groups = ?,
-    daily_mail_fetch = ?,
-    note = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
-WHERE tenant_id = ?;
 
 -- An admin picking a plan takes ownership of it: plan_source goes back to
 -- admin, so a later subscription cancellation will not revert this choice.

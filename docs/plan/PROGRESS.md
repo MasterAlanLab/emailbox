@@ -392,6 +392,15 @@ tenants / tenant_members / sessions / audit_logs 四张表都有外键指着它�
 
 ## 过程中发现的坑
 
+- **Kumo 的 `Select` 不认 `<Select.Option>` 子元素**（2026-09-27）：只认 `items` 属性，写成子元素时
+  下拉框整个是空的，也不报错。管理员的调额弹窗和审计页的操作者筛选都因此是空列表。
+  两处都改成 `items`，并用测试钉住「套餐列表必须渲染出来」。
+
+- **去掉逐租户的配额覆盖与调额原因**（2026-09-27，用户要求）：管理员只做一件事——直接给用户分配
+  一档套餐（`PUT /admin/tenants/:id/plan`），不经支付、不填原因。000022 删除 `tenant_quotas` 的
+  `max_accounts / max_groups / daily_mail_fetch / note / updated_by`，生效额度直接取套餐。
+  审计动作 `plan.assign` 记原套餐与新套餐；审计页动作全部显示中文。
+
 - **付款成功、套餐没变，用户还能再买一份**（2026-09-27，本地测试发现）：入账只有 Webhook 一条路，
   而 Waffo 推不到 localhost；「已有订阅」的检查只看本地库，于是第二次购买被放行，
   同一个租户在 Waffo 上有两份生效订阅在扣费。补上了设计里本来就有的「订阅查询」：

@@ -83,7 +83,7 @@ export default function AdminPlansPage() {
   return (
     <PageShell
       title="套餐"
-      description="每个套餐的资源配额与售价。需要给某个用户单独调额，到「用户」页设置覆盖值。"
+      description="每个套餐的资源配额与售价。要给某个用户直接换一档套餐，到「用户」页点「套餐」。"
     >
       {billing && <PaymentSwitchCard settings={billing} onChange={setBilling} />}
       {billingError && <p className="mb-4 text-sm text-kumo-danger">{billingError}</p>}

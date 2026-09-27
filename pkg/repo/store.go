@@ -148,17 +148,3 @@ func rowsAffected(n int64, err error) error {
 	}
 	return nil
 }
-
-func nullInt64(v *int) sql.NullInt64 {
-	if v == nil {
-		return sql.NullInt64{}
-	}
-	return sql.NullInt64{Int64: int64(*v), Valid: true}
-}
-
-func nullInt32(v *int) sql.NullInt32 {
-	if v == nil {
-		return sql.NullInt32{}
-	}
-	return sql.NullInt32{Int32: int32(*v), Valid: true}
-}

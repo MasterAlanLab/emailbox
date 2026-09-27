@@ -354,7 +354,11 @@ Outlook 只能走 4 段 OAuth；域名不在表里就用自定义 IMAP 的 4 段
   每个套餐一张卡片，配额与月付 / 年付价格（`PlanPrices`）在同一张卡片里——
   价格说的就是这份配额卖多少钱，分开摆的话改额度和改价格要来回对照
 - `/admin/users`：`Table` + `Pagination` + 搜索。行内 `DropdownMenu`：
-  禁用/启用、重置密码、调配额、授予管理员、进入其邮箱、删除
+  禁用/启用、重置密码、分配套餐、授予管理员、进入其邮箱、删除。
+  分配套餐（`AssignPlanDialog`）：套餐列成单选卡片并写明各项额度，顶部显示当前套餐与来源；
+  用户有付费订阅时提醒「订阅不会被取消、仍会按期扣费」
+- `/admin/audit`：动作按 `lib/auditActions.ts` 显示中文名（原始代码在 title 上），筛选用下拉选择；
+  `pkg/model/audit_test.go` 检查每个后端审计动作在前端都有中文名
 - 危险操作（删除用户、重置密码）用 `Dialog` 二次确认，措辞写明影响范围
 - `/admin/tenants/:id/mail`：**直接复用 `/mail` 的全部组件**，
   只是 API base 从 `/api/v1/tenants/:tid/mail` 换成 `/api/v1/admin/tenants/:tid/mail`。

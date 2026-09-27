@@ -47,7 +47,7 @@ const (
 	AuditPlanCreate        = "plan.create"
 	AuditPlanUpdate        = "plan.update"
 	AuditPlanDelete        = "plan.delete"
-	AuditQuotaUpdate       = "quota.update"
+	AuditPlanAssign        = "plan.assign"
 	AuditBillingSettings   = "billing.settings.update"
 	AuditBillingPrice      = "billing.price.update"
 	AuditBillingCheckout   = "billing.checkout"

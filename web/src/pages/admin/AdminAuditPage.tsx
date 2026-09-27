@@ -1,10 +1,39 @@
 import { Button } from "@cloudflare/kumo/components/button";
-import { Input } from "@cloudflare/kumo/components/input";
 import { LayerCard } from "@cloudflare/kumo/components/layer-card";
 import { Select } from "@cloudflare/kumo/components/select";
 import { useEffect, useState } from "react";
 import { adminApi, type AuditLog } from "@/api/admin";
 import { PageShell } from "@/components/layout/PageShell";
+import { ACTOR_KIND_LABEL, AUDIT_ACTION_LABEL, auditActionLabel } from "@/lib/auditActions";
+
+const ACTOR_ITEMS = [
+  { label: "全部操作者", value: "" },
+  ...Object.entries(ACTOR_KIND_LABEL).map(([value, label]) => ({ label, value })),
+];
+const ACTION_ITEMS = [
+  { label: "全部动作", value: "" },
+  ...Object.entries(AUDIT_ACTION_LABEL).map(([value, label]) => ({ label, value })),
+];
+
+// 详情里的字段名。没列出的原样显示，至少不会丢信息。
+const DETAIL_LABEL: Record<string, string> = {
+  from_plan: "原套餐",
+  to_plan: "新套餐",
+  plan_id: "套餐",
+  note: "原因",
+};
+
+// formatDetails 把 details 的 JSON 摊成「字段：值」，给人看，而不是给程序看。
+function formatDetails(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return Object.entries(parsed)
+      .map(([k, v]) => `${DETAIL_LABEL[k] ?? k}：${typeof v === "string" ? v : JSON.stringify(v)}`)
+      .join("，");
+  } catch {
+    return raw;
+  }
+}
 
 export default function AdminAuditPage() {
   const [actorKind, setActorKind] = useState("");
@@ -47,26 +76,24 @@ export default function AdminAuditPage() {
     >
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Select
-          className="w-40"
+          className="w-36"
           size="sm"
           aria-label="按操作者筛选"
+          items={ACTOR_ITEMS}
           value={actorKind}
           onValueChange={(v: string | null) => {
             setActorKind(v ?? "");
             setPage(1);
           }}
-        >
-          <Select.Option value="">全部操作者</Select.Option>
-          <Select.Option value="admin">仅管理员</Select.Option>
-          <Select.Option value="user">仅用户</Select.Option>
-          <Select.Option value="system">系统</Select.Option>
-        </Select>
-        <Input
-          className="max-w-xs"
-          placeholder="动作，如 account.delete"
+        />
+        <Select
+          className="w-48"
+          size="sm"
+          aria-label="按动作筛选"
+          items={ACTION_ITEMS}
           value={action}
-          onChange={(e) => {
-            setAction(e.target.value);
+          onValueChange={(v: string | null) => {
+            setAction(v ?? "");
             setPage(1);
           }}
         />
@@ -99,17 +126,19 @@ export default function AdminAuditPage() {
                 {/* 操作者邮箱是冗余存的：actor_user_id 在用户被删后会置空，
                     那之后只有这一列还能说明是谁做的。 */}
                 {log.actor_name || log.actor_user_id || "(已删除)"}
-                {log.actor_kind === "admin" && (
-                  <span className="ml-2 rounded bg-kumo-tint px-1.5 py-0.5 text-xs">管理员</span>
+                {log.actor_kind !== "user" && ACTOR_KIND_LABEL[log.actor_kind] && (
+                  <span className="ml-2 rounded bg-kumo-tint px-1.5 py-0.5 text-xs">
+                    {ACTOR_KIND_LABEL[log.actor_kind]}
+                  </span>
                 )}
               </span>
               <span className="min-w-0">
-                <span className="font-mono text-xs">{log.action}</span>
-                {log.resource_id && (
-                  <span className="ml-2 truncate text-xs text-kumo-subtle">{log.resource_id}</span>
-                )}
+                {/* 原始代码挂在 title 上：排查时要拿它去对日志和代码，平时看中文就够了。 */}
+                <span title={log.action}>{auditActionLabel(log.action)}</span>
                 {log.details !== "{}" && (
-                  <span className="ml-2 text-xs text-kumo-subtle">{log.details}</span>
+                  <span className="block truncate text-xs text-kumo-subtle">
+                    {formatDetails(log.details)}
+                  </span>
                 )}
               </span>
               <span className="text-xs text-kumo-subtle">{log.ip}</span>

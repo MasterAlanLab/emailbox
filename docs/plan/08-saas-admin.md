@@ -152,17 +152,13 @@ CREATE TABLE plans (
     updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- 租户的生效配额 = 所属套餐 + 管理员针对该租户的覆盖值（NULL 表示不覆盖）
+-- 租户的生效配额 = 所属套餐的额度。没有逐租户的覆盖值（000022 删除）：
+-- 管理员要多给就直接分配另一档套餐，不经支付；分配记进审计，不再单独存「调额原因」。
 CREATE TABLE tenant_quotas (
     tenant_id           TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
     plan_id             TEXT NOT NULL REFERENCES plans(id),
-    max_accounts        INTEGER,
-    max_groups          INTEGER,
-    daily_mail_fetch    INTEGER,
-    plan_source          TEXT NOT NULL DEFAULT 'admin', -- admin | subscription
-    subscription_id      TEXT REFERENCES tenant_subscriptions(id),
-    note                TEXT NOT NULL DEFAULT '',   -- 管理员备注为什么调额
-    updated_by          TEXT REFERENCES users(id),
+    plan_source         TEXT NOT NULL DEFAULT 'admin', -- admin | subscription，订阅取消只回收后者
+    subscription_id     TEXT REFERENCES tenant_subscriptions(id),
     updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

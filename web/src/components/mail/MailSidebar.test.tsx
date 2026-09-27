@@ -30,6 +30,8 @@ function group(id: string, name: string, extra: Partial<MailGroupNode> = {}): Ma
 }
 
 const LIMITS: Limits = {
+  plan_id: "plan-free",
+  plan_source: "admin",
   plan_code: "free",
   plan_name: "免费版",
   max_accounts: 50,

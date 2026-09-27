@@ -195,7 +195,7 @@ func buildServices(store *repo.Store, desktop bool) (*services, error) {
 			Member: handler.NewMemberHandler(service.NewMemberService(store)), Group: handler.NewGroupHandler(groupService),
 			Account: handler.NewAccountHandler(accountService), Quota: handler.NewQuotaHandler(service.NewQuotaService(store, quotaService)),
 			Message: handler.NewMessageHandler(messageService),
-			Admin:   handler.NewAdminHandler(adminService, auditService, service.NewQuotaService(store, quotaService)),
+			Admin:   handler.NewAdminHandler(adminService, auditService),
 			Billing: handler.NewBillingHandler(billingService),
 			Job:     handler.NewJobHandler(service.NewJobService(store, jobManager), refreshService),
 			Refresh: handler.NewRefreshHandler(refreshService),

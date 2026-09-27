@@ -11,7 +11,7 @@ SELECT u.id, u.username, u.email, u.status, u.platform_role,
        COALESCE(t.id, '')   AS tenant_id,
        COALESCE(t.name, '') AS tenant_name,
        COALESCE(pl.code, '') AS plan_code,
-       COALESCE(tq.max_accounts, pl.max_accounts, -1) AS max_accounts,
+       COALESCE(pl.max_accounts, -1) AS max_accounts,
        (SELECT COUNT(*) FROM mail_accounts ma
          WHERE ma.tenant_id = t.id AND ma.deleted_at IS NULL) AS account_count
 FROM users u
@@ -43,7 +43,7 @@ SELECT u.id, u.username, u.email, u.status, u.platform_role,
        COALESCE(t.id, '')   AS tenant_id,
        COALESCE(t.name, '') AS tenant_name,
        COALESCE(pl.code, '') AS plan_code,
-       COALESCE(tq.max_accounts, pl.max_accounts, -1) AS max_accounts,
+       COALESCE(pl.max_accounts, -1) AS max_accounts,
        (SELECT COUNT(*) FROM mail_accounts ma
          WHERE ma.tenant_id = t.id AND ma.deleted_at IS NULL) AS account_count
 FROM users u
