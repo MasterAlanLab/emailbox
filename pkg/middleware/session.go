@@ -37,7 +37,7 @@ func NewAuthMiddleware(a *service.AuthService, k *service.APIKeyService) *AuthMi
 //   - 脚本 / Agent：Authorization: Bearer <API Key>
 //
 // Cookie 优先是有意的：一个人在浏览器里开着页面、同时手边脚本带着 Key 的场景下，
-// 他在界面上做的事应当以他自己的身份留痕，而不是记成 api_key。
+// 他在界面上做的事应当以他自己的身份执行，而不是被收窄成 Key 的只读角色。
 func (m *AuthMiddleware) Require(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		if cookie, e := c.Cookie(SessionCookie); e == nil && cookie.Value != "" {
@@ -57,8 +57,7 @@ func (m *AuthMiddleware) Require(next echo.HandlerFunc) echo.HandlerFunc {
 			if e != nil {
 				return echo.NewHTTPError(http.StatusUnauthorized, "API Key 无效")
 			}
-			// Key 不属于任何用户：user_id 留空，身份由 actor_kind 表达。
-			c.Set("actor_kind", ActorKindAPIKey)
+			// Key 不属于任何用户：user_id 留空，身份由 api_key_tenant_id 表达。
 			c.Set("api_key_tenant_id", tenantID)
 			return next(c)
 		}

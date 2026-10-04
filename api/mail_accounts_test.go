@@ -1,13 +1,10 @@
 package api_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
-
-	"emailbox/pkg/model"
 
 	"github.com/labstack/echo/v5"
 )
@@ -167,10 +164,9 @@ func itoa(i int) string {
 	return string(digits)
 }
 
-// 导出是全平台风险最高的接口，两件事必须钉死：导出的文件能被原样重新导入
-// （07 文档 P1 验收的 round-trip 一项）、每一次成功的导出都留痕。
-func TestAccountExportRoundTripsAndAudits(t *testing.T) {
-	e, store, _ := newTestServerWithStore(t)
+// 导出的文件必须能被原样重新导入，并保留账号凭据。
+func TestAccountExportRoundTrips(t *testing.T) {
+	e := newTestServer(t)
 	token, tenantID := register(t, e, "alice", "alice@example.com")
 	createAccount(t, e, token, tenantID,
 		`{"email":"a@outlook.com","password":"pwd","client_id":"24d9a0ed-1234-4abc-9def-0123456789ab","refresh_token":"M.token"}`)
@@ -198,15 +194,29 @@ func TestAccountExportRoundTripsAndAudits(t *testing.T) {
 	if !strings.Contains(body, `"created":2`) {
 		t.Errorf("导出的文件应能重新导入出同样多的账号:\n%s", body)
 	}
+}
 
-	// 审计里只该有成功那一次
-	_, total, err := store.ListAuditLogs(context.Background(), model.AuditFilter{
-		TenantID: tenantID, Action: model.AuditAccountExport,
-	})
-	if err != nil {
-		t.Fatal(err)
+// 用户与管理端共用按用户计数的限流，切换路由前缀也不会获得新的导出额度。
+func TestAccountExportLimiterIsSharedAcrossRoutes(t *testing.T) {
+	e, store, _ := newTestServerWithStore(t)
+	token, tenantID := register(t, e, "root", "root@example.com")
+	promoteToAdmin(t, store, "root")
+	createAccount(t, e, token, tenantID, `{"email":"mine@gmail.com","imap_password":"app-pwd"}`)
+	userPath := mailPath(tenantID, "/accounts/export")
+	adminPath := "/api/v1/admin/tenants/" + tenantID + "/mail/accounts/export"
+	for _, path := range []string{userPath, adminPath, userPath} {
+		if status, body := do(t, e, http.MethodPost, path, token, `{"scope":"all"}`); status != http.StatusOK {
+			t.Fatalf("突发额度内导出失败: %d %s", status, body)
+		}
 	}
-	if total != 1 {
-		t.Errorf("导出的审计记录有 %d 条，期望 1 条", total)
+	if status, body := do(t, e, http.MethodPost, adminPath, token, `{"scope":"all"}`); status != http.StatusTooManyRequests {
+		t.Errorf("切换前缀后的超额导出拿到 %d，期望 429（%s）", status, body)
+	}
+	// 所有测试请求来自同一 IP，但另一用户仍有自己的额度。
+	bobToken, bobTenant := register(t, e, "bobby", "bob@example.com")
+	createAccount(t, e, bobToken, bobTenant, `{"email":"bob@gmail.com","imap_password":"app-pwd"}`)
+	if status, body := do(t, e, http.MethodPost, mailPath(bobTenant, "/accounts/export"), bobToken,
+		`{"scope":"all"}`); status != http.StatusOK {
+		t.Errorf("另一用户的导出被误限流: %d %s", status, body)
 	}
 }

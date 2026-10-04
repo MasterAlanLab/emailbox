@@ -96,7 +96,7 @@ describe("GroupFormDialog 的代理配置", () => {
   it("新建分组不去读代理明文", async () => {
     const proxy = mockProxy({ proxy_url: "" });
     await mount();
-    // 那个端点每调一次就写一条审计。新建时没有分组可读，一次都不该发。
+    // 新建时没有分组可读，不应发出凭据读取请求。
     expect(proxy).not.toHaveBeenCalled();
   });
 });

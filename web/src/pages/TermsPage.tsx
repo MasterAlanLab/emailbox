@@ -1,7 +1,7 @@
 import { SettingsPage } from "./ProfileSettingsPage";
 export default function TermsPage() {
   return (
-    <SettingsPage title="服务条款" description="最后更新：2026 年 8 月 20 日">
+    <SettingsPage title="服务条款" description="最后更新：2026 年 10 月 4 日">
       <article className="max-w-2xl space-y-8 text-sm leading-7 text-kumo-subtle">
         <section>
           <h2 className="font-medium text-kumo-strong">服务内容</h2>
@@ -28,7 +28,7 @@ export default function TermsPage() {
         <section>
           <h2 className="font-medium text-kumo-strong">账户责任</h2>
           <p className="mt-2">
-            请妥善保管登录凭据并对账户行为负责。导出操作仅限具备凭据读取权限的账号发起，受系统限流保护且全量记入审计日志。
+            请妥善保管登录凭据并对账户行为负责。导出操作仅限具备凭据读取权限的账号发起，受系统限流保护。
           </p>
         </section>
         <section>

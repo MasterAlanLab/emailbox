@@ -55,49 +55,45 @@ type UserUpdate struct {
 	PlatformRole *model.PlatformRole
 }
 
-// UpdateUser 改用户状态与平台角色，返回实际发生变化的字段名（供审计写进 details）。
+// UpdateUser 改用户状态与平台角色。
 //
 // 禁用时必须同时清空该用户的全部会话：只改 status 而留着 session，
 // 已登录的那一个浏览器仍然畅通无阻，「禁用」就成了个摆设。
-func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID string, u UserUpdate) ([]string, error) {
+func (s *AdminService) UpdateUser(ctx context.Context, actorID, userID string, u UserUpdate) error {
 	user, err := s.store.GetUserByID(ctx, userID)
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	changed := make([]string, 0, 2)
 
 	if u.PlatformRole != nil && *u.PlatformRole != user.PlatformRole {
 		// 最后一个管理员的守卫在 PlatformService 里，跟 BootstrapAdmin 放在一处，
 		// 免得两边各写一份判断然后慢慢跑偏。
 		if err := s.platform.SetPlatformRole(ctx, userID, *u.PlatformRole); err != nil {
-			return nil, err
+			return err
 		}
-		changed = append(changed, "platform_role")
 	}
 
 	if u.Status != nil && *u.Status != user.Status {
 		if *u.Status == model.UserStatusDisabled && userID == actorID {
-			return nil, ErrSelfTarget
+			return ErrSelfTarget
 		}
 		if err := s.store.UpdateUserStatus(ctx, userID, *u.Status); err != nil {
-			return nil, err
+			return err
 		}
 		if *u.Status != model.UserStatusActive {
 			if err := s.store.DeleteUserSessions(ctx, userID); err != nil {
-				return nil, err
+				return err
 			}
 		}
-		changed = append(changed, "status")
 	}
 
-	return changed, nil
+	return nil
 }
 
 // ResetPassword 生成一个临时密码，一次性返回给管理员，并清空该用户全部会话。
 //
 // 返回明文是有意的：平台还没有发信能力（P4 才有 SMTP），只能由管理员转交。
-// 因此它只在这一次响应里出现，不落库、不进日志、不写审计 details。
+// 因此它只在这一次响应里出现，不落库、不进日志。
 func (s *AdminService) ResetPassword(ctx context.Context, userID string) (string, error) {
 	if _, err := s.store.GetUserByID(ctx, userID); err != nil {
 		return "", err
@@ -136,7 +132,7 @@ func randomPassword() (string, error) {
 // （08 文档 §6 第 6 条）。软删只为「误删可恢复」，而第三方邮箱的凭据密文
 // 不该跟着一个 deleted_at 标记长期留在库里。恢复后需要用户重新填凭据。
 //
-// 返回被清理的邮箱数量，供审计记录规模。
+// 返回被清理的邮箱数量，随响应告诉管理员这次删了多少。
 func (s *AdminService) DeleteUser(ctx context.Context, actorID, userID string) (int, error) {
 	if userID == actorID {
 		return 0, ErrSelfTarget
@@ -284,22 +280,18 @@ func (s *AdminService) TenantPlan(ctx context.Context, tenantID string) (*model.
 	return out, nil
 }
 
-// AssignPlan 直接给租户分配一个套餐，不经过支付。返回分配前的套餐代码，供审计记录。
+// AssignPlan 直接给租户分配一个套餐，不经过支付。
 //
 // 分配后套餐归管理员所有（plan_source=admin）：之后即使该用户的订阅被取消，
 // 也不会把这里的选择回收成默认套餐。额度一律取套餐本身的值，没有逐项覆盖。
-func (s *AdminService) AssignPlan(ctx context.Context, tenantID, planID string) (fromPlan string, err error) {
+func (s *AdminService) AssignPlan(ctx context.Context, tenantID, planID string) error {
 	if _, err := s.store.GetTenantByID(ctx, tenantID); err != nil {
-		return "", err
+		return err
 	}
 	if _, err := s.store.GetPlanByID(ctx, planID); err != nil {
-		return "", err
+		return err
 	}
-	current, err := s.store.GetEffectiveQuota(ctx, tenantID)
-	if err != nil {
-		return "", err
-	}
-	return current.PlanCode, s.store.UpdateTenantPlan(ctx, tenantID, planID)
+	return s.store.UpdateTenantPlan(ctx, tenantID, planID)
 }
 
 // ---------- 概览 ----------

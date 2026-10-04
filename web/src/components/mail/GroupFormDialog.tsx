@@ -25,7 +25,7 @@ export function GroupFormDialog({ tenantID, group, onClose, onSaved }: GroupForm
   const { error, pending, run } = useAsyncAction();
 
   // scope 对象每次渲染都是新的，直接进依赖数组会让 effect 每帧重跑一次
-  // ——那是三次带审计的凭据读取。拆成原始值再在 effect 里拼回去（同 MailSidebar 取配额那处）。
+  // ——那会反复读取凭据明文。拆成原始值再在 effect 里拼回去（同 MailSidebar 取配额那处）。
   const scope = asScope(tenantID);
   const scopeTenantID = scope.tenantID;
   const scopeAdmin = scope.admin ?? false;
@@ -38,7 +38,7 @@ export function GroupFormDialog({ tenantID, group, onClose, onSaved }: GroupForm
   // 而界面上一切正常——直到某个账号取信失败才会发现。
   //
   // 明文单独走 GET /groups/:id/proxy：那个端点要 account:secret 权限，
-  // 且每次调用都写一条审计。所以只在打开编辑框时取这一次。
+  // 只在打开编辑框时取一次，避免无关渲染反复读取凭据。
   useEffect(() => {
     if (!groupID) return undefined;
     let ignore = false;

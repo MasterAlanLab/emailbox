@@ -9,20 +9,6 @@ import (
 	"time"
 )
 
-type AuditLog struct {
-	ID           string
-	TenantID     string
-	ActorUserID  sql.NullString
-	ActorName    string
-	ActorKind    string
-	Action       string
-	ResourceType string
-	ResourceID   string
-	Ip           string
-	Details      string
-	CreatedAt    time.Time
-}
-
 type BillingCheckoutSession struct {
 	ID                 string
 	TenantID           string

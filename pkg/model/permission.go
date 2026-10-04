@@ -42,12 +42,11 @@ const (
 	PermissionAccountWrite   Permission = "mail:account:write"
 	PermissionAccountDelete  Permission = "mail:account:delete"
 	// PermissionAccountSecret 单独拆出来，是因为「导出账号」等价于导出全部凭据明文——
-	// 这是本平台风险最高的操作，必须能独立收敛，并且强制写 audit_logs。
+	// 这是本平台风险最高的操作，必须能独立收敛。
 	PermissionAccountSecret Permission = "mail:account:secret"
 	PermissionMessageRead   Permission = "mail:message:read"
 	PermissionMessageWrite  Permission = "mail:message:write"
 	PermissionTokenRefresh  Permission = "mail:token:refresh"
-	PermissionAuditRead     Permission = "mail:audit:read"
 )
 
 // RolePermissions 是租户角色到权限的映射。个人工作空间模式下用户在自己的租户里恒为 owner，
@@ -70,7 +69,6 @@ var RolePermissions = map[TenantRole]map[Permission]bool{
 		PermissionMessageRead:    true,
 		PermissionMessageWrite:   true,
 		PermissionTokenRefresh:   true,
-		PermissionAuditRead:      true,
 	},
 	// API Key 只读，且只读取件需要的那三样。
 	// 没有 mail:account:secret（导出等于取走全部凭据明文）、没有任何写权限、

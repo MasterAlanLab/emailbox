@@ -77,7 +77,7 @@ type HealthCount struct {
 // MailAccount 是一个托管的邮箱账号。
 //
 // 三个凭据字段是加密存储的密文，绝不能出现在任何列表/详情接口里——
-// 只有导出接口（需 account:secret 权限 + 审计）才返回明文。
+// 只有导出接口（需 account:secret 权限）才返回明文。
 type MailAccount struct {
 	ID              string        `json:"id"`
 	TenantID        string        `json:"-"`

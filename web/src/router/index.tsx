@@ -19,7 +19,6 @@ import ApiPage from "@/pages/ApiPage";
 import AdminOverviewPage from "@/pages/admin/AdminOverviewPage";
 import AdminUsersPage from "@/pages/admin/AdminUsersPage";
 import AdminPlansPage from "@/pages/admin/AdminPlansPage";
-import AdminAuditPage from "@/pages/admin/AdminAuditPage";
 import AdminTenantMailPage from "@/pages/admin/AdminTenantMailPage";
 
 // 工作区（租户）在**前端不露面**：一个用户就是一个工作区，界面上不提这个概念。
@@ -72,7 +71,6 @@ export const router = createBrowserRouter([
         handle: shellRoute,
       },
       { path: "admin/plans", element: admin(<AdminPlansPage />), handle: appRoute },
-      { path: "admin/audit", element: admin(<AdminAuditPage />), handle: appRoute },
     ],
   },
 ]);

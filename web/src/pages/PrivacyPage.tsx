@@ -1,7 +1,7 @@
 import { SettingsPage } from "./ProfileSettingsPage";
 export default function PrivacyPage() {
   return (
-    <SettingsPage title="隐私政策" description="最后更新：2026 年 8 月 20 日">
+    <SettingsPage title="隐私政策" description="最后更新：2026 年 10 月 4 日">
       <article className="max-w-2xl space-y-8 text-sm leading-7 text-kumo-subtle">
         <section>
           <h2 className="font-medium text-kumo-strong">我们存储的信息</h2>
@@ -30,8 +30,8 @@ export default function PrivacyPage() {
           <h2 className="font-medium text-kumo-strong">谁能看到你的数据</h2>
           <p className="mt-2">
             不同用户之间完全隔离，其他用户无法访问你的账号与邮件。
-            平台管理员出于运维需要可以跨用户访问，但每一次此类访问都会记入审计日志，
-            包括操作者、时间与来源 IP。平台不提供「以你的身份登录」的功能。
+            平台管理员出于运维需要可以通过专用管理接口跨用户访问，使用的是管理员自己的会话，
+            而不是你的登录身份。
           </p>
         </section>
         <section>

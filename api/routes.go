@@ -4,7 +4,6 @@ import (
 	"emailbox/pkg/handler"
 	"emailbox/pkg/middleware"
 	"emailbox/pkg/model"
-	"emailbox/pkg/service"
 	"net/http"
 	"strings"
 	"time"
@@ -60,7 +59,6 @@ type Handlers struct {
 	Health  *handler.HealthHandler
 	OAuth   *handler.OAuthHandler
 	Billing *handler.BillingHandler
-	Audit   *service.AuditService
 }
 
 func SetupRoutes(
@@ -107,16 +105,15 @@ func SetupRoutes(
 	t.GET("/quota", h.Quota.Get, middleware.Require(model.PermissionTenantRead))
 	t.GET("/billing/plans", h.Billing.Plans, middleware.Require(model.PermissionTenantRead))
 	t.GET("/billing/subscription", h.Billing.Subscription, middleware.Require(model.PermissionTenantRead))
-	// 对账只把 Waffo 已确认的订单同步下来，调用方不提供任何输入，因此与读订阅同一权限、不记审计。
+	// 对账只把 Waffo 已确认的订单同步下来，调用方不提供任何输入，因此与读订阅同一权限。
 	t.POST("/billing/sync", h.Billing.Sync, middleware.Require(model.PermissionTenantRead))
-	t.POST("/billing/checkout", h.Billing.Checkout, middleware.Require(model.PermissionTenantUpdate), handler.AuditWrite(h.Audit, model.AuditBillingCheckout, "billing_checkout", ""))
-	t.POST("/billing/cancel", h.Billing.Cancel, middleware.Require(model.PermissionTenantUpdate), handler.AuditWrite(h.Audit, model.AuditBillingCancel, "subscription", ""))
-	t.POST("/billing/uncancel", h.Billing.Uncancel, middleware.Require(model.PermissionTenantUpdate), handler.AuditWrite(h.Audit, model.AuditBillingCancel, "subscription", ""))
+	t.POST("/billing/checkout", h.Billing.Checkout, middleware.Require(model.PermissionTenantUpdate))
+	t.POST("/billing/cancel", h.Billing.Cancel, middleware.Require(model.PermissionTenantUpdate))
+	t.POST("/billing/uncancel", h.Billing.Uncancel, middleware.Require(model.PermissionTenantUpdate))
 	// API Key 的读与重置都要 tenant:update：它等价于发放一把能读全部邮件的钥匙，
 	// 不能让只读成员拿到。Key 自己的角色没有这一项，因此读不到也重置不了自己。
 	t.GET("/api-key", h.APIKey.Get, middleware.Require(model.PermissionTenantUpdate))
-	t.POST("/api-key/reset", h.APIKey.Reset, middleware.Require(model.PermissionTenantUpdate),
-		handler.AuditWrite(h.Audit, model.AuditAPIKeyReset, "api_key", ""))
+	t.POST("/api-key/reset", h.APIKey.Reset, middleware.Require(model.PermissionTenantUpdate))
 	t.GET("/members", h.Member.List, middleware.Require(model.PermissionMemberRead))
 	t.POST("/members", h.Member.Add, middleware.Require(model.PermissionMemberCreate))
 	t.PATCH("/members/:userID", h.Member.Update, middleware.Require(model.PermissionMemberUpdate))
@@ -151,100 +148,65 @@ func SetupRoutes(
 // 前端才能原样复用 /mail 的组件。写成一个函数而不是抄两遍，
 // 是因为抄两遍必然会在某次改动后只改一边——那种偏差在管理员视图上极难被发现。
 func mountMailRoutes(m *echo.Group, h Handlers, exportLimiter echo.MiddlewareFunc) {
-	audit := func(action, resourceType, idParam string) echo.MiddlewareFunc {
-		return handler.AuditWrite(h.Audit, action, resourceType, idParam)
-	}
-
 	m.GET("/groups", h.Group.List, middleware.Require(model.PermissionMailGroupRead))
 	// 分组代理的明文只从这一个端点出去，编辑表单打开时取一次。
 	// 列表接口不带明文：那样一进 /mail 就把全部分组的代理口令发到浏览器，
 	// 而绝大多数时候没人要看它们。
 	//
 	// 它是读操作，但收敛口径跟着「读走了什么」而不是「谁在读」走，因此按导出
-	// 同一档：account:secret（API Key 天然没有这一项）+ **不分角色**的强制审计。
-	// 这里用 AuditWrite 而不是 AuditAdminRead 就是为了后者——普通用户取走一条
-	// 代理明文同样要留痕。没加限流：一次只出一个分组的一条代理，而分组数本身
-	// 受配额约束，与「一次取走整租户凭据」的导出不是一个量级。
-	m.GET("/groups/:groupID/proxy", h.Group.Proxy, middleware.Require(model.PermissionAccountSecret),
-		audit(model.AuditGroupProxyReveal, "group", "groupID"))
-	m.POST("/groups", h.Group.Create, middleware.Require(model.PermissionMailGroupWrite),
-		audit(model.AuditGroupWrite, "group", ""))
-	m.POST("/groups/reorder", h.Group.Reorder, middleware.Require(model.PermissionMailGroupWrite),
-		audit(model.AuditGroupWrite, "group", ""))
-	m.PATCH("/groups/:groupID", h.Group.Update, middleware.Require(model.PermissionMailGroupWrite),
-		audit(model.AuditGroupWrite, "group", "groupID"))
-	m.DELETE("/groups/:groupID", h.Group.Delete, middleware.Require(model.PermissionMailGroupWrite),
-		audit(model.AuditGroupWrite, "group", "groupID"))
+	// 同一档要 account:secret（API Key 天然没有这一项）。没加限流：一次只出一个
+	// 分组的一条代理，而分组数本身受配额约束，与「一次取走整租户凭据」的导出不是一个量级。
+	m.GET("/groups/:groupID/proxy", h.Group.Proxy, middleware.Require(model.PermissionAccountSecret))
+	m.POST("/groups", h.Group.Create, middleware.Require(model.PermissionMailGroupWrite))
+	m.POST("/groups/reorder", h.Group.Reorder, middleware.Require(model.PermissionMailGroupWrite))
+	m.PATCH("/groups/:groupID", h.Group.Update, middleware.Require(model.PermissionMailGroupWrite))
+	m.DELETE("/groups/:groupID", h.Group.Delete, middleware.Require(model.PermissionMailGroupWrite))
 
-	// 账号列表是管理员三类必审读操作之一：这是「管理员看了谁的邮箱清单」的唯一痕迹。
-	m.GET("/accounts", h.Account.List, middleware.Require(model.PermissionAccountRead),
-		handler.AuditAdminRead(h.Audit, model.AuditAccountList, "account", ""))
-	m.POST("/accounts", h.Account.Create, middleware.Require(model.PermissionAccountWrite),
-		audit(model.AuditAccountCreate, "account", ""))
+	m.GET("/accounts", h.Account.List, middleware.Require(model.PermissionAccountRead))
+	m.POST("/accounts", h.Account.Create, middleware.Require(model.PermissionAccountWrite))
 	// 导入与批量接口的请求体远超全局 64KB 上限，必须配 BulkBody；
 	// 全局 BodyLimit 由 IsBulkPath 放行，两者成对出现，缺一半就会返回 413。
-	m.POST("/accounts/import", h.Account.Import, middleware.Require(model.PermissionAccountWrite),
-		BulkBody(), audit(model.AuditAccountImport, "account", ""))
+	m.POST("/accounts/import", h.Account.Import, middleware.Require(model.PermissionAccountWrite), BulkBody())
 	// 导出是全平台风险最高的接口：一次调用等于取走整租户的凭据明文。
-	// 权限、审计、限流三件必须同时在场，缺任何一件都等于开了一个不留痕或
-	// 不设防的凭据出口（07 文档 R9）。
+	// 权限与限流两件必须同时在场，缺任何一件都等于开了一个不设防的凭据出口（07 文档 R9）。
 	m.POST("/accounts/export", h.Account.Export, middleware.Require(model.PermissionAccountSecret),
-		exportLimiter, BulkBody(), audit(model.AuditAccountExport, "account", ""))
-	m.GET("/accounts/:accountID", h.Account.Get, middleware.Require(model.PermissionAccountRead),
-		handler.AuditAdminRead(h.Audit, model.AuditAccountRead, "account", "accountID"))
-	m.PATCH("/accounts/:accountID", h.Account.Update, middleware.Require(model.PermissionAccountWrite),
-		audit(model.AuditAccountUpdate, "account", "accountID"))
-	m.DELETE("/accounts/:accountID", h.Account.Delete, middleware.Require(model.PermissionAccountDelete),
-		audit(model.AuditAccountDelete, "account", "accountID"))
+		exportLimiter, BulkBody())
+	m.GET("/accounts/:accountID", h.Account.Get, middleware.Require(model.PermissionAccountRead))
+	m.PATCH("/accounts/:accountID", h.Account.Update, middleware.Require(model.PermissionAccountWrite))
+	m.DELETE("/accounts/:accountID", h.Account.Delete, middleware.Require(model.PermissionAccountDelete))
 
-	m.POST("/accounts/batch/move", h.Account.BatchMove, middleware.Require(model.PermissionAccountWrite),
-		BulkBody(), audit(model.AuditAccountBatch, "account", ""))
-	m.POST("/accounts/batch/status", h.Account.BatchStatus, middleware.Require(model.PermissionAccountWrite),
-		BulkBody(), audit(model.AuditAccountBatch, "account", ""))
-	m.POST("/accounts/batch/proxy", h.Account.BatchProxy, middleware.Require(model.PermissionAccountWrite),
-		BulkBody(), audit(model.AuditAccountBatch, "account", ""))
-	m.POST("/accounts/batch/delete", h.Account.BatchDelete, middleware.Require(model.PermissionAccountDelete),
-		BulkBody(), audit(model.AuditAccountDelete, "account", ""))
+	m.POST("/accounts/batch/move", h.Account.BatchMove, middleware.Require(model.PermissionAccountWrite), BulkBody())
+	m.POST("/accounts/batch/status", h.Account.BatchStatus, middleware.Require(model.PermissionAccountWrite), BulkBody())
+	m.POST("/accounts/batch/proxy", h.Account.BatchProxy, middleware.Require(model.PermissionAccountWrite), BulkBody())
+	m.POST("/accounts/batch/delete", h.Account.BatchDelete, middleware.Require(model.PermissionAccountDelete), BulkBody())
 	// 按「当前失效」这个条件删除，而不是按前端传来的 ID 列表：见 HealthService.DeleteInvalid。
-	m.POST("/accounts/batch/delete-invalid", h.Health.DeleteInvalid, middleware.Require(model.PermissionAccountDelete),
-		audit(model.AuditAccountDelete, "account", ""))
+	m.POST("/accounts/batch/delete-invalid", h.Health.DeleteInvalid, middleware.Require(model.PermissionAccountDelete))
 
 	// 邮件读写。这些端点每一个都会打上游，耗时以秒计——
 	// 批量操作因此限制在 200 封以内，更多的走 P4 的任务系统。
 	msg := m.Group("/accounts/:accountID/messages")
 	msg.GET("", h.Message.List, middleware.Require(model.PermissionMessageRead))
-	// 看正文是第二类必审读操作。列表页只有主题和摘要，点开才是真的读了别人的信。
-	msg.GET("/:messageID", h.Message.Detail, middleware.Require(model.PermissionMessageRead),
-		handler.AuditAdminRead(h.Audit, model.AuditMessageRead, "message", "messageID"))
+	msg.GET("/:messageID", h.Message.Detail, middleware.Require(model.PermissionMessageRead))
 	msg.GET("/:messageID/attachments/:attachmentID", h.Message.Attachment,
-		middleware.Require(model.PermissionMessageRead),
-		handler.AuditAdminRead(h.Audit, model.AuditMessageRead, "message", "messageID"))
+		middleware.Require(model.PermissionMessageRead))
 	msg.GET("/:messageID/attachments.zip", h.Message.AttachmentsZip,
-		middleware.Require(model.PermissionMessageRead),
-		handler.AuditAdminRead(h.Audit, model.AuditMessageRead, "message", "messageID"))
-	msg.POST("/read", h.Message.MarkRead, middleware.Require(model.PermissionMessageWrite),
-		audit(model.AuditMessageWrite, "message", ""))
-	msg.POST("/delete", h.Message.Delete, middleware.Require(model.PermissionMessageWrite),
-		audit(model.AuditMessageWrite, "message", ""))
+		middleware.Require(model.PermissionMessageRead))
+	msg.POST("/read", h.Message.MarkRead, middleware.Require(model.PermissionMessageWrite))
+	msg.POST("/delete", h.Message.Delete, middleware.Require(model.PermissionMessageWrite))
 
 	// 令牌刷新与任务。批量提交要扣 daily_token_refresh 配额，因此单独用
 	// PermissionTokenRefresh 收敛；查询侧只要 account:read 就够。
 	m.POST("/accounts/:accountID/token/refresh", h.Refresh.RefreshOne,
-		middleware.Require(model.PermissionTokenRefresh),
-		audit(model.AuditTokenRefresh, "account", "accountID"))
+		middleware.Require(model.PermissionTokenRefresh))
 	m.POST("/accounts/:accountID/oauth/start", h.OAuth.Start,
-		middleware.Require(model.PermissionAccountWrite),
-		audit(model.AuditTokenReauthorize, "account", "accountID"))
+		middleware.Require(model.PermissionAccountWrite))
 	m.POST("/accounts/:accountID/oauth/complete", h.OAuth.Complete,
-		middleware.Require(model.PermissionAccountWrite),
-		audit(model.AuditTokenReauthorize, "account", "accountID"))
+		middleware.Require(model.PermissionAccountWrite))
 	m.POST("/jobs/token-refresh", h.Refresh.SubmitBatch,
-		middleware.Require(model.PermissionTokenRefresh), BulkBody(),
-		audit(model.AuditJobSubmit, "job", ""))
+		middleware.Require(model.PermissionTokenRefresh), BulkBody())
 	// 账号检测与令牌刷新同属「批量打上游」的任务，权限一并收在 PermissionTokenRefresh。
 	m.POST("/jobs/account-check", h.Health.SubmitBatch,
-		middleware.Require(model.PermissionTokenRefresh), BulkBody(),
-		audit(model.AuditJobSubmit, "job", ""))
+		middleware.Require(model.PermissionTokenRefresh), BulkBody())
 	m.GET("/account-health", h.Health.Stats, middleware.Require(model.PermissionAccountRead))
 	m.GET("/refresh/stats", h.Refresh.Stats, middleware.Require(model.PermissionAccountRead))
 	m.GET("/refresh/logs", h.Refresh.Logs, middleware.Require(model.PermissionAccountRead))
@@ -255,15 +217,12 @@ func mountMailRoutes(m *echo.Group, h Handlers, exportLimiter echo.MiddlewareFun
 	// SSE。路径以 /stream 结尾，由 IsSSEPath 让 Gzip 中间件跳过——
 	// Gzip 会缓冲响应，套在流式接口上表现为「进度条一直不动」。
 	m.GET("/jobs/:jobID/stream", h.Job.Stream, middleware.Require(model.PermissionAccountRead))
-	m.POST("/jobs/:jobID/stop", h.Job.Stop,
-		middleware.Require(model.PermissionTokenRefresh),
-		audit(model.AuditJobStop, "job", "jobID"))
+	m.POST("/jobs/:jobID/stop", h.Job.Stop, middleware.Require(model.PermissionTokenRefresh))
 }
 
 // mountAdminRoutes 注册 /api/v1/admin 下的端点。整组已经过 RequirePlatformAdmin。
 func mountAdminRoutes(admin *echo.Group, h Handlers, platform *middleware.PlatformMiddleware, exportLimiter echo.MiddlewareFunc) {
 	admin.GET("/stats", h.Admin.Stats)
-	admin.GET("/audit", h.Admin.ListAudit)
 
 	admin.GET("/users", h.Admin.ListUsers)
 	admin.GET("/users/:userID", h.Admin.GetUser)
@@ -276,11 +235,11 @@ func mountAdminRoutes(admin *echo.Group, h Handlers, platform *middleware.Platfo
 	admin.PATCH("/plans/:planID", h.Admin.UpdatePlan)
 	admin.DELETE("/plans/:planID", h.Admin.DeletePlan)
 	admin.GET("/billing/settings", h.Billing.AdminSettings)
-	admin.PATCH("/billing/settings", h.Billing.UpdateAdminSettings, handler.AuditWrite(h.Audit, model.AuditBillingSettings, "billing_settings", ""))
+	admin.PATCH("/billing/settings", h.Billing.UpdateAdminSettings)
 	admin.GET("/billing/prices", h.Billing.AdminPrices)
-	admin.POST("/billing/prices", h.Billing.CreatePrice, handler.AuditWrite(h.Audit, model.AuditBillingPrice, "plan_price", ""))
-	admin.PATCH("/billing/prices/:priceID", h.Billing.UpdatePrice, handler.AuditWrite(h.Audit, model.AuditBillingPrice, "plan_price", "priceID"))
-	admin.POST("/billing/prices/:priceID/sync", h.Billing.SyncPrice, handler.AuditWrite(h.Audit, model.AuditBillingPrice, "plan_price", "priceID"))
+	admin.POST("/billing/prices", h.Billing.CreatePrice)
+	admin.PATCH("/billing/prices/:priceID", h.Billing.UpdatePrice)
+	admin.POST("/billing/prices/:priceID/sync", h.Billing.SyncPrice)
 
 	// 跨租户视图。TenantContext 确认租户存在，之后的邮箱路由与用户侧完全同构。
 	at := admin.Group("/tenants/:tenantID", platform.TenantContext)

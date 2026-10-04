@@ -18,7 +18,7 @@
 ### 1.2 这次明确采用的方案
 
 1. **Go 直接调用 Waffo HTTP API**。服务端自行完成请求签名、错误映射和 Webhook 验签，项目中不引入 Bun Bridge、Node 运行时或 `@waffo/pancake-ts` 作为服务端依赖。
-2. Waffo 私钥只从运行时密钥注入，进入 `pkg/waffo` 后留在内存中；配置、前端、数据库、审计字段、日志和 Git 都只出现密钥标识或摘要。
+2. Waffo 私钥只从运行时密钥注入，进入 `pkg/waffo` 后留在内存中；配置、前端、数据库、日志和 Git 都只出现密钥标识或摘要。
 3. `tenant_quotas` 继续作为配额计算的唯一入口。订阅变更通过受控 service 更新套餐来源，管理员直接分配的套餐优先保留。
 4. Waffo Webhook 是订阅权益的权威来源。支付回跳、前端提示和客户端传入的金额都不直接授予权益。
 5. 测试环境与生产环境分别使用 Merchant / Store / API Key / Webhook 公钥，数据库记录 `mode`，事件跨环境时直接隔离。
@@ -54,7 +54,7 @@ Echo billing handler ──> BillingService ──> pkg/waffo HTTP client ──
 |---|---|
 | `pkg/waffo` | API 请求签名、HTTP transport、请求 / 响应 DTO、Webhook 验签；不依赖 Echo 与 repo |
 | `pkg/service/billing_service.go` | 支付开关、套餐价格、checkout、取消、订阅状态与配额编排 |
-| `pkg/handler/billing.go` | 参数解析、统一响应、权限与审计挂载 |
+| `pkg/handler/billing.go` | 参数解析、统一响应、权限校验 |
 | `pkg/repo/billing.go` | 计费设置、价格、checkout 意图、订阅、Webhook 事件的双引擎查询 |
 | `web/src/pages/settings/UsagePage.tsx` | 用户套餐 / 用量 / 订阅状态 |
 | `web/src/pages/admin/AdminPlansPage.tsx` | 套餐额度、价格、开关、同步状态 |
@@ -173,11 +173,10 @@ subscription_id   nullable FK tenant_subscriptions(id)
 2. service 校验配额为 `-1` 或非负整数、金额为合法十进制字符串、币种和周期在白名单内。
 3. 本地事务先保存价格变体，再异步调用 Waffo 产品创建 / 更新接口；请求带稳定的幂等键。
 4. 成功后回写 `provider_product_id` 与 `sync_status=active`；失败保留本地草稿并显示同步错误，后台可重试。
-5. 审计记录价格、额度、开关和同步结果，但只记产品 ID、币种、金额与状态。
 
 ### 5.2 打开 / 关闭支付
 
-打开前检查：Merchant / Store、API 私钥、对应环境的 Webhook 公钥、Store 状态、Webhook URL、至少一个 `active` 价格变体。检查通过后事务更新 `billing_settings.enabled=1` 并写 `AuditWrite`。
+打开前检查：Merchant / Store、API 私钥、对应环境的 Webhook 公钥、Store 状态、Webhook URL、至少一个 `active` 价格变体。检查通过后事务更新 `billing_settings.enabled=1`。
 
 关闭支付只隐藏新的购买入口、暂停新 checkout；已有订阅的取消、续费、退款和到期 Webhook 继续接收并更新权益。重新打开时复用现有产品 ID，先完成同步检查。
 
@@ -218,7 +217,7 @@ Waffo HTTP Webhook 使用 `X-Waffo-Signature: t=<timestamp>,v1=<signature>` 与 
 | `subscription.canceled` | 到期回收订阅套餐，恢复默认 / 管理员套餐 |
 | `refund.succeeded` / `refund.failed` | 只登记，**不自动回收权益**。回收只跟着 `subscription.canceled` 走；需要立即停权的退款由管理员在 Waffo 侧取消订阅触发——一笔部分退款就把用户降级，比「多用几天」严重得多 |
 
-无效签名、错误环境、错误 Store ID 返回 401 并按 IP 记日志（请求没有可信身份，挂不进审计表）；数据库暂时故障返回 5xx，让 Waffo 重试；重试也救不回来的事件（找不到租户或价格、租户归属各路来源互相矛盾）记为 `failed` 并回 2xx，让 Waffo 停手。普通日志只记录事件 ID、类型、模式和处理结果。
+无效签名、错误环境、错误 Store ID 返回 401 并按 IP 记日志；数据库暂时故障返回 5xx，让 Waffo 重试；重试也救不回来的事件（找不到租户或价格、租户归属各路来源互相矛盾）记为 `failed` 并回 2xx，让 Waffo 停手。普通日志只记录事件 ID、类型、模式和处理结果。
 
 ## 6. HTTP API 设计
 
@@ -233,7 +232,7 @@ Waffo HTTP Webhook 使用 `X-Waffo-Signature: t=<timestamp>,v1=<signature>` 与 
 | `PATCH` | `/api/v1/admin/plan-prices/:id` | 修改金额、币种、启用状态 |
 | `POST` | `/api/v1/admin/plan-prices/:id/sync` | 重试 Waffo 产品同步 |
 
-所有写接口挂 `RequirePlatformAdmin`、`Require(model.Permission...)` 与 `AuditWrite`。API 响应永远不含私钥、签名、buyer token。
+管理端写接口挂 `RequirePlatformAdmin`；租户写接口按 `Require(model.Permission...)` 校验权限。API 响应永远不含私钥、签名、buyer token。
 
 ### 6.2 租户用户
 
@@ -266,7 +265,6 @@ Waffo HTTP Webhook 使用 `X-Waffo-Signature: t=<timestamp>,v1=<signature>` 与 
 - 金额使用十进制字符串，服务端校验精度、币种、周期和 Waffo 返回金额；金额以 provider 回调为最终记录。
 - Webhook 事件先去重再授权；事件乱序以 `last_event_at`、周期边界和终态保护，状态更新依据业务时间而非“最后到达”。
 - 退款、past_due、取消等策略集中在 `BillingService`，前端只读状态。
-- 审计事件：支付开关、套餐 / 价格变更、checkout 创建、取消 / 恢复、Webhook 授权变更、管理员手工配额覆盖。
 - Waffo API 使用独立 HTTP client、连接超时、响应体上限与结构化错误；日志包含 request ID、provider request ID、状态码和事件 ID，不记录完整 body。
 - 生产环境启用 NTP 校时、HTTPS Webhook、按 IP 与 Store 限流；测试环境也走同一套验签逻辑。
 
@@ -289,7 +287,7 @@ Waffo HTTP Webhook 使用 `X-Waffo-Signature: t=<timestamp>,v1=<signature>` 与 
 ## 10. 分阶段交付
 
 1. **基础层**：`pkg/waffo` 签名 / 验签、配置校验、`000019_billing`、repo 与模型。
-2. **管理端**：支付开关、价格变体、Waffo 产品同步、审计与 AdminPlansPage。
+2. **管理端**：支付开关、价格变体、Waffo 产品同步与 AdminPlansPage。
 3. **用户端**：套餐卡、认证 checkout、订阅查询、取消 / 恢复接口。
 4. **权益层**：Webhook 异步处理、事件去重、订阅状态机、`tenant_quotas` 套餐来源。
 5. **测试环境验收**：注册 HTTPS Webhook，发送 Dashboard 测试事件，使用测试卡覆盖首购、续费、取消、失败、退款，再切换独立生产密钥。
@@ -300,7 +298,7 @@ Waffo HTTP Webhook 使用 `X-Waffo-Signature: t=<timestamp>,v1=<signature>` 与 
 - `WAFFO_ENV=prod` 与 Production API Key / Webhook 公钥匹配；
 - Webhook 能从公网 HTTPS 到达当前版本，签名与去重测试通过；
 - 免费套餐、管理员覆盖、订阅取消恢复均有回滚路径；
-- 审计查询能定位开关、价格、checkout、事件和权益变更。
+- 支付事件记录与运行日志能定位 Webhook 处理结果；后台可查看支付开关、价格与权益状态。
 
 ## 11. 实施记录（2026-09-27）
 
@@ -363,7 +361,7 @@ Waffo HTTP Webhook 使用 `X-Waffo-Signature: t=<timestamp>,v1=<signature>` 与 
 - 会话过期 5 分钟后仍查不到订单的结账标为 `expired`，之后不再查询。没有待确认结账时不请求 Waffo。
 - 用量页每次打开都调一次；**发起结账前也先对账**。测试中出现过：第一笔已付款但本地未入账，
   「已有订阅」的检查放行了第二笔，同一个用户在 Waffo 上背着两份订阅。
-- 调用方除租户身份外不提供任何输入，查到的是 Waffo 自己的订单状态，因此与读订阅同一权限、不记审计。
+- 调用方除租户身份外不提供任何输入，查到的是 Waffo 自己的订单状态，因此与读订阅同一权限。
 
 **默认套餐不能标价、不能购买**：它是每个人注册即有、订阅结束后回落的那一档。
 创建价格时拒绝；可购列表在 SQL 里排除默认套餐（覆盖此前已标过价的旧数据）；

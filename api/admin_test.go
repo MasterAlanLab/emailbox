@@ -33,7 +33,6 @@ func promoteToAdmin(t *testing.T, store *repo.Store, username string) string {
 func adminEndpoints(tenantID, userID string) []struct{ method, path string } {
 	return []struct{ method, path string }{
 		{http.MethodGet, "/api/v1/admin/stats"},
-		{http.MethodGet, "/api/v1/admin/audit"},
 		{http.MethodGet, "/api/v1/admin/users"},
 		{http.MethodGet, "/api/v1/admin/users/" + userID},
 		{http.MethodPatch, "/api/v1/admin/users/" + userID},
@@ -109,85 +108,40 @@ func TestDemotedAdminLosesAccessImmediately(t *testing.T) {
 	}
 }
 
-// P3 验收第 2 条：管理员在别人租户下的操作，审计里 actor 是管理员本人、actor_kind=admin。
-//
-// 这是整个管理员体系的问责基础：如果这里记的是被查看者，
-// 事后就永远分不清「用户自己看的」和「管理员看的」。
-func TestAdminCrossTenantAccessIsAudited(t *testing.T) {
+func TestAuditEndpointIsRemoved(t *testing.T) {
 	e, store, _ := newTestServerWithStore(t)
+	token, _ := register(t, e, "root", "root@example.com")
+	promoteToAdmin(t, store, "root")
+	if status, body := do(t, e, http.MethodGet, "/api/v1/admin/audit", token, ""); status != http.StatusNotFound {
+		t.Errorf("已删除的审计接口拿到 %d，期望 404（%s）", status, body)
+	}
+}
 
+// 管理员通过专用路由访问目标租户，SQL 的租户边界仍然保持。
+func TestAdminCrossTenantAccessKeepsTenantScope(t *testing.T) {
+	e, store, _ := newTestServerWithStore(t)
 	victimToken, victimTenant := register(t, e, "victim", "victim@example.com")
 	createAccount(t, e, victimToken, victimTenant,
 		`{"email":"target@outlook.com","password":"hunter2","refresh_token":"M.token"}`)
+	adminToken, adminTenant := register(t, e, "root", "root@example.com")
+	promoteToAdmin(t, store, "root")
+	adminAccount := createAccount(t, e, adminToken, adminTenant,
+		`{"email":"admin@outlook.com","password":"pw"}`)
 
-	adminToken, _ := register(t, e, "root", "root@example.com")
-	adminID := promoteToAdmin(t, store, "root")
-
-	// 管理员查看他人租户的账号列表——这是必审的三类读操作之一。
 	path := "/api/v1/admin/tenants/" + victimTenant + "/mail/accounts"
-	rec := doRaw(t, e, path, adminToken)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("管理员应当能看他人账号列表: %d %s", rec.Code, rec.Body.String())
+	status, body := do(t, e, http.MethodGet, path, adminToken, "")
+	if status != http.StatusOK {
+		t.Fatalf("管理员应当能看他人账号列表: %d %s", status, body)
 	}
-	logs, total, err := store.ListAuditLogs(context.Background(), model.AuditFilter{
-		TenantID: victimTenant, Action: model.AuditAccountList,
-	})
-	if err != nil {
-		t.Fatal(err)
+	if !strings.Contains(body, "target@outlook.com") || strings.Contains(body, "admin@outlook.com") {
+		t.Errorf("管理员列表未限定到目标租户: %s", body)
 	}
-	if total != 1 {
-		t.Fatalf("审计里有 %d 条账号列表记录，期望 1 条", total)
+	if status, _ := do(t, e, http.MethodGet, path+"/"+adminAccount, adminToken, ""); status != http.StatusNotFound {
+		t.Errorf("目标租户路径下读取其他租户账号拿到 %d，期望 404", status)
 	}
-	entry := logs[0]
-	if entry.ActorUserID != adminID {
-		t.Errorf("actor_user_id = %q，期望管理员 %q", entry.ActorUserID, adminID)
-	}
-	if entry.ActorKind != model.ActorKindAdmin {
-		t.Errorf("actor_kind = %q，期望 admin", entry.ActorKind)
-	}
-	if entry.ActorName != "root" {
-		t.Errorf("actor_name = %q，期望管理员用户名", entry.ActorName)
-	}
-	if entry.TenantID != victimTenant {
-		t.Errorf("tenant_id = %q，期望被查看者的租户 %q", entry.TenantID, victimTenant)
-	}
-}
-
-// 普通用户自己看自己的账号列表不该产生审计——那是量最大的一类请求，
-// 记下来只会把真正需要追溯的管理员行为淹掉。
-func TestOwnerReadingOwnAccountsIsNotAudited(t *testing.T) {
-	e, store, _ := newTestServerWithStore(t)
-	token, tenantID := register(t, e, "alice", "alice@example.com")
-
-	if status, _ := do(t, e, http.MethodGet, mailPath(tenantID, "/accounts"), token, ""); status != http.StatusOK {
-		t.Fatal("查看自己的账号列表应当成功")
-	}
-	_, total, err := store.ListAuditLogs(context.Background(), model.AuditFilter{Action: model.AuditAccountList})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if total != 0 {
-		t.Errorf("普通用户的读产生了 %d 条审计，期望 0 条", total)
-	}
-}
-
-// 写操作两边都记，靠 actor_kind 区分。这条守住「用户自己的写也留痕」。
-func TestOwnerWriteIsAuditedAsUser(t *testing.T) {
-	e, store, _ := newTestServerWithStore(t)
-	token, tenantID := register(t, e, "alice", "alice@example.com")
-	createAccount(t, e, token, tenantID, `{"email":"mine@outlook.com","password":"pw","refresh_token":"M.t"}`)
-
-	logs, total, err := store.ListAuditLogs(context.Background(), model.AuditFilter{
-		TenantID: tenantID, Action: model.AuditAccountCreate,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if total != 1 {
-		t.Fatalf("创建账号产生 %d 条审计，期望 1 条", total)
-	}
-	if logs[0].ActorKind != model.ActorKindUser {
-		t.Errorf("actor_kind = %q，期望 user", logs[0].ActorKind)
+	// 平台角色只在 /admin 前缀放行，不绕过普通用户路由的成员校验。
+	if status, _ := do(t, e, http.MethodGet, mailPath(victimTenant, "/accounts"), adminToken, ""); status != http.StatusForbidden {
+		t.Errorf("管理员通过用户路由跨租户拿到 %d，期望 403", status)
 	}
 }
 
@@ -266,18 +220,6 @@ func TestResetPasswordReturnsTempPasswordAndKillsSessions(t *testing.T) {
 		`{"username":"victim","password":"`+payload.Data.Password+`"}`); status != http.StatusOK {
 		t.Error("临时密码应当可以登录")
 	}
-
-	// 审计里绝不能出现密码本身
-	logs, _, err := store.ListAuditLogs(context.Background(), model.AuditFilter{Action: model.AuditUserResetPassword})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(logs) != 1 {
-		t.Fatalf("重置密码产生 %d 条审计，期望 1 条", len(logs))
-	}
-	if strings.Contains(logs[0].Details, payload.Data.Password) {
-		t.Error("审计 details 里出现了明文临时密码")
-	}
 }
 
 // P3 验收第 4 条：调低配额后新增被拒，已有账号不受影响，后台显示超额标记。
@@ -330,7 +272,7 @@ func TestLoweringQuotaBlocksNewAccountsButKeepsExisting(t *testing.T) {
 	}
 }
 
-// 分配套餐：不经支付、不要求填写原因，套餐归管理员所有（订阅取消时不会被回收），并记进审计。
+// 分配套餐：不经支付、不要求填写原因，套餐归管理员所有（订阅取消时不会被回收）。
 func TestAdminAssignsPlanDirectly(t *testing.T) {
 	e, store, _ := newTestServerWithStore(t)
 	_, tenantID := register(t, e, "owner", "owner@example.com")
@@ -351,9 +293,6 @@ func TestAdminAssignsPlanDirectly(t *testing.T) {
 	}
 	if !strings.Contains(body, `"plan_code":"pro"`) || !strings.Contains(body, `"plan_source":"admin"`) {
 		t.Errorf("分配结果不对: %s", body)
-	}
-	if _, body := do(t, e, http.MethodGet, "/api/v1/admin/audit?action=plan.assign", adminToken, ""); !strings.Contains(body, `from_plan`) {
-		t.Errorf("审计里没有分配记录: %s", body)
 	}
 }
 

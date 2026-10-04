@@ -36,7 +36,6 @@ type Querier interface {
 	// provider, which is exactly what the per-account delay exists to prevent.
 	CountActiveJobsByType(ctx context.Context, arg CountActiveJobsByTypeParams) (int64, error)
 	CountAdminUsers(ctx context.Context, arg CountAdminUsersParams) (int64, error)
-	CountAuditLogs(ctx context.Context, arg CountAuditLogsParams) (int64, error)
 	CountConflictingAliases(ctx context.Context, arg CountConflictingAliasesParams) (int64, error)
 	CountJobItems(ctx context.Context, arg CountJobItemsParams) (int64, error)
 	CountJobs(ctx context.Context, arg CountJobsParams) (int64, error)
@@ -60,10 +59,6 @@ type Querier interface {
 	// Guards the delete: a plan still referenced by tenant_quotas must not go away,
 	// otherwise those tenants lose the row their effective quota is derived from.
 	CountTenantsByPlan(ctx context.Context, planID string) (int64, error)
-	// NOTE: keep this file ASCII-only. sqlc miscomputes query boundaries when a
-	// .sql file contains multi-byte characters and silently truncates the SQL.
-	// Explanations live in pkg/repo/audit.go instead.
-	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) error
 	CreateCheckoutSession(ctx context.Context, arg CreateCheckoutSessionParams) error
 	// NOTE: keep this file ASCII-only. sqlc miscomputes query boundaries when a
 	// .sql file contains multi-byte characters and silently truncates the SQL.
@@ -188,9 +183,6 @@ type Querier interface {
 	// user's mailboxes, and account_count comes from a correlated subquery rather
 	// than a GROUP BY: users without a tenant must still show up as a row.
 	ListAdminUsersPage(ctx context.Context, arg ListAdminUsersPageParams) ([]ListAdminUsersPageRow, error)
-	// Filters are all optional. Tie-break on id so pages stay stable when several
-	// rows share a timestamp (a batch operation writes many rows in one second).
-	ListAuditLogsPage(ctx context.Context, arg ListAuditLogsPageParams) ([]AuditLog, error)
 	// Scheduler scan. Deliberately not scoped by tenant_id: this is an operational
 	// query in the same family as ListStaleJobs and DeleteExpiredSessions, not a
 	// business read. The tenant boundary is upheld downstream -- the scheduler only

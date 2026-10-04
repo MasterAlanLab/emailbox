@@ -105,7 +105,7 @@ Echo 的后注册中间件会覆盖前面的同类中间件（BodyLimit 读的�
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | GET | `/mail/groups` | group:read | 返回分组列表（各带账号数），顺序即 sort_order；代理只给 `*_masked` |
-| GET | `/mail/groups/:groupID/proxy` | **account:secret** | 代理**明文**，供编辑表单回填；强制审计 |
+| GET | `/mail/groups/:groupID/proxy` | **account:secret** | 代理**明文**，供编辑表单回填 |
 | POST | `/mail/groups` | group:write | 创建 |
 | PATCH | `/mail/groups/:groupID` | group:write | 改名/颜色/描述/代理/定时刷新间隔 |
 | DELETE | `/mail/groups/:groupID` | group:write | 删除，账号回落默认分组 |
@@ -115,8 +115,7 @@ Echo 的后注册中间件会覆盖前面的同类中间件（BodyLimit 读的�
 没有 `level`，也没有「含子树的账号数」。
 
 **代理明文只从 `/proxy` 这一个端点出去。**它是读操作，但收敛口径跟着「读走了什么」
-而不是「谁在读」走，因此按导出同一档：`account:secret` 权限（API Key 天然没有这一项）
-＋ `AuditWrite` 而不是 `AuditAdminRead`——普通用户取走一条代理口令同样要留痕。
+而不是「谁在读」走，因此按导出同一档：`account:secret` 权限（API Key 天然没有这一项）。
 没配限流：一次只出一个分组的一条代理（`000016` 去掉两个备用位之后就只剩一条了），
 而分组数本身受配额约束，与「一次取走整租户凭据」的导出不是一个量级。
 
@@ -131,7 +130,7 @@ Echo 的后注册中间件会覆盖前面的同类中间件（BodyLimit 读的�
 `PATCH` 收前者，取值是 0（关闭）或 10080~43200 分钟（7~30 天）。语义与执行见 §6.2。
 
 不为它单开 `/mail/groups/:groupID/schedule`：它就是分组的一个属性，多一个端点等于
-多一处租户校验、权限与审计要维护。这个字段同样是指针语义，但和代理相反——
+多一处租户校验与权限要维护。这个字段同样是指针语义，但和代理相反——
 **0 是有含义的取值（关闭），不是「没传」**，因此后端收 `*int`，
 前端也不能用 falsy 判断把它过滤掉。
 
@@ -140,7 +139,7 @@ Echo 的后注册中间件会覆盖前面的同类中间件（BodyLimit 读的�
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | GET | `/tenants/:tenantID/api-key` | tenant:update | 回显明文 Key，未生成时 `data: null` |
-| POST | `/tenants/:tenantID/api-key/reset` | tenant:update | 生成并覆盖，旧 Key 当场失效，写审计 `api_key.reset` |
+| POST | `/tenants/:tenantID/api-key/reset` | tenant:update | 生成并覆盖，旧 Key 当场失效 |
 | GET | `/llms.txt` | 公开 | 给 Agent 的接入说明，由 `handler.APIEndpoints` 渲染，不含任何 Key |
 
 一个租户一把 Key，存两列：`token_hash` 供鉴权按 O(1) 命中，`token_enc` 是 AES-GCM
@@ -233,14 +232,13 @@ POST /mail/accounts/export         权限 account:secret
   响应头 X-Export-Count 带回实际导出的条数
 ```
 
-这是全平台风险最高的接口，三道闸门：独立权限 `account:secret`、强制写 `audit_logs`、
-按用户限流。
+这是全平台风险最高的接口，保留两道闸门：独立权限 `account:secret` 与按用户限流。
 
 > **二次密码验证已于 2026-08-27 去掉。** 原设计照搬 outlookEmail 的
 > `export_verify_tokens`，让操作者在导出前再输一遍自己的登录密码。取消它是产品决定：
 > 这个平台的用户就是来批量取自己的凭据的，导出是常规操作而不是危险动作，
 > 每次都拦一道密码框换来的主要是「把密码练成肌肉记忆」。
-> 剩下三道闸门没有松，其中审计与限流才是事后能追责、事中能限速的那两件。
+> 独立权限与按用户限流继续保留。
 
 实施细节：
 
@@ -408,7 +406,7 @@ refresh token 都不会出现在业务接口响应里。换到令牌后先调用
 
 重新授权只适用于 Outlook OAuth 账号，并要求 `account:write`。流程记录始终带
 `tenant_id`、账号和发起用户，跨租户账号 ID 与流程 ID 均返回 404；公开回调也通过 state
-内的租户和流程标识执行带 `tenant_id` 的查询。审计动作记为 `token.reauthorize`。
+内的租户和流程标识执行带 `tenant_id` 的查询。
 
 ## 9. 限流
 
@@ -470,28 +468,17 @@ handler 复用同一份实现，只是 tenantID 的来源与鉴权中间件不�
 | GET / POST | `/admin/plans` | 套餐列表 / 新建 |
 | PATCH / DELETE | `/admin/plans/:planID` | 修改 / 删除（有租户在用时拒绝删除） |
 | GET | `/admin/tenants/:tenantID/plan` | 当前套餐（含来源 `plan_source`）与该用户的订阅 |
-| PUT | `/admin/tenants/:tenantID/plan` | `{plan_id}`：直接分配套餐，不经支付；分配后套餐归管理员所有，订阅取消时不回收。没有逐项覆盖，也不要求填写原因（审计记下原套餐与新套餐） |
+| PUT | `/admin/tenants/:tenantID/plan` | `{plan_id}`：直接分配套餐，不经支付；分配后套餐归管理员所有，订阅取消时不回收。没有逐项覆盖，也不要求填写原因 |
 
 ### 10.4 平台运维
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/admin/audit` | 全平台审计日志，按 tenant / actor / action / 时间筛选 |
 | GET | `/admin/stats` | 平台概览：用户数、租户数、邮箱总数、今日拉信量、失败率 |
 
 曾经列在这里的 `GET /admin/jobs`（全平台任务列表）**没有实现**：任务是按租户跑的，
 管理员要看某个用户的任务，从 `/admin/tenants/:tenantID/mail/jobs` 进去即可，
 再多一个跨租户的合并视图没有对应的使用场景。
-
-### 10.5 审计要求
-
-管理员的**读操作也要审计**（普通用户的读不记，量太大）。必须记录的三类：
-
-- 查看某租户的账号列表
-- 查看某封邮件正文
-- 导出账号
-
-写操作照常全部审计，`actor_kind='admin'`。
 
 ## 11. 配额的接口约定
 

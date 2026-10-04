@@ -120,8 +120,8 @@ func (h *AccountHandler) Import(c *echo.Context) error {
 
 // Export 导出账号凭据（05 文档 §4.4）。返回 text/plain 附件，格式与导入一致。
 //
-// 曾经在这里做过一次二次密码验证，2026-08-27 去掉了。剩下的三道闸门没有松：
-// `account:secret` 权限、强制审计、按用户限流。
+// 曾经在这里做过一次二次密码验证，2026-08-27 去掉了。`account:secret` 权限与
+// 按用户限流继续保留。
 func (h *AccountHandler) Export(c *echo.Context) error {
 	var req model.ExportAccountsRequest
 	if err := c.Bind(&req); err != nil {

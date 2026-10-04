@@ -672,58 +672,6 @@ func TestBillingParity(t *testing.T) {
 	}
 }
 
-// 审计日志的可选筛选在两个引擎上是两套写法（sqlite 的裸 narg 与 postgres 的 ::text），
-// 语义必须一致——否则「按管理员筛选」这类追责查询会在换库之后少给几行。
-func TestAuditLogParity(t *testing.T) {
-	type row struct{ actorKind, action, resourceID string }
-	var want []row
-
-	for _, e := range parityEngines(t) {
-		ctx := context.Background()
-		tenantID := seed(t, e.store)
-
-		entries := []model.AuditLog{
-			{ID: "a1", TenantID: tenantID, ActorUserID: "parity-user", ActorName: "parity@example.com",
-				ActorKind: model.ActorKindUser, Action: model.AuditAccountCreate, ResourceType: "account", ResourceID: "acc-1"},
-			{ID: "a2", TenantID: tenantID, ActorUserID: "parity-user", ActorName: "parity@example.com",
-				ActorKind: model.ActorKindAdmin, Action: model.AuditAccountList, ResourceType: "account", ResourceID: ""},
-			{ID: "a3", TenantID: tenantID, ActorUserID: "parity-user", ActorName: "parity@example.com",
-				ActorKind: model.ActorKindAdmin, Action: model.AuditMessageRead, ResourceType: "message", ResourceID: "msg-9"},
-		}
-		for _, entry := range entries {
-			if err := e.store.CreateAuditLog(ctx, entry); err != nil {
-				t.Fatalf("%s: 写审计失败: %v", e.name, err)
-			}
-		}
-
-		// 只要管理员做过的那两条
-		logs, total, err := e.store.ListAuditLogs(ctx, model.AuditFilter{ActorKind: model.ActorKindAdmin})
-		if err != nil {
-			t.Fatalf("%s: %v", e.name, err)
-		}
-		if total != 2 {
-			t.Fatalf("%s: 按 actor_kind 筛出 %d 条，期望 2 条", e.name, total)
-		}
-
-		got := make([]row, 0, len(logs))
-		for _, l := range logs {
-			got = append(got, row{l.ActorKind, l.Action, l.ResourceID})
-		}
-		if want == nil {
-			want = got
-			continue
-		}
-		if len(got) != len(want) {
-			t.Fatalf("%s 返回 %d 条，sqlite 返回 %d 条", e.name, len(got), len(want))
-		}
-		for i := range got {
-			if got[i] != want[i] {
-				t.Errorf("第 %d 条在 %s 上与 sqlite 不一致: sqlite=%+v %s=%+v", i, e.name, want[i], e.name, got[i])
-			}
-		}
-	}
-}
-
 // 后台用户列表把「个人租户」LEFT JOIN 进来并用相关子查询数邮箱，
 // 两个引擎的 COALESCE 与子查询语义必须一致。
 //

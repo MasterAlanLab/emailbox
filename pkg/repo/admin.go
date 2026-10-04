@@ -182,7 +182,7 @@ func (s *Store) GetPersonalTenantByOwner(ctx context.Context, userID string) (*m
 }
 
 // SoftDeleteMailAccountsByTenant 软删整个租户的邮箱，并在同一条语句里清空凭据密文。
-// 返回受影响行数，供审计记录「删了多少个」。
+// 返回受影响行数，供上层告诉调用方「删了多少个」。
 func (s *Store) SoftDeleteMailAccountsByTenant(ctx context.Context, tenantID string) (int, error) {
 	var (
 		n   int64

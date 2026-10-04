@@ -461,7 +461,7 @@ type Credentials struct {
 }
 
 // Credentials 解密账号凭据。调用方只有协议层与导出接口，
-// 且导出接口另需 account:secret 权限与审计。
+// 且导出接口另需 account:secret 权限与按用户限流。
 func (s *AccountService) Credentials(ctx context.Context, tenantID, accountID string) (*Credentials, error) {
 	account, err := s.store.GetMailAccount(ctx, tenantID, accountID)
 	if err != nil {

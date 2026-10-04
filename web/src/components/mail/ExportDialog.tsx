@@ -15,9 +15,8 @@ interface ExportDialogProps {
 
 type Scope = "selected" | "group" | "all";
 
-// ExportDialog 是凭据的唯一出口，因此界面上要把两件事说清楚：
-// 导出的是明文，以及这次操作会被记进审计。含糊其辞不会让它更安全，
-// 只会让用户不知道自己刚做了什么。
+// 导出会把凭据明文存成文件，界面必须说清楚内容与保管责任，
+// 避免用户把它当成普通账号列表随手分享。
 export function ExportDialog({ tenantID, groupID, selectedIDs, onClose }: ExportDialogProps) {
   const [scope, setScope] = useState<Scope>(selectedIDs.length > 0 ? "selected" : "all");
   const { error, pending, run } = useAsyncAction();
@@ -56,7 +55,7 @@ export function ExportDialog({ tenantID, groupID, selectedIDs, onClose }: Export
       <LayerCard render={<form onSubmit={submit} />} className="w-full max-w-md p-5">
         <h2 className="text-lg font-semibold text-kumo-strong">导出账号</h2>
         <p className="mt-1 text-sm text-kumo-subtle">
-          导出文件将包含密码与刷新令牌明文（可直接重新导入）。敏感凭据读取属于高风险操作，已记入全局审计日志。
+          导出文件将包含密码与刷新令牌明文（可直接重新导入）。请妥善保存，避免分享给他人，并在使用后及时清理下载文件。
         </p>
 
         <div className="mt-4 flex flex-col gap-3">

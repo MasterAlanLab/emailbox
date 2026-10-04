@@ -248,7 +248,7 @@ const EXPORT_TIMEOUT = 60_000;
 export const mailApi = {
   groups: async (tenantID: TenantRef) =>
     (await client.get<ApiResponse<MailGroupNode[]>>(`${base(tenantID)}/groups`)).data,
-  // 明文代理需要 account:secret 权限并会写一条审计——只在编辑表单打开时调一次。
+  // 明文代理需要 account:secret 权限——只在编辑表单打开时调一次。
   groupProxy: async (tenantID: TenantRef, groupID: string) =>
     (await client.get<ApiResponse<GroupProxy>>(`${base(tenantID)}/groups/${groupID}/proxy`)).data,
   createGroup: async (

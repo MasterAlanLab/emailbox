@@ -80,7 +80,7 @@ CREATE INDEX idx_users_platform_role ON users(platform_role) WHERE platform_role
 
 | 方案 | 做法 | 评价 |
 |---|---|---|
-| ❌ 放宽查询 | SQL 写成 `WHERE (tenant_id = ? OR ?::bool)`，管理员传 true 绕过 | **禁止**。一旦查询里存在「可绕过租户」的分支，任何参数传递失误都会变成越权。而且这类分支会渗透到几十条 SQL 里，无法审计 |
+| ❌ 放宽查询 | SQL 写成 `WHERE (tenant_id = ? OR ?::bool)`，管理员传 true 绕过 | **禁止**。一旦查询里存在「可绕过租户」的分支，任何参数传递失误都会变成越权。而且这类分支会渗透到几十条 SQL 里，难以核查 |
 | ✅ 显式租户上下文 | 管理员 API 必须显式指定目标 `tenant_id`；service/repo 层的查询**永远**带 `tenant_id = ?`，与普通用户走完全相同的代码路径 | **采用**。SQL 层只有一条隔离规则，永不放宽；差别只在「谁有权决定 tenant_id 的取值」 |
 
 具体形态：
@@ -95,21 +95,10 @@ CREATE INDEX idx_users_platform_role ON users(platform_role) WHERE platform_role
 于是 `AccountService.List(ctx, tenantID, filter)` 这类方法**一份实现两处复用**，
 不需要为管理员写第二套 service。这是本设计最重要的收敛。
 
-### 2.4 管理员操作的审计
+### 2.4 不做 impersonation
 
-管理员对他人数据的每一次访问都必须留痕：
-
-- 中间件在 `RequirePlatformAdmin` 通过后，把 `actor_kind='admin'` 写进 context
-- 所有写操作照常写 `audit_logs`，`actor_kind='admin'`
-- **读操作也要记**：管理员查看某租户的账号列表、查看某封邮件正文、导出账号——
-  这三类读操作单独记审计（普通用户的读不记，量太大）
-- 管理后台有一个「我的操作记录」页，管理员自己也能看到自己做过什么
-
-### 2.5 不做 impersonation
-
-不实现「管理员一键登录成某用户」。理由：会话被借用后，审计日志里的 `actor_user_id`
-会指向被冒充者，事后无法区分是本人操作还是管理员操作。
-管理员通过 `/api/v1/admin/*` 直接操作，行为归属永远清晰。
+不实现「管理员一键登录成某用户」。管理员使用自己的会话通过 `/api/v1/admin/*`
+直接操作，避免混淆管理员身份与目标用户身份。
 
 ## 3. 用户管理
 
@@ -125,7 +114,7 @@ CREATE INDEX idx_users_platform_role ON users(platform_role) WHERE platform_role
 | 授予 / 撤销管理员 | 修改 `platform_role`；不能撤销最后一个管理员 |
 | 重置密码 | 生成临时密码返回给管理员（一次性显示），并清空该用户全部会话 |
 | 调整配额 | 覆盖该租户的配额值，见 §4 |
-| 删除用户 | 软删除 user + 级联软删其个人租户下的邮箱账号；二次确认 + 审计 |
+| 删除用户 | 软删除 user + 级联软删其个人租户下的邮箱账号；二次确认 |
 
 `users` 表已有 `status TEXT CHECK (status IN ('active','disabled'))`（模板 `000001_init` 自带），
 只需在 `middleware/session.go` 的鉴权路径上加一条：**用户 status 非 active 时会话立即无效**。
@@ -153,7 +142,7 @@ CREATE TABLE plans (
 );
 
 -- 租户的生效配额 = 所属套餐的额度。没有逐租户的覆盖值（000022 删除）：
--- 管理员要多给就直接分配另一档套餐，不经支付；分配记进审计，不再单独存「调额原因」。
+-- 管理员要多给就直接分配另一档套餐，不经支付，也不单独存「调额原因」。
 CREATE TABLE tenant_quotas (
     tenant_id           TEXT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
     plan_id             TEXT NOT NULL REFERENCES plans(id),
@@ -256,12 +245,12 @@ REGISTRATION_MODE = open | closed     （默认 open）
 | # | 项 | 措施 |
 |---|---|---|
 | 1 | 越权读写他人邮箱 | 每个资源端点一条跨租户测试（口径见 `AGENTS.md` §7）；SQL 永不放宽 `tenant_id` |
-| 2 | 管理员权限滥用 | 跨租户读写全审计；管理员数量在后台可见；不做 impersonation |
+| 2 | 管理员权限滥用 | 专用管理员接口与显式租户上下文；管理员数量在后台可见；不做 impersonation |
 | 3 | 禁用用户仍能操作 | 会话中间件校验 `users.status`；禁用时清空 sessions |
 | 4 | 注册滥用 / 薅配额 | IP 限流 + 默认套餐给保守额度 + `closed` 模式可随时切换 |
 | 5 | 用户上传的凭据是第三方账号 | 服务条款需明确「用户保证对所托管邮箱有合法授权」；注册页与导入页各放一次提示 |
 | 6 | 删除用户后残留凭据 | 删除流程必须物理清除 `refresh_token_enc` 等密文列，而不只是打 `deleted_at` |
-| 7 | 平台管理员离职 | 支持撤销管理员 + 全量审计可追溯 |
+| 7 | 平台管理员离职 | 支持撤销管理员；每次请求重新校验平台角色 |
 
 第 6 条要特别注意：本平台的软删除只对「误删可恢复」有意义，
 而**凭据密文不该跟着软删除长期留存**。设计为：软删账号时立即清空三个密文列，

@@ -21,8 +21,6 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{PermissionAccountDelete, true, true, false},
 		{PermissionTokenRefresh, true, true, false},
 		{PermissionAccountSecret, true, true, false},
-
-		{PermissionAuditRead, true, false, false},
 	}
 	for _, c := range cases {
 		for role, want := range map[TenantRole]bool{

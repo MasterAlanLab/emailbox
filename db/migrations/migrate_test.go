@@ -3,10 +3,15 @@ package migrations
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"os"
 	"path"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite" // 注册 SQLite 驱动供本测试使用。
 )
 
@@ -44,6 +49,14 @@ func TestUpAppliesAllMigrations(t *testing.T) {
 	}
 	if _, err := db.ExecContext(ctx, `SELECT plan_source, subscription_id FROM tenant_quotas LIMIT 1`); err != nil {
 		t.Fatalf("租户套餐来源列缺失: %v", err)
+	}
+	var auditObjects int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master
+		WHERE name = 'audit_logs' OR name LIKE 'idx_audit_logs_%'`).Scan(&auditObjects); err != nil {
+		t.Fatal(err)
+	}
+	if auditObjects != 0 {
+		t.Errorf("全新库残留 %d 个审计表或索引", auditObjects)
 	}
 }
 
@@ -96,8 +109,14 @@ func TestUpOnPopulatedDatabase(t *testing.T) {
 		}
 	}
 
-	if err := Up(ctx, db, "sqlite"); err != nil {
-		t.Fatalf("在已有数据的库上升级失败: %v", err)
+	// 先验证早期重建保留了全部外键数据，再由 000023 删除历史审计表。
+	for _, m := range all {
+		if m.version <= upTo || m.version >= 23 {
+			continue
+		}
+		if err := apply(ctx, db, "sqlite", m); err != nil {
+			t.Fatalf("在已有数据的库上升级失败: %v", err)
+		}
 	}
 
 	// 行不能丢，列不能串——整表重建最典型的两种事故。
@@ -151,6 +170,102 @@ func TestUpOnPopulatedDatabase(t *testing.T) {
 	var actorName string
 	if err := db.QueryRowContext(ctx, `SELECT actor_name FROM audit_logs WHERE id = 'a1'`).Scan(&actorName); err != nil {
 		t.Fatalf("actor_email 应已改名为 actor_name: %v", err)
+	}
+	if err := Up(ctx, db, "sqlite"); err != nil {
+		t.Fatalf("完成剩余迁移失败: %v", err)
+	}
+}
+
+// 删除功能也要在有历史记录的旧库上升级，两种引擎都不能误删关联业务数据。
+func TestDropAuditLogsOnPopulatedDatabase(t *testing.T) {
+	for _, dialect := range []string{"sqlite", "postgres"} {
+		t.Run(dialect, func(t *testing.T) {
+			ctx := context.Background()
+			var db *sql.DB
+			var err error
+			objects := `SELECT count(*) FROM sqlite_master WHERE name = 'audit_logs' OR name LIKE 'idx_audit_logs_%'`
+			if dialect == "sqlite" {
+				db, err = sql.Open("sqlite", "file:"+t.TempDir()+"/drop.db?_pragma=foreign_keys(1)")
+			} else {
+				dsn := os.Getenv("TEST_POSTGRES_DSN")
+				if dsn == "" {
+					t.Skip("TEST_POSTGRES_DSN not set")
+				}
+				config, parseErr := pgx.ParseConfig(dsn)
+				if parseErr != nil {
+					t.Fatal(parseErr)
+				}
+				// 独立 schema 避免被其他包的 PostgreSQL 对照测试重建 public 干扰。
+				schema := fmt.Sprintf("drop_audit_%d", time.Now().UnixNano())
+				config.RuntimeParams["search_path"] = schema
+				db = stdlib.OpenDB(*config)
+				t.Cleanup(func() { _ = db.Close() })
+				t.Cleanup(func() {
+					if _, err := db.ExecContext(ctx, `DROP SCHEMA `+schema+` CASCADE`); err != nil {
+						t.Errorf("清理测试 schema: %v", err)
+					}
+				})
+				_, err = db.ExecContext(ctx, `CREATE SCHEMA `+schema)
+				objects = `SELECT count(*) FROM pg_class WHERE relnamespace = current_schema()::regnamespace
+					AND (relname = 'audit_logs' OR relname LIKE 'idx_audit_logs_%')`
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if dialect == "sqlite" {
+				t.Cleanup(func() { _ = db.Close() })
+			}
+			all, err := loadMigrations(dialect)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.ExecContext(ctx, `CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY)`); err != nil {
+				t.Fatal(err)
+			}
+			for _, m := range all {
+				if m.version >= 23 {
+					break
+				}
+				if err := apply(ctx, db, dialect, m); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, statement := range []string{
+				`INSERT INTO users(id,username,password_hash) VALUES ('u1','alan','HASH')`,
+				`INSERT INTO tenants(id,name,slug,created_by) VALUES ('t1','T','t-1','u1')`,
+				`INSERT INTO mail_groups(id,tenant_id,name) VALUES ('g1','t1','default')`,
+				`INSERT INTO mail_accounts(id,tenant_id,group_id,email,email_normalized,password_enc)
+				 VALUES ('m1','t1','g1','mail@example.com','mail@example.com','ENC_PASSWORD')`,
+				`INSERT INTO audit_logs(id,tenant_id,actor_user_id,action,resource_type)
+				 VALUES ('a1','t1','u1','account.create','account')`,
+			} {
+				if _, err := db.ExecContext(ctx, statement); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for range 2 {
+				if err := Up(ctx, db, dialect); err != nil {
+					t.Fatalf("旧库升级失败: %v", err)
+				}
+			}
+			var remaining int
+			if err := db.QueryRowContext(ctx, objects).Scan(&remaining); err != nil {
+				t.Fatal(err)
+			}
+			if remaining != 0 {
+				t.Errorf("升级后残留 %d 个审计表或索引", remaining)
+			}
+			var credential string
+			if err := db.QueryRowContext(ctx, `SELECT a.password_enc FROM mail_accounts a
+				JOIN mail_groups g ON g.id = a.group_id AND g.tenant_id = a.tenant_id
+				JOIN tenants t ON t.id = a.tenant_id JOIN users u ON u.id = t.created_by
+				WHERE a.tenant_id = 't1' AND a.id = 'm1'`).Scan(&credential); err != nil {
+				t.Fatalf("升级丢失关联业务数据: %v", err)
+			}
+			if credential != "ENC_PASSWORD" {
+				t.Errorf("升级改动了邮箱凭据: %q", credential)
+			}
+		})
 	}
 }
 

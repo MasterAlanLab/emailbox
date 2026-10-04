@@ -187,7 +187,7 @@ func newDesktopEntry(ctx context.Context, store *repo.Store, auth *service.AuthS
 // handleDesktopSession 用 nonce 换会话 Cookie，然后跳到首页。
 //
 // 走 Cookie 而不是绕过认证中间件：桌面版的每个请求依然要过同一套会话校验，
-// 租户隔离、权限矩阵、审计都照常生效。这里省掉的只是「输入密码」那一步。
+// 租户隔离、权限矩阵都照常生效。这里省掉的只是「输入密码」那一步。
 func (s *Server) handleDesktopSession(c *echo.Context) error {
 	// 定长比较，避免用比较耗时反推 nonce。
 	if subtle.ConstantTimeCompare([]byte(c.QueryParam("nonce")), []byte(s.desktop.nonce)) != 1 {

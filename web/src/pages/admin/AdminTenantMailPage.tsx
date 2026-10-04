@@ -44,7 +44,6 @@ export default function AdminTenantMailPage() {
           你正在以<strong>管理员身份</strong>操作
           {owner ? `「${owner.username}」（${owner.email}）` : ` ${tenantID}`} 的邮箱。
         </span>
-        <span className="text-xs text-kumo-subtle">此处的查看与操作都会记入审计日志。</span>
         <Link to="/admin/users" className="ml-auto text-kumo-link hover:underline">
           返回用户列表
         </Link>

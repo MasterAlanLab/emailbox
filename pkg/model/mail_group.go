@@ -93,7 +93,7 @@ type MailGroupNode struct {
 // 看起来一切正常，直到某个账号取信失败才会发现。
 //
 // 这是分组这边唯一一个把凭据明文送出接口的地方，因此按导出的同一档收敛：
-// account:secret 权限 + 强制审计，两件都挂在 api/routes.go 的路由上。
+// account:secret 权限挂在 api/routes.go 的路由上。
 type MailGroupProxy struct {
 	ProxyURL string `json:"proxy_url"`
 }

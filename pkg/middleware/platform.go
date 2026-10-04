@@ -9,15 +9,6 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// ActorKind 标识一次操作的发起方身份，写进 audit_logs。
-// 管理员跨租户访问他人数据时必须留痕，因此这一位不能省。
-const (
-	ActorKindUser   = "user"
-	ActorKindAdmin  = "admin"
-	ActorKindAPIKey = "api_key"
-	ActorKindSystem = "system"
-)
-
 // PlatformMiddleware 校验平台角色（users.platform_role），与租户角色正交。
 type PlatformMiddleware struct{ store *repo.Store }
 
@@ -26,10 +17,6 @@ func NewPlatformMiddleware(s *repo.Store) *PlatformMiddleware {
 }
 
 // RequirePlatformAdmin 只放行平台管理员。
-//
-// 通过后把 actor_kind=admin 写进 context：管理员操作他人数据的每一次读写都要
-// 能在审计日志里与用户自己的操作区分开。这也是不做 impersonation 的原因——
-// 会话被借用后，审计里的 actor_user_id 会指向被冒充者，事后无法追责。
 //
 // 注意：本中间件只决定「谁有权指定 tenant_id」。下游 service 与 repo 的
 // SQL 仍然照常带 `WHERE tenant_id = ?`，与普通用户走完全相同的代码路径，
@@ -46,7 +33,6 @@ func (m *PlatformMiddleware) RequirePlatformAdmin(next echo.HandlerFunc) echo.Ha
 			return echo.NewHTTPError(http.StatusForbidden, "需要平台管理员权限")
 		}
 		c.Set("platform_user", user)
-		c.Set("actor_kind", ActorKindAdmin)
 		return next(c)
 	}
 }
@@ -77,12 +63,4 @@ func PlatformUser(c *echo.Context) *model.User {
 		return nil
 	}
 	return v
-}
-
-// ActorKind 返回本次操作的发起方身份，供审计日志使用；默认是普通用户。
-func ActorKind(c *echo.Context) string {
-	if v, ok := c.Get("actor_kind").(string); ok && v != "" {
-		return v
-	}
-	return ActorKindUser
 }

@@ -185,7 +185,7 @@ func (h *BillingHandler) Webhook(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 	if err := h.service.VerifyWebhook(c.Request().Header.Get("X-Waffo-Signature"), body, time.Now()); err != nil {
-		// 验签失败是安全事件，但请求没有可信身份可以挂进审计表；按 IP 记日志即可。
+		// 验签失败的请求没有可信身份，按 IP 记运行日志以便定位来源。
 		slog.Warn("拒绝了一个 Waffo Webhook", "ip", c.RealIP(),
 			"event", c.Request().Header.Get("X-Waffo-Event"), "error", err)
 		return c.NoContent(http.StatusUnauthorized)

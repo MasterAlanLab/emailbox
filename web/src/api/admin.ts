@@ -3,7 +3,7 @@ import type { ApiResponse } from "@/lib/client";
 import type { Limits, Pagination } from "./mail";
 import type { BillingSubscription } from "./tenant";
 
-// 与后端 pkg/model/admin.go、audit.go 手工同步。
+// 与后端 pkg/model/admin.go 手工同步。
 
 export interface AdminUser {
   id: string;
@@ -57,22 +57,6 @@ export interface AdminPlanPrice {
   sync_status: "pending" | "active" | "error" | "inactive";
   sync_error?: string;
   active: boolean;
-}
-
-export interface AuditLog {
-  id: string;
-  tenant_id: string;
-  actor_user_id: string;
-  // 存的是用户名而不是邮箱：邮箱可选，用它做「用户被删后仍能追溯是谁」
-  // 这层兜底，会在最需要追溯的时候正好是空的。
-  actor_name: string;
-  actor_kind: "user" | "admin" | "api_key" | "system";
-  action: string;
-  resource_type: string;
-  resource_id: string;
-  ip: string;
-  details: string;
-  created_at: string;
 }
 
 export interface PlatformStats {
@@ -145,12 +129,4 @@ export const adminApi = {
     (await client.patch<ApiResponse<AdminPlanPrice>>(`${base}/billing/prices/${id}`, data)).data,
   syncBillingPrice: async (id: string) =>
     (await client.post<ApiResponse<AdminPlanPrice>>(`${base}/billing/prices/${id}/sync`)).data,
-
-  audit: async (params: {
-    tenant_id?: string;
-    actor_user_id?: string;
-    actor_kind?: string;
-    action?: string;
-    page?: number;
-  }) => (await client.get<ApiResponse<Page<AuditLog>>>(`${base}/audit`, { params })).data,
 };

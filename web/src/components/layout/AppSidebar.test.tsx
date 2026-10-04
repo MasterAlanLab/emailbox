@@ -20,7 +20,7 @@ describe("主导航的管理入口", () => {
   afterEach(() => useAuthStore.setState({ user: null }));
 
   // 管理功能各自是一个入口，不再藏在一个带页签的「后台」后面。
-  it("管理员看到管理分组下的四个独立入口", () => {
+  it("管理员看到管理分组下的三个独立入口", () => {
     renderAs("admin");
     const group = screen.getByRole("group", { name: "管理" });
     const links = Array.from(group.querySelectorAll("a")).map((a) => [
@@ -31,7 +31,6 @@ describe("主导航的管理入口", () => {
       ["概览", "/admin"],
       ["用户", "/admin/users"],
       ["套餐", "/admin/plans"],
-      ["审计", "/admin/audit"],
     ]);
     expect(screen.queryByText("后台")).toBeNull();
   });

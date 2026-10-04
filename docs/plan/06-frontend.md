@@ -147,7 +147,6 @@ Kumo 提供约 30 个组件。下表是本项目每个界面元素的落位，**
 /admin/users              用户管理
 /admin/tenants/:id/mail   以管理员身份查看/操作某租户的邮箱（复用 /mail 的组件）
 /admin/plans              套餐管理
-/admin/audit              全平台审计日志
 ```
 
 模板已有的 `/tenant/settings`、`/tenant/members` 路由**保留但隐藏入口**
@@ -346,7 +345,7 @@ Outlook 只能走 4 段 OAuth；域名不在表里就用自定义 IMAP 的 4 段
 ### 5.4 `/admin/*` 管理页
 
 没有一个带页签的「后台」入口（2026-09-27 起）：左侧导航栏对平台管理员多出一个「管理」分组，
-概览 `/admin`、用户 `/admin/users`、套餐 `/admin/plans`、审计 `/admin/audit` 各是一个独立入口，
+概览 `/admin`、用户 `/admin/users`、套餐 `/admin/plans` 各是一个独立入口，
 页面直接用 `PageShell`。几件事彼此无关，藏在同一个入口的页签后面只会多点一次、还要先猜它在哪个页签；
 「后台」这个说法对用户也没有意义。由 `AppSidebar.test.tsx` 钉住。
 
@@ -357,8 +356,6 @@ Outlook 只能走 4 段 OAuth；域名不在表里就用自定义 IMAP 的 4 段
   禁用/启用、重置密码、分配套餐、授予管理员、进入其邮箱、删除。
   分配套餐（`AssignPlanDialog`）：套餐列成单选卡片并写明各项额度，顶部显示当前套餐与来源；
   用户有付费订阅时提醒「订阅不会被取消、仍会按期扣费」
-- `/admin/audit`：动作按 `lib/auditActions.ts` 显示中文名（原始代码在 title 上），筛选用下拉选择；
-  `pkg/model/audit_test.go` 检查每个后端审计动作在前端都有中文名
 - 危险操作（删除用户、重置密码）用 `Dialog` 二次确认，措辞写明影响范围
 - `/admin/tenants/:id/mail`：**直接复用 `/mail` 的全部组件**，
   只是 API base 从 `/api/v1/tenants/:tid/mail` 换成 `/api/v1/admin/tenants/:tid/mail`。
@@ -408,11 +405,11 @@ outlookEmail 只做了 DOMPurify（同文档渲染），本方案额外加一层
 
 - 列表/详情只显示 `has_password: true` 之类布尔标志，不回传明文
 - 「复制邮箱+别名」（`ClipboardText`）不复制密码
-- 导出走一个说明用途的 `Dialog`：界面上明说导出的是**明文**、且这次操作会记进审计
+- 导出走一个说明用途的 `Dialog`：界面上明说导出的是**明文**，提醒妥善保存并及时清理下载文件
 - 代理 URL 在输入框以外一律显示打码版。**输入框里必须是明文**：回填打码串的话，
   用户进来改个名字一按保存，`socks5://u:****@host` 就被当成口令写回库里，
   代理从此是坏的、界面上还看不出来。分组代理的明文因此单独走
-  `GET /mail/groups/:id/proxy`（要 `account:secret` 且每次调用写一条审计），
+  `GET /mail/groups/:id/proxy`（要 `account:secret`），
   只在编辑框打开时取一次——列表接口不带明文，否则一进 /mail 就把全部分组的
   代理口令发到浏览器，而绝大多数时候没人要看它们。
   明文没取到时保存要**整组省掉**代理三项（PATCH 不传即保持原值），

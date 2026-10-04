@@ -2,7 +2,6 @@ import {
   CaretLeft,
   CaretRight,
   ChartBar,
-  ClipboardText,
   Code,
   Envelope,
   Gauge,
@@ -48,12 +47,11 @@ const SECONDARY: NavItem[] = [
 ];
 
 // 平台管理的几件事各自是一个入口，而不是塞进一个带页签的「后台」：
-// 套餐、用户、审计彼此独立，藏在同一个入口后面只会多点一次、还要先猜它在哪个页签。
+// 套餐、用户彼此独立，藏在同一个入口后面只会多点一次、还要先猜它在哪个页签。
 const MANAGE: NavItem[] = [
   { to: "/admin", label: "概览", icon: ChartBar, end: true },
   { to: "/admin/users", label: "用户", icon: Users },
   { to: "/admin/plans", label: "套餐", icon: Package },
-  { to: "/admin/audit", label: "审计", icon: ClipboardText },
 ];
 
 export function AppSidebar() {

@@ -25,7 +25,7 @@
 |---|---|---|
 | `000002_saas` | `users.platform_role`、`tenants.kind`、plans / tenant_quotas / usage_counters | P0 |
 | `000003_mail_core` | groups / accounts / aliases / tags / account_tags | P1 |
-| `000004_platform_admin` | audit_logs、`users.last_login_at` | P3 |
+| `000004_platform_admin` | 历史审计表（000023 已删除）、`users.last_login_at` | P3 |
 | `000005_mail_ops` | jobs / job_items / job_events / refresh_logs | P4 |
 
 P0–P4 的表到 `000005` 就齐了。转发、分享链接、本地邮件保留、临时邮箱相关的表随 P5–P7
@@ -46,6 +46,7 @@ P0–P4 的表到 `000005` 就齐了。转发、分享链接、本地邮件保�
 | `000015_oauth_reauthorization` | Microsoft 重新授权的一次性流程表；账号刷新结果补 `error_kind` | 2026-08-28 |
 | `000016_drop_group_fallback_proxy` | 分组代理只留一个地址，删掉两个备用位；账号自己的代理仍是三列 | 2026-08-31 |
 | `000017_group_refresh_schedule` | 分组的定期令牌刷新：`refresh_interval_minutes` + `next_refresh_at` + 部分索引 | 2026-09-03 |
+| `000023_drop_audit_logs` | 移除审计日志表及其索引，删除历史记录；回滚仅恢复空表结构 | 2026-10-04 |
 
 每个迁移 sqlite / postgres 各一份 `.up.sql` / `.down.sql`。
 `000002_saas` 的表定义见 [08 文档 §2、§4](08-saas-admin.md)，不在本文重复。
@@ -264,25 +265,7 @@ CREATE INDEX idx_refresh_logs_account ON mail_refresh_logs(account_id, created_a
 CREATE INDEX idx_refresh_logs_failed  ON mail_refresh_logs(tenant_id, status, created_at DESC);
 ```
 
-### 4.3 `audit_logs`
-
-```sql
-CREATE TABLE audit_logs (
-    id            TEXT PRIMARY KEY,
-    tenant_id     TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-    actor_kind    TEXT NOT NULL DEFAULT 'user',   -- user | admin | system（CHECK 里还留着已废弃的 api_key）
-    action        TEXT NOT NULL,                  -- account.import / account.delete / plan.update / ...
-    resource_type TEXT NOT NULL,
-    resource_id   TEXT NOT NULL DEFAULT '',
-    ip            TEXT NOT NULL DEFAULT '',
-    details       TEXT NOT NULL DEFAULT '{}',
-    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_audit_logs_tenant ON audit_logs(tenant_id, created_at DESC);
-```
-
-### 4.4 `tenant_api_keys` — 对外取件 Key
+### 4.3 `tenant_api_keys` — 对外取件 Key
 
 ```sql
 CREATE TABLE tenant_api_keys (
@@ -311,7 +294,6 @@ nonce 不同，没法用它查。代价是拿到库 + `ENCRYPTION_KEY` 就能还
 ```
 mail_groups.sql      mail_accounts.sql    mail_aliases.sql
 jobs.sql             mail_refresh_logs.sql
-audit_logs.sql
 ```
 
 `sqlc.yaml` 无需改动（`queries` 指的是目录）。但 `schema` 目前只指向 `000001_init.up.sql`，
@@ -529,7 +511,6 @@ const (
     PermissionMessageRead      Permission = "mail:message:read"
     PermissionMessageWrite     Permission = "mail:message:write"    // 标已读、删除
     PermissionTokenRefresh     Permission = "mail:token:refresh"
-    PermissionAuditRead        Permission = "mail:audit:read"
 )
 ```
 
@@ -541,7 +522,6 @@ const (
 | group:write / account:write / message:write | ✓ | ✓ | – |
 | account:delete / token:refresh | ✓ | ✓ | – |
 | account:secret（导出含令牌） | ✓ | ✓ | – |
-| audit:read | ✓ | – | – |
 
 `account:secret` 单独拆出来，是因为「导出账号」等价于**导出全部凭据明文**——
-这是本平台风险最高的操作，必须能独立收敛，并且强制写 `audit_logs`。
+这是本平台风险最高的操作，必须能独立收敛。

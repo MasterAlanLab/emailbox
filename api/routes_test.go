@@ -112,8 +112,6 @@ func newTestServerWithMailOptions(t *testing.T, mailOptions service.ChainOptions
 		),
 	}
 	platformService := service.NewPlatformService(store, service.NewAuthService(store))
-	auditService := service.NewAuditService(store)
-	handlers.Audit = auditService
 
 	// 任务系统。心跳与僵尸判定压到秒级，用例才不用等两分钟；
 	// 刷新器换成假的，否则每个用例都会去打微软的令牌端点。
@@ -150,7 +148,6 @@ func newTestServerWithMailOptions(t *testing.T, mailOptions service.ChainOptions
 	handlers.OAuth = handler.NewOAuthHandler(oauthService, "http://localhost:5173/mail/tokens")
 	handlers.Admin = handler.NewAdminHandler(
 		service.NewAdminService(store, platformService, quota.NewService(store)),
-		auditService,
 	)
 
 	e := echo.New()

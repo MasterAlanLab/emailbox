@@ -179,7 +179,6 @@ func buildServices(store *repo.Store, desktop bool) (*services, error) {
 		slog.Warn("已回收上次运行遗留的中断任务", "count", n)
 	}
 
-	auditService := service.NewAuditService(store)
 	adminService := service.NewAdminService(store, platformService, quotaService)
 	billingService, err := service.NewBillingService(store, configs.AppConfig.Waffo)
 	if err != nil {
@@ -195,12 +194,12 @@ func buildServices(store *repo.Store, desktop bool) (*services, error) {
 			Member: handler.NewMemberHandler(service.NewMemberService(store)), Group: handler.NewGroupHandler(groupService),
 			Account: handler.NewAccountHandler(accountService), Quota: handler.NewQuotaHandler(service.NewQuotaService(store, quotaService)),
 			Message: handler.NewMessageHandler(messageService),
-			Admin:   handler.NewAdminHandler(adminService, auditService),
+			Admin:   handler.NewAdminHandler(adminService),
 			Billing: handler.NewBillingHandler(billingService),
 			Job:     handler.NewJobHandler(service.NewJobService(store, jobManager), refreshService),
 			Refresh: handler.NewRefreshHandler(refreshService),
 			Health:  handler.NewHealthHandler(healthService),
-			OAuth:   handler.NewOAuthHandler(oauthService, configs.AppConfig.OAuth.ReturnURL), Audit: auditService,
+			OAuth:   handler.NewOAuthHandler(oauthService, configs.AppConfig.OAuth.ReturnURL),
 		},
 		authMW:     middleware2.NewAuthMiddleware(authService, apiKeyService),
 		tenantMW:   middleware2.NewTenantMiddleware(store),

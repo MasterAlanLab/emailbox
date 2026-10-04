@@ -18,11 +18,10 @@ import (
 // 差别只在 tenantID 从哪条路径来（见 api/routes.go 的 mountMailRoutes）。
 type AdminHandler struct {
 	service *service.AdminService
-	audit   *service.AuditService
 }
 
-func NewAdminHandler(s *service.AdminService, audit *service.AuditService) *AdminHandler {
-	return &AdminHandler{service: s, audit: audit}
+func NewAdminHandler(s *service.AdminService) *AdminHandler {
+	return &AdminHandler{service: s}
 }
 
 // adminError 把管理端的领域错误映射成 HTTP 状态。
@@ -104,22 +103,8 @@ func (h *AdminHandler) UpdateUser(c *echo.Context) error {
 
 	actor := middleware.PlatformUser(c)
 	userID := c.Param("userID")
-	changed, err := h.service.UpdateUser(c.Request().Context(), actor.ID, userID, update)
-	if err != nil {
+	if err := h.service.UpdateUser(c.Request().Context(), actor.ID, userID, update); err != nil {
 		return adminError(c, err)
-	}
-
-	// 只在真的改了东西时记审计：一次「打开详情页顺手保存」不该在日志里
-	// 留下一条什么都没变的记录，那会把真正的变更淹掉。
-	if len(changed) > 0 {
-		details := map[string]any{"changed": changed}
-		if update.Status != nil {
-			details["status"] = string(*update.Status)
-		}
-		if update.PlatformRole != nil {
-			details["platform_role"] = string(*update.PlatformRole)
-		}
-		h.recordUserAudit(c, model.AuditUserUpdate, userID, details)
 	}
 
 	v, err := h.service.GetUser(c.Request().Context(), userID)
@@ -130,52 +115,20 @@ func (h *AdminHandler) UpdateUser(c *echo.Context) error {
 }
 
 func (h *AdminHandler) ResetPassword(c *echo.Context) error {
-	userID := c.Param("userID")
-	password, err := h.service.ResetPassword(c.Request().Context(), userID)
+	password, err := h.service.ResetPassword(c.Request().Context(), c.Param("userID"))
 	if err != nil {
 		return adminError(c, err)
 	}
-	// 审计只记「重置了谁的密码」，绝不记密码本身——
-	// 审计表是给人看的，把明文密码写进去等于给它开了个新的泄露面。
-	h.recordUserAudit(c, model.AuditUserResetPassword, userID, nil)
 	return success(c, map[string]any{"password": password},
 		"已重置，请把临时密码转交给用户；本次之后无法再次查看")
 }
 
 func (h *AdminHandler) DeleteUser(c *echo.Context) error {
-	userID := c.Param("userID")
-	accounts, err := h.service.DeleteUser(c.Request().Context(), middleware.PlatformUser(c).ID, userID)
+	accounts, err := h.service.DeleteUser(c.Request().Context(), middleware.PlatformUser(c).ID, c.Param("userID"))
 	if err != nil {
 		return adminError(c, err)
 	}
-	h.recordUserAudit(c, model.AuditUserDelete, userID, map[string]any{
-		"deleted_accounts": accounts,
-	})
 	return success(c, map[string]any{"deleted_accounts": accounts}, "删除成功")
-}
-
-// recordUserAudit 记一条以「用户」为资源的审计。
-//
-// 这类操作发生在平台层面而不是某个租户里，tenant_id 因此填被操作者的个人空间；
-// 取不到就留空——审计表的 tenant_id 是 NOT NULL，但空串比因为一次取不到租户
-// 就整条丢掉要好。
-func (h *AdminHandler) recordUserAudit(c *echo.Context, action, userID string, details map[string]any) {
-	actor := middleware.PlatformUser(c)
-	tenantID := ""
-	if target, err := h.service.GetUser(c.Request().Context(), userID); err == nil {
-		tenantID = target.TenantID
-	}
-	h.audit.Record(c.Request().Context(), service.Entry{
-		TenantID:     tenantID,
-		ActorUserID:  actor.ID,
-		ActorName:    actor.Username,
-		ActorKind:    middleware.ActorKind(c),
-		Action:       action,
-		ResourceType: "user",
-		ResourceID:   userID,
-		IP:           c.RealIP(),
-		Details:      details,
-	})
 }
 
 // ---------- 套餐 ----------
@@ -197,7 +150,6 @@ func (h *AdminHandler) CreatePlan(c *echo.Context) error {
 	if err != nil {
 		return adminError(c, err)
 	}
-	h.recordPlanAudit(c, model.AuditPlanCreate, created.ID, map[string]any{"code": created.Code})
 	return success(c, created, "创建成功")
 }
 
@@ -211,26 +163,14 @@ func (h *AdminHandler) UpdatePlan(c *echo.Context) error {
 	if err != nil {
 		return adminError(c, err)
 	}
-	h.recordPlanAudit(c, model.AuditPlanUpdate, updated.ID, map[string]any{"code": updated.Code})
 	return success(c, updated, "更新成功")
 }
 
 func (h *AdminHandler) DeletePlan(c *echo.Context) error {
-	planID := c.Param("planID")
-	if err := h.service.DeletePlan(c.Request().Context(), planID); err != nil {
+	if err := h.service.DeletePlan(c.Request().Context(), c.Param("planID")); err != nil {
 		return adminError(c, err)
 	}
-	h.recordPlanAudit(c, model.AuditPlanDelete, planID, nil)
 	return success(c, nil, "删除成功")
-}
-
-func (h *AdminHandler) recordPlanAudit(c *echo.Context, action, planID string, details map[string]any) {
-	actor := middleware.PlatformUser(c)
-	h.audit.Record(c.Request().Context(), service.Entry{
-		ActorUserID: actor.ID, ActorName: actor.Username, ActorKind: middleware.ActorKind(c),
-		Action: action, ResourceType: "plan", ResourceID: planID,
-		IP: c.RealIP(), Details: details,
-	})
 }
 
 // ---------- 配额 ----------
@@ -257,48 +197,17 @@ func (h *AdminHandler) AssignTenantPlan(c *echo.Context) error {
 		return failure(c, http.StatusBadRequest, errors.New("请选择要分配的套餐"))
 	}
 	tenantID := c.Param("tenantID")
-	actor := middleware.PlatformUser(c)
-	from, err := h.service.AssignPlan(c.Request().Context(), tenantID, req.PlanID)
-	if err != nil {
+	if err := h.service.AssignPlan(c.Request().Context(), tenantID, req.PlanID); err != nil {
 		return adminError(c, err)
 	}
 	v, err := h.service.TenantPlan(c.Request().Context(), tenantID)
 	if err != nil {
 		return adminError(c, err)
 	}
-	h.audit.Record(c.Request().Context(), service.Entry{
-		TenantID: tenantID, ActorUserID: actor.ID, ActorName: actor.Username,
-		ActorKind: middleware.ActorKind(c), Action: model.AuditPlanAssign,
-		ResourceType: "tenant", ResourceID: tenantID, IP: c.RealIP(),
-		// 记套餐代码而不是 ID：审计页上要一眼看出这次是从哪一档换到哪一档。
-		Details: map[string]any{"from_plan": from, "to_plan": v.Limits.PlanCode},
-	})
 	return success(c, v, "已分配套餐")
 }
 
-// ---------- 审计与概览 ----------
-
-func (h *AdminHandler) ListAudit(c *echo.Context) error {
-	q := c.Request().URL.Query()
-	filter := model.AuditFilter{
-		TenantID:    q.Get("tenant_id"),
-		ActorUserID: q.Get("actor_user_id"),
-		ActorKind:   q.Get("actor_kind"),
-		Action:      q.Get("action"),
-		Page:        atoiOrZero(q.Get("page")),
-		Limit:       atoiOrZero(q.Get("limit")),
-	}
-	filter.Normalize()
-
-	items, total, err := h.audit.List(c.Request().Context(), filter)
-	if err != nil {
-		return adminError(c, err)
-	}
-	return success(c, map[string]any{
-		"items":      items,
-		"pagination": pagination(filter.Page, filter.Limit, total),
-	}, "获取成功")
-}
+// ---------- 概览 ----------
 
 func (h *AdminHandler) Stats(c *echo.Context) error {
 	v, err := h.service.Stats(c.Request().Context())

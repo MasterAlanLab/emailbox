@@ -27,8 +27,8 @@ func (h *GroupHandler) List(c *echo.Context) error {
 
 // Proxy 回分组代理的明文，供编辑表单回填。
 //
-// 这是分组这边唯一送出凭据明文的端点，权限（account:secret）与强制审计都挂在
-// 路由上——改路由时两件要一起看，少一件就是一个不设防或不留痕的凭据出口。
+// 这是分组这边唯一送出凭据明文的端点，必须保留路由上的 account:secret 权限，
+// 普通只读角色与 API Key 均拿不到。
 func (h *GroupHandler) Proxy(c *echo.Context) error {
 	v, e := h.service.Proxy(c.Request().Context(), c.Param("tenantID"), c.Param("groupID"))
 	if e != nil {
