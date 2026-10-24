@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { tenantApi, type BillingSubscription } from "@/api/tenant";
 import { BillingCard } from "./BillingCard";
@@ -27,13 +28,15 @@ function mockBilling(subscription: BillingSubscription | null) {
 async function mount(navigate = vi.fn()) {
   await act(async () => {
     render(
-      <BillingCard
-        tenantID="t1"
-        reloadKey={0}
-        returnedFromCheckout={false}
-        onRefresh={() => {}}
-        navigate={navigate}
-      />,
+      <MemoryRouter>
+        <BillingCard
+          tenantID="t1"
+          reloadKey={0}
+          returnedFromCheckout={false}
+          onRefresh={() => {}}
+          navigate={navigate}
+        />
+      </MemoryRouter>,
     );
   });
   return navigate;
@@ -98,12 +101,14 @@ describe("订阅卡片", () => {
     const onRefresh = vi.fn();
     await act(async () => {
       render(
-        <BillingCard
-          tenantID="t1"
-          reloadKey={0}
-          returnedFromCheckout={false}
-          onRefresh={onRefresh}
-        />,
+        <MemoryRouter>
+          <BillingCard
+            tenantID="t1"
+            reloadKey={0}
+            returnedFromCheckout={false}
+            onRefresh={onRefresh}
+          />
+        </MemoryRouter>,
       );
     });
     expect(onRefresh).toHaveBeenCalledTimes(1);

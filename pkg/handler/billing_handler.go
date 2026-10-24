@@ -22,6 +22,14 @@ type BillingHandler struct{ service *service.BillingService }
 
 func NewBillingHandler(s *service.BillingService) *BillingHandler { return &BillingHandler{service: s} }
 
+func (h *BillingHandler) PublicPricing(c *echo.Context) error {
+	v, err := h.service.PublicPricing(c.Request().Context())
+	if err != nil {
+		return failure(c, http.StatusInternalServerError, err)
+	}
+	return success(c, v, "获取成功")
+}
+
 // billingError 把计费错误映射成 HTTP 响应。
 //
 // Waffo 自身的失败回 502，但不能走 failure() 的「服务器内部错误」：用户点的是「立即订阅」，

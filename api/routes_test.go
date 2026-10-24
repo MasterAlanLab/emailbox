@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -420,5 +421,136 @@ func TestBillingWhileDisabled(t *testing.T) {
 	if status, body := do(t, e, http.MethodPost, base+"/checkout", token,
 		`{"plan_price_id":"p","idempotency_key":"k"}`); status != http.StatusConflict {
 		t.Errorf("支付关闭时结账: %d %s，期望 409", status, body)
+	}
+}
+
+// 定价必须无需会话即可查看，且只公开真实免费额度与现在能购买的价格。
+func TestPublicPricing(t *testing.T) {
+	e, store, _ := newTestServerWithStore(t)
+	ctx := context.Background()
+	free, err := store.GetDefaultPlan(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	free.Name, free.MaxAccounts, free.MaxGroups, free.DailyMailFetch = "入门版", 37, 6, 321
+	if err := store.UpdatePlan(ctx, *free); err != nil {
+		t.Fatal(err)
+	}
+	for _, plan := range []model.Plan{
+		{ID: "pro", Code: "pro", Name: "专业版", MaxAccounts: 500, MaxGroups: 50, DailyMailFetch: model.Unlimited},
+		{ID: "draft", Code: "draft", Name: "尚未开售的内部套餐", MaxAccounts: 1000},
+		{ID: "admin", Code: "admin", Name: "管理员专用套餐", MaxAccounts: model.Unlimited},
+	} {
+		if err := store.CreatePlan(ctx, plan); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prices := []model.PlanPrice{
+		{ID: "monthly", PlanID: "pro", BillingPeriod: "monthly", Currency: "USD", Amount: "9.90", Active: true, SyncStatus: "active", ProviderProductID: "private-monthly-product"},
+		{ID: "yearly", PlanID: "pro", BillingPeriod: "yearly", Currency: "USD", Amount: "99.00", Active: true, SyncStatus: "active", ProviderProductID: "private-yearly-product"},
+		{ID: "pending", PlanID: "pro", BillingPeriod: "monthly", Currency: "EUR", Amount: "10", Active: true, SyncStatus: "pending"},
+		{ID: "error", PlanID: "pro", BillingPeriod: "yearly", Currency: "EUR", Amount: "100", Active: true, SyncStatus: "error", SyncError: "private-provider-error"},
+		{ID: "inactive", PlanID: "pro", BillingPeriod: "monthly", Currency: "GBP", Amount: "8", Active: false, SyncStatus: "active", ProviderProductID: "private-inactive-product"},
+		{ID: "no-product", PlanID: "pro", BillingPeriod: "yearly", Currency: "GBP", Amount: "80", Active: true, SyncStatus: "active"},
+		{ID: "draft-only", PlanID: "draft", BillingPeriod: "monthly", Currency: "USD", Amount: "19", Active: true, SyncStatus: "pending"},
+		{ID: "legacy-free-price", PlanID: free.ID, BillingPeriod: "monthly", Currency: "USD", Amount: "1", Active: true, SyncStatus: "active", ProviderProductID: "private-free-product"},
+	}
+	for _, price := range prices {
+		if err := store.CreatePlanPrice(ctx, price); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, enabled := range []bool{true, false} {
+		if err := store.UpdateBillingSettings(ctx, model.BillingSettings{Enabled: enabled, Mode: "test", DefaultCurrency: "USD"}); err != nil {
+			t.Fatal(err)
+		}
+		status, body := do(t, e, http.MethodGet, "/api/v1/pricing", "", "")
+		if status != http.StatusOK {
+			t.Fatalf("匿名读取定价: %d %s", status, body)
+		}
+		// 比对全部字段，防止直接序列化内部 PlanPrice 后漏出供应商、同步错误或数据库 ID。
+		var got map[string]any
+		if err := json.Unmarshal([]byte(body), &got); err != nil {
+			t.Fatal(err)
+		}
+		paidPlans := []any{}
+		if enabled {
+			paidPlans = append(paidPlans, map[string]any{
+				"name": "专业版", "max_accounts": float64(500), "max_groups": float64(50), "daily_mail_fetch": float64(-1),
+				"prices": []any{
+					map[string]any{"billing_period": "monthly", "currency": "USD", "amount": "9.90"},
+					map[string]any{"billing_period": "yearly", "currency": "USD", "amount": "99.00"},
+				},
+			})
+		}
+		want := map[string]any{
+			"code": float64(0), "message": "获取成功",
+			"data": map[string]any{
+				"billing_enabled": enabled,
+				"free_plan": map[string]any{
+					"name": "入门版", "max_accounts": float64(37), "max_groups": float64(6), "daily_mail_fetch": float64(321),
+				},
+				"paid_plans": paidPlans,
+			},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("billing_enabled=%t: 定价响应与公开合同不符: %s", enabled, body)
+		}
+	}
+}
+
+// DEFAULT_PLAN_CODE 可以把注册赠送的套餐改成另一档，访客看到的额度必须与注册后一致。
+func TestPublicPricingUsesRegistrationPlan(t *testing.T) {
+	e, store, _ := newTestServerWithStore(t)
+	ctx := context.Background()
+	plan := model.Plan{ID: "signup", Code: "signup", Name: "注册套餐", MaxAccounts: 123, MaxGroups: 12, DailyMailFetch: 3456}
+	if err := store.CreatePlan(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreatePlanPrice(ctx, model.PlanPrice{
+		ID: "signup-price", PlanID: plan.ID, BillingPeriod: "monthly", Currency: "USD", Amount: "10",
+		Active: true, SyncStatus: "active", ProviderProductID: "signup-product",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateBillingSettings(ctx, model.BillingSettings{Enabled: true, Mode: "test", DefaultCurrency: "USD"}); err != nil {
+		t.Fatal(err)
+	}
+	previousCode := configs.AppConfig.SaaS.DefaultPlanCode
+	configs.AppConfig.SaaS.DefaultPlanCode = plan.Code
+	t.Cleanup(func() { configs.AppConfig.SaaS.DefaultPlanCode = previousCode })
+	status, body := do(t, e, http.MethodGet, "/api/v1/pricing", "", "")
+	if status != http.StatusOK {
+		t.Fatalf("读取定价: %d %s", status, body)
+	}
+	var payload struct {
+		Data model.PublicPricing `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		t.Fatal(err)
+	}
+	_, tenantID := register(t, e, "signup", "signup@example.com")
+	limits, err := store.GetEffectiveQuota(ctx, tenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	free := payload.Data.FreePlan
+	if limits.PlanID != plan.ID || free.Name != limits.PlanName || free.MaxAccounts != limits.MaxAccounts ||
+		free.MaxGroups != limits.MaxGroups || free.DailyMailFetch != limits.DailyMailFetch {
+		t.Errorf("公开免费档与注册实际套餐不同: pricing=%+v limits=%+v", free, limits)
+	}
+	if len(payload.Data.PaidPlans) != 0 {
+		t.Errorf("注册赠送的套餐不能同时列为付费档: %s", body)
+	}
+}
+
+func TestPublicPricingFailureHidesInternalError(t *testing.T) {
+	e, _, db := newTestServerWithStore(t)
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	status, body := do(t, e, http.MethodGet, "/api/v1/pricing", "", "")
+	if status != http.StatusInternalServerError || strings.TrimSpace(body) != `{"code":1,"data":null,"message":"服务器内部错误"}` {
+		t.Errorf("定价查询故障应隐藏内部错误: %d %s", status, body)
 	}
 }

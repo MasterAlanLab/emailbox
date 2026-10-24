@@ -14,6 +14,31 @@ type BillingSettings struct {
 	Missing         []string  `json:"missing"`
 }
 
+// PublicPricing 只包含访客了解费用所需的信息，避免公开支付配置与供应商标识。
+type PublicPricing struct {
+	BillingEnabled bool             `json:"billing_enabled"`
+	FreePlan       PublicPlan       `json:"free_plan"`
+	PaidPlans      []PublicPaidPlan `json:"paid_plans"`
+}
+
+type PublicPlan struct {
+	Name           string `json:"name"`
+	MaxAccounts    int    `json:"max_accounts"`
+	MaxGroups      int    `json:"max_groups"`
+	DailyMailFetch int    `json:"daily_mail_fetch"`
+}
+
+type PublicPaidPlan struct {
+	PublicPlan
+	Prices []PublicPrice `json:"prices"`
+}
+
+type PublicPrice struct {
+	BillingPeriod string `json:"billing_period"`
+	Currency      string `json:"currency"`
+	Amount        string `json:"amount"`
+}
+
 type PlanPrice struct {
 	ID                string    `json:"id"`
 	PlanID            string    `json:"plan_id"`

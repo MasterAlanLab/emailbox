@@ -2,6 +2,7 @@ import { Badge } from "@cloudflare/kumo/components/badge";
 import { Button } from "@cloudflare/kumo/components/button";
 import { LayerCard } from "@cloudflare/kumo/components/layer-card";
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { tenantApi, type BillingPlanPrice, type BillingSubscription } from "@/api/tenant";
 import { useAsyncAction } from "@/lib/useAsyncAction";
 
@@ -116,27 +117,40 @@ export function BillingCard({
       )}
 
       {!current && (
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {prices.map((price) => (
-            <div key={price.id} className="rounded-lg border border-kumo-line p-4">
-              <div className="font-medium">{price.plan_name}</div>
-              <div className="mt-2 text-2xl">
-                {price.amount}{" "}
-                <span className="text-sm text-kumo-subtle">
-                  {price.currency} / {price.billing_period === "monthly" ? "月" : "年"}
-                </span>
+        <>
+          <p className="mt-4 text-sm leading-6 text-kumo-subtle">
+            订阅按所选周期自动续费，可取消下一周期续费。到期取消不等于退款；购买前请阅读{" "}
+            <Link className="text-kumo-link underline" to="/legal/terms#billing">
+              计费条款
+            </Link>{" "}
+            与{" "}
+            <Link className="text-kumo-link underline" to="/legal/terms#refunds">
+              退款政策
+            </Link>
+            ，具体退款条件以政策为准。
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {prices.map((price) => (
+              <div key={price.id} className="rounded-lg border border-kumo-line p-4">
+                <div className="font-medium">{price.plan_name}</div>
+                <div className="mt-2 text-2xl">
+                  {price.amount}{" "}
+                  <span className="text-sm text-kumo-subtle">
+                    {price.currency} / {price.billing_period === "monthly" ? "月" : "年"}
+                  </span>
+                </div>
+                <Button
+                  className="mt-4 w-full"
+                  variant="secondary"
+                  disabled={pending}
+                  onClick={() => checkout(price.id)}
+                >
+                  订阅
+                </Button>
               </div>
-              <Button
-                className="mt-4 w-full"
-                variant="secondary"
-                disabled={pending}
-                onClick={() => checkout(price.id)}
-              >
-                订阅
-              </Button>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </>
       )}
 
       {current?.status === "active" && (

@@ -26,7 +26,16 @@
 **两者共用同一份 service 与 repo**。管理员路由组只是「谁有权决定 tenantID」不同，
 SQL 里的 `WHERE tenant_id = ?` 永不放宽——理由与实现见 [08 文档 §2.3](08-saas-admin.md)。
 
-### 1.2 业务错误码
+### 1.2 公开定价
+
+`GET /api/v1/pricing` 无需认证，供访客比较免费和付费档位。响应 `data` 包含
+`billing_enabled`、`free_plan` 和 `paid_plans`：每档仅有名称、`max_accounts`、
+`max_groups`、`daily_mail_fetch`；付费档另有 `prices`（`billing_period`、`currency`、`amount`）。
+`-1` 表示不设该项配额上限。免费档与注册共用套餐选择逻辑（优先 `DEFAULT_PLAN_CODE`），
+付费档沿用结账的上架 / 同步条件，并排除注册赠送的那一档，
+支付关闭时 `paid_plans` 为空。内部产品标识、同步错误及用户 / 租户数据不属于公开目录。
+
+### 1.3 业务错误码
 
 `code` 字段除 0（成功）/ 1（通用失败）外，为需要前端分支处理的场景约定专用码：
 

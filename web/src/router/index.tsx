@@ -4,6 +4,7 @@ import { AdminRoute } from "./AdminRoute";
 import { appRoute, shellRoute } from "./handle";
 import { ProtectedRoute, PublicRoute } from "./RouteGuards";
 import HomePage from "@/pages/HomePage";
+import PricingPage from "@/pages/PricingPage";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import ProfileSettingsPage from "@/pages/ProfileSettingsPage";
@@ -35,6 +36,7 @@ export const router = createBrowserRouter([
     children: [
       // 公开页：无 handle，走顶栏 + 文档流那一套。
       { index: true, element: <HomePage /> },
+      { path: "pricing", element: <PricingPage /> },
       {
         path: "login",
         element: (

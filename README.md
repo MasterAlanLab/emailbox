@@ -29,6 +29,15 @@
 - 邮件正文防护：正文经 DOMPurify 净化后在 sandbox iframe 中渲染，远程图片默认阻断。
 - 双数据库：本地或轻量部署使用 SQLite，托管规模扩大后可切换 PostgreSQL。
 
+## 套餐与收费
+
+托管站点的 `/pricing` 页面无需登录即可查看当前免费额度，以及已开放购买的月付 / 年付套餐价格。
+首页、顶栏与页脚均有“价格”入口。价格和额度由站点管理员配置，网页与 API 共用每日取件额度；
+令牌刷新不扣每日次数配额，但仍受执行频率与邮件服务商限制。支付入口关闭时不接受新购买。
+
+订阅可在“套餐与用量”页选择到期后取消。退款条件、申请方式、责任范围与违规处理见站点的
+`/legal/terms` 服务条款；自建部署者应核对其经营政策及实际客服渠道。
+
 ## 安装
 
 ### 桌面版
@@ -66,17 +75,17 @@ docker compose up -d --build
 
 ### GHCR 镜像
 
-当前版本为 `v0.3.3`：
+当前版本为 `v0.3.14`：
 
 ```bash
-docker pull ghcr.io/masteralanlab/emailbox:v0.3.3
+docker pull ghcr.io/masteralanlab/emailbox:v0.3.14
 mkdir -p data
 docker run -d \
   --name emailbox \
   --restart unless-stopped \
   -p 1323:1323 \
   -v "$PWD/data:/app/data" \
-  ghcr.io/masteralanlab/emailbox:v0.3.3
+  ghcr.io/masteralanlab/emailbox:v0.3.14
 ```
 
 生产部署至少需要设置 `APP_ENV=production` 和 `ENCRYPTION_KEY`。

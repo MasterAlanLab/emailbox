@@ -3,16 +3,8 @@ import { ArrowRight, Envelope } from "@phosphor-icons/react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore";
 
-// 公开页（首页、登录、注册、法务）的顶栏。
-//
-// 登录后的页面**没有**顶栏——那里所有入口都在左侧导航栏里。这一条只服务于
-// 还没进门的访客：他们身上没有导航栏，登录入口必须摆在看得见的地方。
-//
-// 克制到底：一个品牌标记、两个动作，56px 高，无投影，底部一条 hairline 就够了。
-//
-// 「登录」和「注册」是一对平级入口，各自去各自的页面，谁也不比谁更重要——
-// 所以两个都用 ghost。给其中一个填色，等于替访客做了选择。
-// 三个入口一律走 Kumo 的 LinkButton，不再手搓 className。
+// 公开页让访客在注册之前就能看到定价。窄屏只收起品牌文字，
+// 保留价格、登录与注册入口，避免横向挤出 320px 的屏幕。
 
 export function PublicHeader() {
   const { pathname } = useLocation();
@@ -24,14 +16,27 @@ export function PublicHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-kumo-line bg-kumo-base/80 backdrop-blur">
       <div className="shell flex h-14 items-center justify-between">
-        <Link to="/" className="flex items-center gap-2.5 text-kumo-strong">
+        <Link
+          to="/"
+          aria-label="Emailbox 首页"
+          className="flex shrink-0 items-center gap-2.5 text-kumo-strong"
+        >
           <span className="grid size-7 place-items-center rounded-lg bg-linear-to-br from-ebx-brand-grad-from to-ebx-brand-grad-to text-white">
             <Envelope size={15} weight="fill" />
           </span>
-          <span className="text-sm font-semibold tracking-[-0.01em]">Emailbox</span>
+          <span className="hidden text-sm font-semibold tracking-[-0.01em] sm:inline">
+            Emailbox
+          </span>
         </Link>
 
-        <nav className="flex items-center gap-1">
+        <nav aria-label="公开导航" className="flex items-center gap-1">
+          <LinkButton
+            href="/pricing"
+            variant="secondary"
+            aria-current={pathname === "/pricing" ? "page" : undefined}
+          >
+            价格
+          </LinkButton>
           {/* 已经登录的人看到「登录 / 注册」是件很怪的事——点下去只会被守卫
               重定向回工作台。直接给他要去的地方。 */}
           {authed ? (
@@ -42,12 +47,12 @@ export function PublicHeader() {
           ) : (
             <>
               {!onLogin && (
-                <LinkButton href="/login" variant="ghost">
+                <LinkButton href="/login" variant="secondary">
                   登录
                 </LinkButton>
               )}
               {!onRegister && (
-                <LinkButton href="/register" variant="ghost">
+                <LinkButton href="/register" variant="secondary">
                   注册
                 </LinkButton>
               )}

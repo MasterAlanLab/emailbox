@@ -111,9 +111,10 @@ func slugify(value string) string {
 
 // defaultPlan 取 DEFAULT_PLAN_CODE 指定的套餐；该 code 不存在时退回 is_default=1 的套餐。
 // 配置写错不该让整个注册入口瘫痪。
-func (s *AuthService) defaultPlan(ctx context.Context) (*model.Plan, error) {
+// 注册、首启用户与公开定价共用，避免展示的免费额度与实际赠送不一致。
+func defaultPlan(ctx context.Context, store *repo.Store) (*model.Plan, error) {
 	if code := configs.AppConfig.SaaS.DefaultPlanCode; code != "" {
-		plan, err := s.store.GetPlanByCode(ctx, code)
+		plan, err := store.GetPlanByCode(ctx, code)
 		if err == nil {
 			return plan, nil
 		}
@@ -122,7 +123,7 @@ func (s *AuthService) defaultPlan(ctx context.Context) (*model.Plan, error) {
 		}
 		slog.Warn("DEFAULT_PLAN_CODE 指向的套餐不存在，改用默认套餐", "code", code)
 	}
-	return s.store.GetDefaultPlan(ctx)
+	return store.GetDefaultPlan(ctx)
 }
 
 func (s *AuthService) Register(ctx context.Context, req model.RegisterRequest) (*model.AuthResponse, string, error) {
@@ -138,7 +139,7 @@ func (s *AuthService) Register(ctx context.Context, req model.RegisterRequest) (
 	if err != nil {
 		return nil, "", err
 	}
-	plan, err := s.defaultPlan(ctx)
+	plan, err := defaultPlan(ctx, s.store)
 	if err != nil {
 		slog.Error("读取默认套餐失败", "error", err)
 		return nil, "", errors.New("注册失败，请稍后重试")
@@ -211,7 +212,7 @@ func (s *AuthService) CreateBootstrapAdmin(ctx context.Context, username, passwo
 	if err != nil {
 		return nil, err
 	}
-	plan, err := s.defaultPlan(ctx)
+	plan, err := defaultPlan(ctx, s.store)
 	if err != nil {
 		return nil, err
 	}
