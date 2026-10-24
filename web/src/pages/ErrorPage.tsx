@@ -1,6 +1,7 @@
 import { Button, LinkButton } from "@cloudflare/kumo/components/button";
 import { Envelope } from "@phosphor-icons/react";
 import { Link, isRouteErrorResponse, useRouteError } from "react-router-dom";
+import { Footer } from "@/components/layout/Footer";
 import { useAuthStore } from "@/store/authStore";
 
 // 路由级错误边界。没有它时，任何渲染期抛错都会让页面变成一片空白。
@@ -22,40 +23,43 @@ export default function ErrorPage() {
   const home = authed ? "/mail" : "/";
 
   return (
-    <div className="grid min-h-dvh place-items-center bg-kumo-base px-5 py-16">
-      <div className="w-full max-w-[440px] text-center">
-        <Link to={home} className="mb-8 inline-flex items-center gap-2.5 text-kumo-strong">
-          <span className="grid size-7 place-items-center rounded-lg bg-linear-to-br from-ebx-brand-grad-from to-ebx-brand-grad-to text-white">
-            <Envelope size={15} weight="fill" />
-          </span>
-          <span className="text-sm font-semibold tracking-[-0.01em]">Emailbox</span>
-        </Link>
+    <div className="flex min-h-dvh flex-col bg-kumo-base">
+      <main className="grid flex-1 place-items-center px-5 py-16">
+        <div className="w-full max-w-[440px] text-center">
+          <Link to={home} className="mb-8 inline-flex items-center gap-2.5 text-kumo-strong">
+            <span className="grid size-7 place-items-center rounded-lg bg-linear-to-br from-ebx-brand-grad-from to-ebx-brand-grad-to text-white">
+              <Envelope size={15} weight="fill" />
+            </span>
+            <span className="text-sm font-semibold tracking-[-0.01em]">Emailbox</span>
+          </Link>
 
-        <h1 className="display-md text-kumo-strong">{notFound ? "页面不存在" : "页面出错了"}</h1>
-        <p className="mt-3 text-sm text-kumo-subtle">
-          {notFound
-            ? "这个地址没有对应的页面，可能是链接过期或输错了。"
-            : "页面加载时发生异常，请尝试重新加载或返回控制台。"}
-        </p>
-
-        {detail && (
-          <p className="mt-5 rounded-lg border border-kumo-line bg-kumo-canvas p-3 text-left text-xs break-words text-kumo-subtle">
-            {detail}
+          <h1 className="display-md text-kumo-strong">{notFound ? "页面不存在" : "页面出错了"}</h1>
+          <p className="mt-3 text-sm text-kumo-subtle">
+            {notFound
+              ? "这个地址没有对应的页面，可能是链接过期或输错了。"
+              : "页面加载时发生异常，请尝试重新加载或返回控制台。"}
           </p>
-        )}
 
-        <div className="mt-7 flex items-center justify-center gap-3">
-          <LinkButton href={home} variant="secondary">
-            {authed ? "回到控制台" : "返回首页"}
-          </LinkButton>
-          {/* 404 重新加载还是 404，这个按钮只对渲染错误有意义。 */}
-          {!notFound && (
-            <Button variant="secondary" onClick={() => window.location.reload()}>
-              重新加载
-            </Button>
+          {detail && (
+            <p className="mt-5 rounded-lg border border-kumo-line bg-kumo-canvas p-3 text-left text-xs break-words text-kumo-subtle">
+              {detail}
+            </p>
           )}
+
+          <div className="mt-7 flex items-center justify-center gap-3">
+            <LinkButton href={home} variant="secondary">
+              {authed ? "回到控制台" : "返回首页"}
+            </LinkButton>
+            {/* 404 重新加载还是 404，这个按钮只对渲染错误有意义。 */}
+            {!notFound && (
+              <Button variant="secondary" onClick={() => window.location.reload()}>
+                重新加载
+              </Button>
+            )}
+          </div>
         </div>
-      </div>
+      </main>
+      <Footer compact />
     </div>
   );
 }

@@ -10,7 +10,7 @@ import { Footer } from "./Footer";
 // 两种页面形态，由路由 handle 决定（见 src/router/handle.ts）：
 //
 // - **应用页**（`handle.app`）：左侧常驻导航栏 + 右侧内容区，**没有顶栏**。
-//   全局入口、主题切换、账号都收在导航栏里。整体撑满视口。
+//   全局入口、主题切换、账号都收在导航栏里，右侧底部保留紧凑客服页脚。整体撑满视口。
 //   其中带 `handle.shell` 的（/mail 工作台）内容区自身也不滚动，
 //   滚动交给它内部的各个面板；其余应用页内容区正常滚动。
 // - **公开页**（无 handle）：首页、定价、登录、注册、法务。极简顶栏 + 文档流 + 页脚。
@@ -46,15 +46,18 @@ export const Layout = () => {
         <AppSidebar />
         {/* min-w-0 不能少：内容区里有虚拟列表和长邮箱地址，
             flex 子项默认按内容撑宽，缺了它会把导航栏挤出屏幕。 */}
-        <main
-          className={
-            shell
-              ? "flex min-h-0 min-w-0 flex-1 flex-col"
-              : "min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
-          }
-        >
-          <Outlet />
-        </main>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <main
+            className={
+              shell
+                ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+                : "min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
+            }
+          >
+            <Outlet />
+          </main>
+          <Footer compact />
+        </div>
       </div>
     );
   }

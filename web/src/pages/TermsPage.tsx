@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { PageShell } from "@/components/layout/PageShell";
+import { SUPPORT_EMAIL } from "@/lib/support";
 
 export default function TermsPage() {
   const { hash } = useLocation();
@@ -99,8 +100,8 @@ export default function TermsPage() {
           </ul>
           <p className="mt-2">
             申请方式：发送邮件至
-            <a className="text-kumo-link underline" href="mailto:contact@mail.corouter.cc">
-              contact@mail.corouter.cc
+            <a className="text-kumo-link underline" href={`mailto:${SUPPORT_EMAIL}`}>
+              {SUPPORT_EMAIL}
             </a>
             ， 提供平台用户名、付款邮箱、订单编号、付款时间与金额，以及申请原因和必要凭证。
             请勿发送邮箱密码、访问令牌、API Key 或完整银行卡信息。
@@ -164,8 +165,8 @@ export default function TermsPage() {
           <p className="mt-2">
             条款变更会更新本页日期。涉及收费、退款或责任范围的重大变更，会在生效前通过站内公告或可用联系渠道提示，
             不追溯减损已确认订单的权益。退款、账单争议、授权问题及申诉请联系
-            <a className="text-kumo-link underline" href="mailto:contact@mail.corouter.cc">
-              contact@mail.corouter.cc
+            <a className="text-kumo-link underline" href={`mailto:${SUPPORT_EMAIL}`}>
+              {SUPPORT_EMAIL}
             </a>
             。
           </p>
