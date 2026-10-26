@@ -36,7 +36,8 @@
 令牌刷新不扣每日次数配额，但仍受执行频率与邮件服务商限制。支付入口关闭时不接受新购买。
 
 订阅可在“套餐与用量”页选择到期后取消。退款条件、申请方式、责任范围与违规处理见站点的
-`/legal/terms` 服务条款；自建部署者应核对其经营政策及实际客服渠道。
+`/legal/terms` 服务条款。第三方共享与用户数据权利见 `/legal/privacy-policy`。
+自建部署者应核对其经营政策、实际处理方及客服渠道。
 
 ## 安装
 
@@ -75,17 +76,17 @@ docker compose up -d --build
 
 ### GHCR 镜像
 
-当前版本为 `v0.3.15`：
+当前版本为 `v0.3.16`：
 
 ```bash
-docker pull ghcr.io/masteralanlab/emailbox:v0.3.15
+docker pull ghcr.io/masteralanlab/emailbox:v0.3.16
 mkdir -p data
 docker run -d \
   --name emailbox \
   --restart unless-stopped \
   -p 1323:1323 \
   -v "$PWD/data:/app/data" \
-  ghcr.io/masteralanlab/emailbox:v0.3.15
+  ghcr.io/masteralanlab/emailbox:v0.3.16
 ```
 
 生产部署至少需要设置 `APP_ENV=production` 和 `ENCRYPTION_KEY`。

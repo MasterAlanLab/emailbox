@@ -32,7 +32,7 @@ export default function TermsPage() {
           <h2 className="font-medium text-kumo-strong">服务内容</h2>
           <p className="mt-2">
             本平台托管你提供的第三方邮箱连接凭据，根据你的操作或定时任务设置连接邮件服务商，
-            提供统一收信、令牌刷新、代理配置与批量运维。平台不提供代发邮件服务。 数据处理方式见
+            提供统一收信、令牌刷新、代理配置与批量运维。平台不提供代发邮件服务。数据处理方式、第三方共享和用户数据权利见
             <Link className="text-kumo-link underline" to="/legal/privacy-policy">
               隐私政策
             </Link>
